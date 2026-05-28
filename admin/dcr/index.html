@@ -109,6 +109,29 @@
   .dcr-foot span{font-size:10px;color:var(--muted)}
   .empty-state{color:var(--muted);text-align:center;padding:30px;font-size:14px;font-weight:500}
 
+  /* ===== Accountant role: hide everything they shouldn't touch ===== */
+  body.role-accountant #entryEditor,
+  body.role-accountant .sidebar .side-section:nth-of-type(2),
+  body.role-accountant .sidebar .side-section:nth-of-type(3),
+  body.role-accountant .sidebar .side-item[data-side="fb"],
+  body.role-accountant .sidebar .side-item[data-side="dashboard"],
+  body.role-accountant .sidebar .side-item[data-side="entry"],
+  body.role-accountant .sidebar .side-item[data-side="serials"],
+  body.role-accountant .sidebar .side-item[data-side="openings"],
+  body.role-accountant .sidebar .side-item[data-side="movies"],
+  body.role-accountant .sidebar .side-item[data-side="cards"],
+  body.role-accountant .sidebar .side-item[data-side="config"],
+  body.role-accountant .sidebar .side-item[data-side="backup"],
+  body.role-accountant #pane-fb,
+  body.role-accountant #pane-dashboard,
+  body.role-accountant #pane-serials,
+  body.role-accountant #pane-openings,
+  body.role-accountant #pane-movies,
+  body.role-accountant #pane-cards,
+  body.role-accountant #pane-config,
+  body.role-accountant #pane-backup,
+  body.role-accountant .acct-hide{ display:none !important }
+  body.role-accountant .acct-only{ display:initial }
   /* ===== Layout with left sidebar ===== */
   .layout{display:flex;gap:22px;align-items:flex-start}
   .sidebar{flex:0 0 232px;position:sticky;top:14px;padding:8px 0 24px;border-right:1px solid var(--line);align-self:stretch}
@@ -1563,7 +1586,7 @@ function renderHistory(){
     <tbody>${rows.map(e=>{ const c=computeShallow(e), m=S.movies.find(x=>x.id===e.movieId), s=screenById(e.screenId);
       return `<tr><td>${e.date||''}</td><td>${esc(m?.name||'?')}</td><td>${esc(s?.name||'?')}</td><td class="center">${(e.shows||[]).length}</td>
         <td class="right">${int(c.audience)}</td><td class="right">₹${money(c.grossColl)}</td>
-        <td class="center"><button class="btn sm" data-view="${e.id}">View DCR</button> <button class="btn danger sm" data-del="${e.id}">Delete</button></td></tr>`;}).join('')
+        <td class="center"><button class="btn sm" data-view="${e.id}">View DCR</button> <button class="btn ghost sm" data-tally="${e.id}" title="Download Tally CSV for this DCR">Tally CSV</button> <button class="btn danger sm acct-hide" data-del="${e.id}">Delete</button></td></tr>`;}).join('')
       ||`<tr><td colspan="7" class="empty-state">No saved DCRs match these filters.</td></tr>`}</tbody>`;
 }
 document.getElementById('h_movie').addEventListener('change',e=>{ histFilter.movie=e.target.value; renderHistory(); });
@@ -1571,9 +1594,29 @@ document.getElementById('h_from').addEventListener('change',e=>{ histFilter.from
 document.getElementById('h_to').addEventListener('change',e=>{ histFilter.to=e.target.value; renderHistory(); });
 document.getElementById('h_clear').onclick=()=>{ histFilter={movie:'',from:'',to:''}; renderHistory(); };
 document.getElementById('historyTable').addEventListener('click',e=>{
-  if(e.target.dataset.view){ const en=S.entries.find(x=>x.id===e.target.dataset.view); if(en){ S.draft=JSON.parse(JSON.stringify(en)); save();
-    document.querySelector('#tabnav button[data-tab="entry"]').click(); renderDCR(computeEntry(S.draft)); } }
-  if(e.target.dataset.del){ var _en=S.entries.find(x=>x.id===e.target.dataset.del); if(!confirm('Delete this DCR'+(_en&&_en.date?(' for '+_en.date):'')+' permanently? It will be removed from the cloud for everyone and cannot be undone.')) return; S.entries=S.entries.filter(x=>x.id!==e.target.dataset.del); save(); renderHistory(); }
+  if(e.target.dataset.view){ const en=S.entries.find(x=>x.id===e.target.dataset.view); if(en){
+    // Accountants: render a read-only DCR view by computing without setting draft
+    if(window.__DCR_ROLE==='accountant'){
+      var C = computeEntry(en);
+      if(!C.movie || !C.screen){ alert('Movie or screen missing for this DCR.'); return; }
+      document.querySelector('#tabnav button[data-tab="entry"]').click();
+      renderDCR(C);
+      return;
+    }
+    S.draft=JSON.parse(JSON.stringify(en)); save();
+    document.querySelector('#tabnav button[data-tab="entry"]').click(); renderDCR(computeEntry(S.draft));
+  } }
+  if(e.target.dataset.tally){
+    var idT = e.target.dataset.tally;
+    var en = S.entries.find(x=>x.id===idT);
+    if(!en){ return; }
+    var C = computeEntry(en);
+    if(!C.movie || !C.screen){ alert('Movie or screen info missing — cannot build Tally CSV for this DCR.'); return; }
+    var rows = tallyCsvRows(C);
+    if(rows.length<2){ alert('No sold tickets with serials on this DCR.'); return; }
+    downloadCsv('Tally_'+((C.movie.name||'movie').replace(/\s+/g,'_'))+'_'+((C.entry||{}).date||en.date||'')+'.csv', rows);
+  }
+  if(e.target.dataset.del){ if(window.__DCR_ROLE==='accountant'){ return; } var _en=S.entries.find(x=>x.id===e.target.dataset.del); if(!confirm('Delete this DCR'+(_en&&_en.date?(' for '+_en.date):'')+' permanently? It will be removed from the cloud for everyone and cannot be undone.')) return; S.entries=S.entries.filter(x=>x.id!==e.target.dataset.del); save(); renderHistory(); }
 });
 
 // ---------- boot ----------
@@ -1699,7 +1742,12 @@ renderEntry();
       return sb.from('authorized_users').select('email,role,full_name').eq('email',ME).maybeSingle()
         .then(function(r){
           if(r.error){ console.error(r.error); }
-          if(r.data){ ROLE=r.data.role; return r.data; }
+          if(r.data){
+            ROLE=r.data.role;
+            window.__DCR_ROLE = ROLE;
+            try{ document.body.classList.toggle('role-accountant', ROLE==='accountant'); }catch(_){}
+            return r.data;
+          }
           return null;
         });
     });
@@ -1731,6 +1779,7 @@ renderEntry();
   // ---------- push only what changed ----------
   function pushDeltas(){
     if(!READY) return;
+    if(ROLE==='accountant'){ bar('saved'); return; }
     var ops=[];
     if(ROLE==='owner'){
       var cur=JSON.stringify(cfgObj());
@@ -1802,9 +1851,13 @@ renderEntry();
     var dot = state==='error' ? '#F93820' : (state==='saving' ? '#F7B61F' : '#39B54A');
     var txt = state==='error' ? 'Sync error — will retry on next change' : (state==='saving' ? 'Saving to cloud…' : 'Synced to cloud');
     var imp = (ROLE==='owner') ? ' <button class="btn ghost sm" id="cImport">Import existing data</button>' : '';
+    var roleLabel = (ROLE||'');
+    var roleNote = '';
+    if(ROLE==='accountant'){ roleNote = ' <span style="background:#3488C0;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:.04em">READ-ONLY</span>'; }
     el.innerHTML =
       '<span style="font-weight:600;font-size:12.5px"><span style="color:'+dot+'">●</span> '+txt+'</span>'+
-      ' <span style="opacity:.6;font-size:12px">· signed in as '+(ME||'')+' ('+(ROLE||'')+')</span>'+
+      ' <span style="opacity:.6;font-size:12px">· signed in as '+(ME||'')+' ('+roleLabel+')</span>'+
+      roleNote +
       imp+
       ' <button class="btn ghost sm" id="cOut">Sign out</button>';
     var ib=document.getElementById('cImport'); if(ib) ib.onclick=importLocal;
@@ -1848,7 +1901,11 @@ renderEntry();
         subscribe();
         hideOverlay();
         bar('saved');
-        if(typeof refreshActive==='function') refreshActive();
+        // Accountants land on History (the only tab visible to them)
+        if(ROLE==='accountant'){
+          try{ document.querySelector('#tabnav button[data-tab="history"]').click(); }catch(_){}
+          try{ document.querySelectorAll('.sidebar .side-item').forEach(function(b){ b.classList.toggle('active', b.dataset.side==='history'); }); }catch(_){}
+        } else if(typeof refreshActive==='function') refreshActive();
       });
     }).catch(function(e){
       booting=false; console.error(e);
@@ -2255,6 +2312,7 @@ renderEntry();
 
     function pullFB(){
       var sb = window._sb; if(!sb) return Promise.resolve();
+      if(window.__DCR_ROLE==='accountant') return Promise.resolve();
       return sb.from('fb_entries').select('*').then(function(r){
         if(r.error){ console.error('fb pull', r.error); return; }
         var rows = r.data||[];
@@ -2269,6 +2327,7 @@ renderEntry();
 
     function pushFB(){
       var sb = window._sb; if(!sb) return;
+      if(window.__DCR_ROLE==='accountant') return;
       var me = meEmail();
       var ops=[], curKeys={};
       S.fbEntries.forEach(function(e){
