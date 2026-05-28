@@ -109,10 +109,29 @@
   .dcr-foot span{font-size:10px;color:var(--muted)}
   .empty-state{color:var(--muted);text-align:center;padding:30px;font-size:14px;font-weight:500}
 
+  /* ===== Layout with left sidebar ===== */
+  .layout{display:flex;gap:22px;align-items:flex-start}
+  .sidebar{flex:0 0 232px;position:sticky;top:14px;padding:8px 0 24px;border-right:1px solid var(--line);align-self:stretch}
+  .sidebar .side-section{padding:14px 14px 6px;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .sidebar .side-item{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--ink);padding:8px 14px;border-radius:6px;font-family:var(--font);font-size:14px;cursor:pointer}
+  .sidebar .side-item:hover{background:rgba(0,0,0,.04)}
+  .sidebar .side-item.active{background:rgba(247,182,31,.18);color:var(--ink);font-weight:700;border-left:3px solid var(--amber);padding-left:11px}
+  .sidebar .side-item.muted{color:var(--muted);font-style:italic;cursor:default}
+  .sidebar .side-item.muted:hover{background:transparent}
+  .main{flex:1;min-width:0}
+  nav.tabs#tabnav{display:none !important}
+  .dash-card{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:12px}
+  .dash-card h3{margin:0 0 6px;font-size:15px}
+  .dash-card .dash-num{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .dash-card .dash-sub{font-size:12px;color:var(--muted)}
+  @media (max-width:780px){
+    .layout{flex-direction:column}
+    .sidebar{position:static;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--line);width:100%}
+  }
   @media print{
     body{background:#fff}
     #pane-entry,#pane-dcr-print{display:block !important}
-    header.top,nav.tabs,.data-bar,#dataMsg,.toolbar,#entryEditor,footer,.tab-pane:not(#pane-entry),.no-print{display:none !important}
+    header.top,nav.tabs,.data-bar,#dataMsg,.toolbar,#entryEditor,footer,.tab-pane:not(#pane-entry),.no-print,.sidebar{display:none !important} .main{width:100%}
     .wrap{max-width:none;padding:0;margin:0}
     .panel{border:0;padding:0;margin:0;background:#fff}
     .dcr-page{border:0;border-radius:0;max-width:none;padding:0}
@@ -138,7 +157,28 @@
     <button data-tab="cards">Price Cards</button>
     <button data-tab="config">Screens &amp; Tax</button>
     <button data-tab="backup">Backup</button>
+    <button data-tab="fb">F&amp;B</button>
+    <button data-tab="dashboard">Owner&#39;s Dashboard</button>
   </nav>
+  <div class="layout">
+    <aside class="sidebar no-print">
+      <div class="side-section">Box Office</div>
+      <button class="side-item active" data-side="entry">Daily Entry &amp; DCR</button>
+      <button class="side-item" data-side="history">History</button>
+      <button class="side-item" data-side="serials">Serial Numbers</button>
+      <button class="side-item" data-side="openings">Opening Totals</button>
+      <button class="side-item" data-side="movies">Movies</button>
+      <button class="side-item" data-side="cards">Price Cards</button>
+      <button class="side-item" data-side="config">Screens &amp; Tax</button>
+      <button class="side-item" data-side="backup">Backup</button>
+
+      <div class="side-section">F&amp;B</div>
+      <button class="side-item" data-side="fb">F&amp;B</button>
+
+      <div class="side-section">Owner&#39;s Dashboard</div>
+      <button class="side-item" data-side="dashboard">Overview</button>
+    </aside>
+    <div class="main">
   <div id="dataBar" class="data-bar no-print"></div>
   <div id="dataMsg" class="no-print" style="color:var(--blue);font-weight:600;font-size:12.5px;min-height:15px;margin:2px 0 14px"></div>
 
@@ -309,6 +349,66 @@
     </div>
   </section>
 
+
+  <!-- ============ F&B ============ -->
+  <section class="tab-pane" id="pane-fb" style="display:none">
+
+    <div class="panel">
+      <h2>Daily F&amp;B (DSR upload)</h2>
+      <p class="hint">Upload the day's <b>DSR_Items_Breakup</b> CSV exported from your POS. The date is read from the CSV header — one upload = one day. If a day already exists, the new upload <b>replaces</b> it.</p>
+      <div class="toolbar">
+        <button class="btn" id="fbDsrUpload">Upload DSR CSV</button>
+        <input type="file" id="fbDsrFile" accept=".csv,text/csv" style="display:none">
+        <button class="btn ghost sm" id="fbDsrClear" style="display:none">Clear preview</button>
+      </div>
+      <div id="fbDsrPreview" class="hint" style="margin-top:10px"></div>
+      <button class="btn" id="fbDsrImport" style="display:none;margin-top:10px">Save this day</button>
+    </div>
+
+    <div class="panel">
+      <h2>Bulk upload — many days at once</h2>
+      <p class="hint">Got DSRs for several days? Select all the CSVs at once and import them in one go. Existing entries on those dates will be <b>replaced</b>.</p>
+      <div class="toolbar">
+        <button class="btn" id="fbBulkUpload">Upload multiple DSR CSVs</button>
+        <input type="file" id="fbBulkFile" accept=".csv,text/csv" multiple style="display:none">
+      </div>
+      <div id="fbBulkPreview" class="hint" style="margin-top:10px"></div>
+      <button class="btn" id="fbBulkImport" style="display:none;margin-top:10px">Import all these days</button>
+    </div>
+
+    <div class="panel">
+      <h2>Saved days</h2>
+      <div class="grid-wrap"><table class="grid" id="fbHistoryTable"></table></div>
+      <div id="fbDayDetail" style="margin-top:14px;display:none"></div>
+    </div>
+
+    <div class="panel" id="fbProductsPanel">
+      <h2>Product catalog</h2>
+      <p class="hint">Upload <b>items.csv</b> exported from your POS to refresh the F&amp;B product catalog. This is the master list of products and their default rates — used for cross-checking DSR uploads. (Owner-only.)</p>
+      <div class="toolbar" id="fbCatToolbar">
+        <button class="btn" id="fbCatUpload">Upload items.csv</button>
+        <input type="file" id="fbCatFile" accept=".csv,text/csv" style="display:none">
+        <span class="ok" id="fbCatMsg"></span>
+      </div>
+      <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="fbProductsTable"></table></div>
+    </div>
+
+  </section>
+
+
+  <!-- ============ OWNER'S DASHBOARD ============ -->
+  <section class="tab-pane" id="pane-dashboard" style="display:none">
+    <div class="panel">
+      <h2>Owner&rsquo;s Dashboard</h2>
+      <p class="hint">Quick snapshot of what&rsquo;s been entered. Detailed analytics &amp; charts coming in the next phase.</p>
+      <div id="dashGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <h2>Recent activity</h2>
+      <div id="dashRecent" class="hint">No data yet.</div>
+    </div>
+  </section>
+
   <footer>
     Net Share = Gross − GST − TMC − Cess − E-Tax − Fund − Rep. Batta, split into Distributor (DS) and Exhibitor (ES) shares by the distributor %.
     Serials run continuously per screen &amp; class in date/time order. Fund is set automatically by which movie has more shows that day.
@@ -317,6 +417,8 @@
       <span>Abhinaya Cinemas — internal operations tool</span>
     </div>
   </footer>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -345,6 +447,8 @@ function defaultState(){
     serialStarts:[ {id:uid(), screenId:'scr_abhinaya', date:'2025-04-01', starts:{[cR.id]:1,[cL.id]:1,[cP.id]:1}} ],
     openings:[],
     entries:[],
+    fbProducts:[],
+    fbEntries:[],
     draft:null
   };
 }
@@ -588,7 +692,7 @@ function renderDataBar(){
 function flash(msg){ const el=document.getElementById('dataMsg'); if(el){ el.textContent=msg; setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },4500); } }
 function refreshActive(){ const b=document.querySelector('#tabnav button.active'); if(!b) return; const tab=b.dataset.tab;
   if(tab==='entry') renderEntry(); else if(tab==='serials') renderSerials(); else if(tab==='openings') renderOpenings(); else if(tab==='movies') renderMovies();
-  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); }
+  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); else if(tab==='fb') { if(typeof renderFB==='function') renderFB(); } }
 
 // ====================== TABS ======================
 document.getElementById('tabnav').addEventListener('click',e=>{
@@ -605,6 +709,7 @@ document.getElementById('tabnav').addEventListener('click',e=>{
   if(tab==='cards') renderCards();
   if(tab==='config') renderConfig();
   if(tab==='backup') renderEntries();
+  if(tab==='fb' && typeof renderFB==='function') renderFB();
 });
 
 // ====================== DAILY ENTRY ======================
@@ -1478,23 +1583,70 @@ renderEntry();
 <!-- ====================== CLOUD SYNC (Supabase) ====================== -->
 <script>
 (function(){
-  var SUPA_URL='https://xkmjygegtpmmwwnyoufn.supabase.co';
-  var SUPA_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbWp5Z2VndHBtbXd3bnlvdWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODI2NTEsImV4cCI6MjA5NTQ1ODY1MX0.ILYBoN4OqFGIatTCTJ3hhfbGj6n8Q6e5LAhOVDDuTgo';
+  // ---- Environment switching: prod = www.abhinayacinemas.com only;
+  //      every other hostname (netlify.app, branch deploys, localhost) = STAGING.
+  //      The staging Supabase project is fully separate — schema migrations and
+  //      bad data in staging can never touch live data.
+  var PROD = {
+    url:  'https://xkmjygegtpmmwwnyoufn.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbWp5Z2VndHBtbXd3bnlvdWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODI2NTEsImV4cCI6MjA5NTQ1ODY1MX0.ILYBoN4OqFGIatTCTJ3hhfbGj6n8Q6e5LAhOVDDuTgo'
+  };
+  var STAGING = {
+    // >>> Paste the staging Supabase Project URL + anon key here once the
+    //     'Abhinaya DCR Staging' project is created. Leave the placeholders
+    //     unchanged until then — the tool will show a clear setup notice
+    //     on staging URLs instead of trying to connect.
+    url:  'PASTE_STAGING_SUPABASE_URL_HERE',
+    anon: 'PASTE_STAGING_SUPABASE_ANON_KEY_HERE'
+  };
+
+  var IS_PROD = (location.hostname === 'www.abhinayacinemas.com' || location.hostname === 'abhinayacinemas.com');
+  var ENV = IS_PROD ? PROD : STAGING;
+  window.__DCR_ENV = IS_PROD ? 'prod' : 'staging';
+
+  // Friendly setup notice when staging keys haven't been filled in yet
+  function setupNoticeStaging(){
+    var ov = document.createElement('div');
+    ov.id='cloudGate';
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:#181818;color:#fff;display:flex;align-items:center;justify-content:center;font-family:\'Barlow Semi Condensed\',system-ui,sans-serif;text-align:center;padding:24px';
+    ov.innerHTML='<div style="max-width:520px">'+
+      '<div style="display:inline-block;background:#F7B61F;color:#181818;padding:4px 10px;border-radius:4px;font-weight:700;letter-spacing:.08em;font-size:12px;margin-bottom:18px">STAGING</div>'+
+      '<h2 style="margin:0 0 12px;font-size:22px">Test environment is not configured yet</h2>'+
+      '<p style="opacity:.8;font-size:14px;line-height:1.5">This is the staging URL ('+location.hostname+'). The owner needs to create the staging Supabase project and paste its URL + anon key into <code>admin/dcr/index.html</code> before this site can connect.</p>'+
+      '<p style="opacity:.6;font-size:12.5px;margin-top:14px">Production users: please visit <a href="https://www.abhinayacinemas.com/admin/dcr/" style="color:#F7B61F">www.abhinayacinemas.com/admin/dcr/</a> instead.</p>'+
+      '</div>';
+    document.body.appendChild(ov);
+  }
+  if(!IS_PROD && ENV.url.indexOf('PASTE_STAGING') === 0){
+    setupNoticeStaging();
+    return;
+  }
 
   if(!window.supabase || !window.supabase.createClient){
     console.error('Supabase library did not load (need internet).');
     return;
   }
-  var sb = window.supabase.createClient(SUPA_URL, SUPA_ANON, {
+  var sb = window.supabase.createClient(ENV.url, ENV.anon, {
     auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
   });
   window._sb = sb;
+
+  // Persistent banner so anyone using staging can never confuse it with prod
+  if(!IS_PROD){
+    var b=document.createElement('div');
+    b.id='envBanner';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9998;background:#F7B61F;color:#181818;font-family:\'Barlow Semi Condensed\',system-ui,sans-serif;font-weight:700;letter-spacing:.06em;font-size:12.5px;text-align:center;padding:5px 8px;box-shadow:0 1px 2px rgba(0,0,0,.18)';
+    b.innerHTML='● TEST ENVIRONMENT — changes here do NOT affect live data ('+location.hostname+')';
+    document.body.appendChild(b);
+    // push the page down so the banner doesn't overlap the logo
+    document.body.style.paddingTop='28px';
+  }
 
   var ME=null, ROLE=null, READY=false, booting=false;
   var pushTimer=null, pullTimer=null;
   var synced={ cfg:null, ent:{} };
 
-  var CFG_KEYS=['cinema','tax','classes','screens','movies','serialStarts','openings'];
+  var CFG_KEYS=['cinema','tax','classes','screens','movies','serialStarts','openings','fbProducts'];
   function cfgObj(){ var o={}; CFG_KEYS.forEach(function(k){ o[k]=S[k]; }); return o; }
   function entKey(e){ return (e.date||'')+'|'+e.movieId+'|'+e.screenId; }
   function entSig(e){ return JSON.stringify({share:e.share, shows:e.shows||[]}); }
@@ -1706,5 +1858,641 @@ renderEntry();
 })();
 </script>
 
+
+<!-- ====================== F&B MODULE ====================== -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+  ready(function(){
+
+    // ---- safety: ensure F&B arrays exist on S ----
+    if(!Array.isArray(S.fbProducts)) S.fbProducts=[];
+    if(!Array.isArray(S.fbEntries))  S.fbEntries =[];
+
+    var syncedFB = {};       // entry_date -> signature (for cloud sync)
+    var pendingDSR = null;   // parsed but not yet saved daily DSR
+    var pendingCat = null;   // parsed but not yet committed catalog (preview pattern not used; we commit on upload)
+
+    function uidL(){ return Math.random().toString(36).slice(2,9); }
+    function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, function(c){ return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]; }); }
+    function fmt(n){ var x = Number(n); if(!isFinite(x)) x=0; return x.toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2}); }
+    function isOwnerNow(){ try{ var b=document.getElementById('dataBar'); return b && /\(owner\)/.test(b.textContent||''); }catch(e){ return false; } }
+    function meEmail(){ try{ var b=document.getElementById('dataBar'); var m=(b&&b.textContent||'').match(/signed in as ([^\s]+)/); return m?m[1]:''; }catch(e){ return ''; } }
+
+    // ---------- CSV parser (handles quoted fields w/ commas + escaped "") ----------
+    function parseCSV(text){
+      var rows=[], i=0, cell='', row=[], inQ=false;
+      while(i<text.length){
+        var c=text[i];
+        if(inQ){
+          if(c==='"' && text[i+1]==='"'){ cell+='"'; i+=2; continue; }
+          if(c==='"'){ inQ=false; i++; continue; }
+          cell+=c; i++; continue;
+        }
+        if(c==='"'){ inQ=true; i++; continue; }
+        if(c===','){ row.push(cell); cell=''; i++; continue; }
+        if(c==='\r'){ i++; continue; }
+        if(c==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; i++; continue; }
+        cell+=c; i++;
+      }
+      if(cell.length || row.length){ row.push(cell); rows.push(row); }
+      return rows;
+    }
+
+    // Convert "27-05-2026" or "2026-05-27" or "27/05/2026" etc. to ISO YYYY-MM-DD
+    function normDate(d){
+      d = (d||'').trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+      var m = d.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})$/);
+      if(m) return m[3]+'-'+m[2]+'-'+m[1];
+      m = d.match(/^(\d{4})[\/](\d{2})[\/](\d{2})$/);
+      if(m) return m[1]+'-'+m[2]+'-'+m[3];
+      m = d.match(/^(\d{4})\.(\d{2})\.(\d{2})$/);
+      if(m) return m[1]+'-'+m[2]+'-'+m[3];
+      return '';
+    }
+
+    // ---------- DSR parser ----------
+    function parseDSR(text){
+      var rows = parseCSV(text);
+      var fromDate='', toDate='';
+      var headerIdx=-1, headerRow=null;
+      // find "From,<date>,To,<date>" and "Sl. No." header
+      for(var i=0;i<rows.length;i++){
+        var r = rows[i].map(function(x){return (x||'').trim();});
+        if(!fromDate){
+          for(var j=0;j<r.length-1;j++){
+            if(r[j].toLowerCase()==='from' && r[j+2] && r[j+2].toLowerCase()==='to'){
+              fromDate = normDate(r[j+1]); toDate = normDate(r[j+3]||''); break;
+            }
+          }
+        }
+        if(headerIdx<0 && r[0].toLowerCase().indexOf('sl. no')===0){ headerIdx=i; headerRow=r; }
+      }
+      if(!fromDate) throw new Error('Could not find the From/To date row in the CSV.');
+      if(toDate && fromDate !== toDate) throw new Error('CSV covers a range ('+fromDate+' to '+toDate+'). Please upload one day at a time.');
+      if(headerIdx<0) throw new Error('Could not find the item table header (Sl. No., Super Category, ...).');
+
+      var H = headerRow.map(function(h){ return (h||'').trim().toLowerCase(); });
+      function col(name){ return H.indexOf(name.toLowerCase()); }
+      var iSl   = col('sl. no.');
+      var iSup  = col('super category');
+      var iCat  = col('category');
+      var iName = col('item name');
+      var iQty  = col('quantity');
+      var iRate = col('rate');
+      var iDisc = col('discount');
+      var iComp = col('complimentary');
+      var iProm = col('promotional');
+      var iNet  = col('net amount');
+      var iTax  = col('tax');
+      var iTot  = col('total amount');
+      if(iName<0 || iQty<0) throw new Error('Items table is missing required columns (Item Name, Quantity).');
+
+      var items=[], summary={};
+      // collect items until blank-ish row
+      var k = headerIdx+1;
+      for(; k<rows.length; k++){
+        var rr = rows[k];
+        var first = (rr[0]||'').trim();
+        var name  = iName>=0 ? (rr[iName]||'').trim() : '';
+        if(!first && !name) break; // blank separator
+        if(!name) continue;        // skip rows without an item name
+        items.push({
+          sl: iSl>=0 ? Number(rr[iSl]||0)||0 : (items.length+1),
+          superCategory: iSup>=0?(rr[iSup]||'').trim():'',
+          category:      iCat>=0?(rr[iCat]||'').trim():'',
+          name: name,
+          qty:           Number((rr[iQty]||'0').replace(/,/g,''))||0,
+          rate:          iRate>=0?Number((rr[iRate]||'0').replace(/,/g,''))||0:0,
+          discount:      iDisc>=0?Number((rr[iDisc]||'0').replace(/,/g,''))||0:0,
+          complimentary: iComp>=0?Number((rr[iComp]||'0').replace(/,/g,''))||0:0,
+          promotional:   iProm>=0?Number((rr[iProm]||'0').replace(/,/g,''))||0:0,
+          netAmount:     iNet >=0?Number((rr[iNet ]||'0').replace(/,/g,''))||0:0,
+          tax:           iTax >=0?Number((rr[iTax ]||'0').replace(/,/g,''))||0:0,
+          totalAmount:   iTot >=0?Number((rr[iTot ]||'0').replace(/,/g,''))||0:0,
+        });
+      }
+
+      // footer key/value rows
+      function num(v){ return Number(String(v||'0').replace(/,/g,''))||0; }
+      for(; k<rows.length; k++){
+        var rr2 = rows[k];
+        var key = (rr2[0]||'').trim().toLowerCase();
+        var val = (rr2[1]||'').trim();
+        if(!key) continue;
+        if(key==='bills')                          summary.bills              = num(val);
+        else if(key==='take away')                 summary.takeAway           = num(val);
+        else if(key==='gross sales')               summary.grossSales         = num(val);
+        else if(key==='complimentary')             summary.complimentary      = num(val);
+        else if(key==='discount')                  summary.discount           = num(val);
+        else if(key.indexOf('average per cover')===0) summary.avgPerCover     = num(val);
+        else if(key.indexOf('apt')===0)            summary.apt                = num(val);
+        else if(key.indexOf('promotional')===0)    summary.promotional        = num(val);
+        else if(key==='food sales')                summary.foodSales          = num(val);
+        else if(key==='beverages sales')           summary.beveragesSales     = num(val);
+        else if(key==='net sales without tax')     summary.netSalesWithoutTax = num(val);
+        else if(key==='add tax')                   summary.addTax             = num(val);
+        else if(key==='net sales with tax')        summary.netSalesWithTax    = num(val);
+      }
+
+      // sanity totals — if footer not present, compute from items
+      if(summary.grossSales===undefined){
+        var sum=0; items.forEach(function(it){ sum += (it.totalAmount||0); }); summary.grossSales = Math.round(sum*100)/100;
+      }
+      if(summary.netSalesWithoutTax===undefined){
+        var sum2=0; items.forEach(function(it){ sum2 += (it.netAmount||0); }); summary.netSalesWithoutTax = Math.round(sum2*100)/100;
+      }
+      if(summary.addTax===undefined){
+        var sum3=0; items.forEach(function(it){ sum3 += (it.tax||0); }); summary.addTax = Math.round(sum3*100)/100;
+      }
+
+      return { date: fromDate, items: items, summary: summary };
+    }
+
+    // ---------- items.csv (catalog) parser ----------
+    function parseCatalog(text){
+      var rows = parseCSV(text);
+      if(!rows.length) throw new Error('CSV is empty.');
+      var H = rows[0].map(function(h){ return (h||'').trim().toLowerCase(); });
+      function col(n){ return H.indexOf(n.toLowerCase()); }
+      var iNum = col('itemnumber');
+      var iName= col('item name');
+      var iUid = col('uid');
+      var iRate= col('rate');
+      var iCat = col('category name');
+      var iSup = col('supercategory name');
+      var iNV  = col('non veg');
+      if(iName<0) throw new Error('items.csv is missing the "Item Name" column.');
+      var out=[];
+      for(var i=1;i<rows.length;i++){
+        var r=rows[i];
+        if(!r || !r.length) continue;
+        var name = iName>=0 ? (r[iName]||'').trim() : '';
+        if(!name) continue;
+        out.push({
+          id: uidL(),
+          itemNumber: iNum>=0?(r[iNum]||'').trim():'',
+          name: name,
+          uid: iUid>=0?(r[iUid]||'').trim():'',
+          rate: iRate>=0?Number((r[iRate]||'0').replace(/,/g,''))||0:0,
+          category: iCat>=0?(r[iCat]||'').trim():'',
+          superCategory: iSup>=0?(r[iSup]||'').trim():'',
+          nonVeg: iNV>=0?(String(r[iNV]||'').trim()==='1'):false,
+        });
+      }
+      return out;
+    }
+
+    // expose parser for bulk uploader
+    window.__parseDSR = parseDSR;
+
+    // ---------- DSR upload UI ----------
+    document.addEventListener('click', function(e){
+      if(e.target.id==='fbDsrUpload'){ document.getElementById('fbDsrFile').click(); }
+      if(e.target.id==='fbDsrClear'){
+        pendingDSR=null;
+        document.getElementById('fbDsrPreview').innerHTML='';
+        document.getElementById('fbDsrImport').style.display='none';
+        e.target.style.display='none';
+      }
+      if(e.target.id==='fbDsrImport'){
+        if(!pendingDSR){ return; }
+        var existing = S.fbEntries.find(function(x){return x.date===pendingDSR.date;});
+        var verb = existing ? 'REPLACE the existing F&B entry' : 'Save the F&B entry';
+        if(!confirm(verb+' for '+pendingDSR.date+'? Items: '+pendingDSR.items.length+', net sales with tax: ₹'+fmt(pendingDSR.summary.netSalesWithTax||0)+'.')) return;
+        if(existing){
+          existing.items = pendingDSR.items;
+          existing.summary = pendingDSR.summary;
+        } else {
+          S.fbEntries.push({ id: uidL(), date: pendingDSR.date, items: pendingDSR.items, summary: pendingDSR.summary, notes: '' });
+        }
+        pendingDSR=null;
+        document.getElementById('fbDsrPreview').innerHTML='<span style="color:#2a8">Saved. Syncing to the cloud…</span>';
+        document.getElementById('fbDsrImport').style.display='none';
+        document.getElementById('fbDsrClear').style.display='none';
+        if(typeof save==='function') save();
+        renderHistory();
+      }
+    });
+
+    document.addEventListener('change', function(e){
+      if(e.target.id==='fbDsrFile'){
+        var f = e.target.files && e.target.files[0]; if(!f) return;
+        var rd = new FileReader();
+        rd.onload = function(){
+          try{
+            var parsed = parseDSR(rd.result);
+            pendingDSR = parsed;
+            var existing = S.fbEntries.find(function(x){return x.date===parsed.date;});
+            var note = existing ? '<span style="color:#c80"><b>Warning:</b> a day is already saved for '+parsed.date+'. Saving will replace it.</span><br>' : '';
+            var summaryRows = [
+              ['Bills', parsed.summary.bills],
+              ['Take Away', parsed.summary.takeAway],
+              ['Gross Sales', '₹ '+fmt(parsed.summary.grossSales)],
+              ['Food Sales', '₹ '+fmt(parsed.summary.foodSales)],
+              ['Beverages Sales', '₹ '+fmt(parsed.summary.beveragesSales)],
+              ['Net Sales (no tax)', '₹ '+fmt(parsed.summary.netSalesWithoutTax)],
+              ['Tax', '₹ '+fmt(parsed.summary.addTax)],
+              ['Net Sales (with tax)', '₹ '+fmt(parsed.summary.netSalesWithTax)],
+            ];
+            var html = note + '<b>Date:</b> '+parsed.date+' &nbsp; <b>Items:</b> '+parsed.items.length+'<br><br>';
+            html += '<table class="grid" style="max-width:520px">';
+            summaryRows.forEach(function(row){ if(row[1]!==undefined) html += '<tr><td>'+esc(row[0])+'</td><td style="text-align:right">'+esc(row[1])+'</td></tr>'; });
+            html += '</table>';
+            document.getElementById('fbDsrPreview').innerHTML = html;
+            document.getElementById('fbDsrImport').style.display = '';
+            document.getElementById('fbDsrClear').style.display = '';
+          }catch(err){
+            document.getElementById('fbDsrPreview').innerHTML = '<span style="color:#c00"><b>Couldn\'t read that CSV:</b> '+esc(err.message)+'</span>';
+            document.getElementById('fbDsrImport').style.display = 'none';
+            document.getElementById('fbDsrClear').style.display = '';
+          }
+          e.target.value='';
+        };
+        rd.readAsText(f);
+      }
+
+      if(e.target.id==='fbCatFile'){
+        if(!isOwnerNow()){ alert('Only the owner can update the F&B product catalog.'); e.target.value=''; return; }
+        var f2 = e.target.files && e.target.files[0]; if(!f2) return;
+        var rd2 = new FileReader();
+        rd2.onload = function(){
+          try{
+            var list = parseCatalog(rd2.result);
+            if(!list.length){ alert('No products found in that CSV.'); return; }
+            if(!confirm('Replace the current F&B catalog ('+S.fbProducts.length+' products) with '+list.length+' product(s) from this file?')) return;
+            S.fbProducts = list;
+            var msg = document.getElementById('fbCatMsg');
+            if(msg){ msg.textContent = 'Catalog replaced ('+list.length+' products). Syncing…'; setTimeout(function(){ msg.textContent=''; }, 4000); }
+            if(typeof save==='function') save();
+            renderProducts();
+          }catch(err){ alert('Could not read items.csv: '+err.message); }
+          e.target.value='';
+        };
+        rd2.readAsText(f2);
+      }
+    });
+
+    document.addEventListener('click', function(e){
+      if(e.target.id==='fbCatUpload'){
+        if(!isOwnerNow()){ alert('Only the owner can update the F&B product catalog.'); return; }
+        document.getElementById('fbCatFile').click();
+      }
+    });
+
+    // ---------- Catalog table ----------
+    function renderProducts(){
+      var t = document.getElementById('fbProductsTable'); if(!t) return;
+      var owner = isOwnerNow();
+      var bar = document.getElementById('fbCatToolbar');
+      if(bar){
+        var btn = document.getElementById('fbCatUpload');
+        if(btn) btn.style.display = owner ? '' : 'none';
+      }
+      var html = '<tr><th>Item #</th><th>Name</th><th>Category</th><th>Rate</th></tr>';
+      if(!S.fbProducts.length){
+        html += '<tr><td colspan="4" style="opacity:.6">No products yet. '+(owner?'Upload items.csv above.':'Ask the owner to upload items.csv.')+'</td></tr>';
+      } else {
+        S.fbProducts.slice(0,500).forEach(function(p){
+          html += '<tr>'+
+            '<td>'+esc(p.itemNumber||p.uid||'')+'</td>'+
+            '<td>'+esc(p.name)+'</td>'+
+            '<td>'+esc((p.superCategory?(p.superCategory+' / '):'')+(p.category||''))+'</td>'+
+            '<td style="text-align:right">₹ '+fmt(p.rate||0)+'</td>'+
+          '</tr>';
+        });
+        if(S.fbProducts.length>500){
+          html += '<tr><td colspan="4" style="opacity:.6">… +'+(S.fbProducts.length-500)+' more (showing first 500)</td></tr>';
+        }
+      }
+      t.innerHTML = html;
+    }
+
+    // ---------- History ----------
+    function renderHistory(){
+      var t = document.getElementById('fbHistoryTable'); if(!t) return;
+      var rows = S.fbEntries.slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+      var html = '<tr><th>Date</th><th>Bills</th><th>Items</th><th>Gross</th><th>Tax</th><th>Net (with tax)</th><th></th></tr>';
+      if(!rows.length){
+        html += '<tr><td colspan="7" style="opacity:.6">No F&B days saved yet. Upload a DSR CSV above to start.</td></tr>';
+      } else {
+        rows.forEach(function(r){
+          var sm = r.summary||{};
+          html += '<tr>'+
+            '<td>'+esc(r.date)+'</td>'+
+            '<td style="text-align:right">'+esc(sm.bills==null?'—':sm.bills)+'</td>'+
+            '<td style="text-align:right">'+(r.items||[]).length+'</td>'+
+            '<td style="text-align:right">₹ '+fmt(sm.grossSales||0)+'</td>'+
+            '<td style="text-align:right">₹ '+fmt(sm.addTax||0)+'</td>'+
+            '<td style="text-align:right">₹ '+fmt(sm.netSalesWithTax|| (sm.grossSales||0)+(sm.addTax||0))+'</td>'+
+            '<td><button class="btn ghost sm" data-fbview="'+esc(r.date)+'">View</button> <button class="btn ghost sm" data-fbdel="'+esc(r.date)+'">Delete</button></td>'+
+          '</tr>';
+        });
+      }
+      t.innerHTML = html;
+    }
+
+    document.addEventListener('click', function(e){
+      if(e.target.dataset && e.target.dataset.fbview){
+        var d = e.target.dataset.fbview;
+        var rec = S.fbEntries.find(function(x){return x.date===d;});
+        var det = document.getElementById('fbDayDetail'); if(!det || !rec) return;
+        var sm = rec.summary||{};
+        var html = '<h3 style="margin:0 0 8px">F&amp;B detail — '+esc(d)+'</h3>';
+        html += '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;font-size:13.5px">';
+        html += '<div><b>Bills:</b> '+esc(sm.bills==null?'—':sm.bills)+'</div>';
+        html += '<div><b>Take Away:</b> '+esc(sm.takeAway==null?'—':sm.takeAway)+'</div>';
+        html += '<div><b>Gross:</b> ₹'+fmt(sm.grossSales||0)+'</div>';
+        html += '<div><b>Food:</b> ₹'+fmt(sm.foodSales||0)+'</div>';
+        html += '<div><b>Bev:</b> ₹'+fmt(sm.beveragesSales||0)+'</div>';
+        html += '<div><b>Tax:</b> ₹'+fmt(sm.addTax||0)+'</div>';
+        html += '<div><b>Net w/ Tax:</b> ₹'+fmt(sm.netSalesWithTax||0)+'</div>';
+        html += '</div>';
+        html += '<div class="grid-wrap"><table class="grid"><tr><th>#</th><th>Category</th><th>Item</th><th>Qty</th><th>Rate</th><th>Net</th><th>Tax</th><th>Total</th></tr>';
+        (rec.items||[]).forEach(function(it){
+          html += '<tr>'+
+            '<td>'+esc(it.sl||'')+'</td>'+
+            '<td>'+esc((it.superCategory?(it.superCategory+' / '):'')+(it.category||''))+'</td>'+
+            '<td>'+esc(it.name)+'</td>'+
+            '<td style="text-align:right">'+esc(it.qty)+'</td>'+
+            '<td style="text-align:right">'+fmt(it.rate||0)+'</td>'+
+            '<td style="text-align:right">'+fmt(it.netAmount||0)+'</td>'+
+            '<td style="text-align:right">'+fmt(it.tax||0)+'</td>'+
+            '<td style="text-align:right">'+fmt(it.totalAmount||0)+'</td>'+
+          '</tr>';
+        });
+        html += '</table></div>';
+        html += '<div class="toolbar" style="margin-top:8px"><button class="btn ghost sm" id="fbCloseDetail">Close</button></div>';
+        det.innerHTML = html;
+        det.style.display = '';
+        try{ det.scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){}
+      }
+      if(e.target.id==='fbCloseDetail'){
+        var det2 = document.getElementById('fbDayDetail');
+        if(det2){ det2.style.display='none'; det2.innerHTML=''; }
+      }
+      if(e.target.dataset && e.target.dataset.fbdel){
+        var dd = e.target.dataset.fbdel;
+        if(!confirm('Delete the F&B entry for '+dd+' permanently? It will be removed from the cloud for everyone and cannot be undone.')) return;
+        S.fbEntries = S.fbEntries.filter(function(x){return x.date!==dd;});
+        var det3 = document.getElementById('fbDayDetail'); if(det3){ det3.style.display='none'; det3.innerHTML=''; }
+        if(typeof save==='function') save();
+        renderHistory();
+      }
+    });
+
+    // ---------- Cloud sync for fb_entries ----------
+    function fbSig(e){ return JSON.stringify({ items:e.items||[], summary:e.summary||{}, notes:e.notes||'' }); }
+
+    function pullFB(){
+      var sb = window._sb; if(!sb) return Promise.resolve();
+      return sb.from('fb_entries').select('*').then(function(r){
+        if(r.error){ console.error('fb pull', r.error); return; }
+        var rows = r.data||[];
+        S.fbEntries = rows.map(function(x){
+          return { id: uidL(), date: x.entry_date, items: x.items||[], summary: x.summary||{}, notes: x.notes||'' };
+        });
+        syncedFB = {};
+        S.fbEntries.forEach(function(e){ syncedFB[e.date] = fbSig(e); });
+        renderHistory();
+      });
+    }
+
+    function pushFB(){
+      var sb = window._sb; if(!sb) return;
+      var me = meEmail();
+      var ops=[], curKeys={};
+      S.fbEntries.forEach(function(e){
+        if(!e.date) return;
+        curKeys[e.date]=true;
+        var sig = fbSig(e);
+        if(syncedFB[e.date] !== sig){
+          ops.push(
+            sb.from('fb_entries').upsert(
+              { entry_date:e.date, items:e.items||[], summary:e.summary||{}, notes:e.notes||'', updated_by: me, updated_at: new Date().toISOString() },
+              { onConflict:'entry_date' }
+            ).then(function(rr){ if(rr.error) console.error('fb upsert', rr.error); else syncedFB[e.date]=sig; })
+          );
+        }
+      });
+      Object.keys(syncedFB).forEach(function(k){
+        if(!curKeys[k]){
+          ops.push(
+            sb.from('fb_entries').delete().match({ entry_date:k })
+              .then(function(rr){ if(rr.error) console.error('fb delete', rr.error); else delete syncedFB[k]; })
+          );
+        }
+      });
+      return Promise.all(ops);
+    }
+
+    function subscribeFB(){
+      var sb = window._sb; if(!sb || !sb.channel) return;
+      try{
+        sb.channel('fb-sync')
+          .on('postgres_changes',{ event:'*', schema:'public', table:'fb_entries' }, function(){
+            clearTimeout(window.__fbPullTimer);
+            window.__fbPullTimer = setTimeout(function(){ pullFB(); }, 600);
+          })
+          .subscribe();
+      }catch(e){ console.error('fb subscribe', e); }
+    }
+
+    // Hook into the app's save() flow without overwriting it
+    var origCloudOnSave = window.cloudOnSave;
+    window.cloudOnSave = function(){
+      if(typeof origCloudOnSave==='function'){ try{ origCloudOnSave.apply(this, arguments); }catch(e){ console.error(e); } }
+      clearTimeout(window.__fbPushTimer);
+      window.__fbPushTimer = setTimeout(function(){ try{ pushFB(); }catch(e){ console.error(e); } }, 1100);
+    };
+
+    function tryBoot(){
+      var sb = window._sb;
+      if(!sb){ setTimeout(tryBoot, 400); return; }
+      sb.auth.getUser().then(function(res){
+        var u = res && res.data && res.data.user;
+        if(!u){ setTimeout(tryBoot, 800); return; }
+        pullFB().then(function(){ subscribeFB(); });
+      }).catch(function(){ setTimeout(tryBoot, 800); });
+      try{
+        sb.auth.onAuthStateChange(function(evt){
+          if(evt==='SIGNED_IN'){ pullFB().then(function(){ subscribeFB(); }); }
+        });
+      }catch(_){}
+    }
+    tryBoot();
+
+    // ---------- Public entry-point ----------
+    window.renderFB = function(){
+      renderHistory();
+      renderProducts();
+    };
+
+  });
+})();
+</script>
+
+<!-- ====================== SIDEBAR + DASHBOARD + BULK DSR ====================== -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+  ready(function(){
+    // -------- Sidebar drives the existing #tabnav buttons --------
+    var TAB_OF = {}; // side -> tab
+    document.querySelectorAll('.sidebar .side-item[data-side]').forEach(function(b){ TAB_OF[b.dataset.side] = b.dataset.side; });
+
+    function activate(tab){
+      // mark sidebar
+      document.querySelectorAll('.sidebar .side-item').forEach(function(b){ b.classList.toggle('active', b.dataset.side===tab); });
+      // dispatch to existing tab handler by clicking the hidden tab button
+      var btn = document.querySelector('#tabnav button[data-tab="'+tab+'"]');
+      if(btn){ btn.click(); }
+    }
+
+    document.querySelector('.sidebar').addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('.side-item');
+      if(!b || b.classList.contains('muted')) return;
+      var tab = b.dataset.side;
+      if(!tab) return;
+      activate(tab);
+    });
+
+    // Also keep sidebar in sync if something else changes the active tab
+    var tabnav = document.getElementById('tabnav');
+    if(tabnav){
+      tabnav.addEventListener('click', function(e){
+        if(e.target.tagName==='BUTTON'){
+          var t = e.target.dataset.tab;
+          document.querySelectorAll('.sidebar .side-item').forEach(function(b){ b.classList.toggle('active', b.dataset.side===t); });
+        }
+      });
+    }
+
+    // -------- Owner's Dashboard (placeholder KPIs) --------
+    function renderDashboard(){
+      var grid = document.getElementById('dashGrid'); if(!grid) return;
+      var fb = (S.fbEntries||[]);
+      var dcr = (S.entries||[]);
+      function sum(arr, fn){ var t=0; arr.forEach(function(x){ t += (fn(x)||0); }); return t; }
+      var fbGross = sum(fb, function(x){ return (x.summary||{}).grossSales; });
+      var fbBills = sum(fb, function(x){ return (x.summary||{}).bills; });
+      var dcrDays = (function(){ var d={}; dcr.forEach(function(e){ if(e.date) d[e.date]=1; }); return Object.keys(d).length; })();
+      var card = function(title, num, sub){
+        return '<div class="dash-card"><h3>'+title+'</h3><div class="dash-num">'+num+'</div><div class="dash-sub">'+(sub||'')+'</div></div>';
+      };
+      var inr = function(n){ var x=Number(n)||0; return '₹ '+x.toLocaleString('en-IN',{maximumFractionDigits:0}); };
+      grid.innerHTML =
+        card('Box Office days entered', dcrDays, dcrDays?('Latest: '+(dcr.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');})[0]||{}).date+'') : 'No entries yet')+
+        card('Box Office show records', dcr.length, 'Sum of all movie×screen×day rows')+
+        card('F&B days uploaded', fb.length, fb.length?('Latest: '+(fb.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');})[0]||{}).date+'') : 'No F&B yet')+
+        card('F&B gross sales (sum)', inr(fbGross), 'Across all uploaded days')+
+        card('F&B bills (sum)', (fbBills||0).toLocaleString('en-IN'), 'Across all uploaded days');
+
+      var recent = document.getElementById('dashRecent');
+      var items = [];
+      dcr.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');}).slice(0,5).forEach(function(e){
+        items.push({date:e.date, label:'Box Office — '+(e.shows||[]).length+' show(s)'});
+      });
+      fb.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');}).slice(0,5).forEach(function(e){
+        items.push({date:e.date, label:'F&B — ₹ '+(((e.summary||{}).grossSales||0).toLocaleString('en-IN',{maximumFractionDigits:0}))+' gross'});
+      });
+      items.sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+      if(!items.length){ recent.textContent='Nothing yet — start by entering a Box Office day or uploading a DSR.'; }
+      else { recent.innerHTML = '<ul style="margin:6px 0 0 18px;padding:0">'+items.slice(0,10).map(function(it){return '<li>'+it.date+' &mdash; '+it.label+'</li>';}).join('')+'</ul>'; }
+    }
+    window.renderDashboard = renderDashboard;
+
+    // Make the tab handler call renderDashboard when 'dashboard' is shown
+    if(tabnav){
+      tabnav.addEventListener('click', function(e){
+        if(e.target.tagName==='BUTTON' && e.target.dataset.tab==='dashboard'){
+          setTimeout(renderDashboard, 0);
+        }
+      });
+    }
+
+    // -------- Bulk DSR upload --------
+    var bulkPending = null;
+
+    document.addEventListener('click', function(e){
+      if(e.target.id==='fbBulkUpload'){
+        document.getElementById('fbBulkFile').click();
+      }
+      if(e.target.id==='fbBulkImport'){
+        if(!bulkPending || !bulkPending.length){ return; }
+        if(!confirm('Import '+bulkPending.length+' F&B day(s)? Existing entries on those dates will be REPLACED.')) return;
+        bulkPending.forEach(function(parsed){
+          var existing = (S.fbEntries||[]).find(function(x){return x.date===parsed.date;});
+          if(existing){
+            existing.items = parsed.items;
+            existing.summary = parsed.summary;
+          } else {
+            S.fbEntries.push({ id: Math.random().toString(36).slice(2,9), date: parsed.date, items: parsed.items, summary: parsed.summary, notes:'' });
+          }
+        });
+        bulkPending=null;
+        document.getElementById('fbBulkPreview').innerHTML = '<span style="color:#2a8">Imported. Syncing to the cloud…</span>';
+        document.getElementById('fbBulkImport').style.display='none';
+        if(typeof save==='function') save();
+        if(typeof window.renderFB==='function') window.renderFB();
+      }
+    });
+
+    document.addEventListener('change', function(e){
+      if(e.target.id!=='fbBulkFile') return;
+      var files = e.target.files; if(!files || !files.length) return;
+      var parsed=[], errors=[];
+      var pending = files.length;
+      Array.prototype.forEach.call(files, function(f){
+        var rd = new FileReader();
+        rd.onload = function(){
+          try{
+            // call the parseDSR function from the F&B module
+            var p = window.__parseDSR ? window.__parseDSR(rd.result) : null;
+            if(!p){ throw new Error('F&B module not ready'); }
+            parsed.push({date:p.date, items:p.items, summary:p.summary, file:f.name});
+          }catch(err){
+            errors.push(f.name+': '+err.message);
+          }
+          pending--;
+          if(pending<=0){ finish(); }
+        };
+        rd.onerror = function(){ errors.push(f.name+': read error'); pending--; if(pending<=0) finish(); };
+        rd.readAsText(f);
+      });
+      e.target.value='';
+
+      function finish(){
+        // dedupe by date — keep the last parse for any duplicate date and warn
+        var byDate = {};
+        parsed.forEach(function(p){ byDate[p.date] = p; });
+        bulkPending = Object.keys(byDate).sort().map(function(k){ return byDate[k]; });
+
+        var html = '<b>'+bulkPending.length+' day(s) ready to import.</b>';
+        if(parsed.length>bulkPending.length){
+          html += ' <span style="color:#c80">('+(parsed.length-bulkPending.length)+' duplicate-date file(s) collapsed — only the last one for each date will be saved.)</span>';
+        }
+        html += '<br><br><table class="grid" style="max-width:640px"><tr><th>Date</th><th>Items</th><th>Gross</th><th>Net w/ Tax</th></tr>';
+        bulkPending.forEach(function(p){
+          var sm = p.summary||{};
+          var inr = function(n){ var x=Number(n)||0; return x.toLocaleString('en-IN',{maximumFractionDigits:2,minimumFractionDigits:2}); };
+          var existing = (S.fbEntries||[]).find(function(x){return x.date===p.date;});
+          html += '<tr><td>'+p.date+(existing?' <span style="color:#c80">(replaces existing)</span>':'')+'</td><td style="text-align:right">'+p.items.length+'</td><td style="text-align:right">₹ '+inr(sm.grossSales)+'</td><td style="text-align:right">₹ '+inr(sm.netSalesWithTax)+'</td></tr>';
+        });
+        html += '</table>';
+        if(errors.length){
+          html += '<br><span style="color:#c00"><b>'+errors.length+' file(s) skipped:</b></span><ul style="margin:4px 0 0 18px">';
+          errors.slice(0,8).forEach(function(s){ html += '<li>'+s.replace(/[&<>]/g,function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;"})[c];})+'</li>'; });
+          if(errors.length>8) html += '<li>… +'+(errors.length-8)+' more</li>';
+          html += '</ul>';
+        }
+        document.getElementById('fbBulkPreview').innerHTML = html;
+        document.getElementById('fbBulkImport').style.display = bulkPending.length ? '' : 'none';
+      }
+    });
+  });
+})();
+</script>
 </body>
 </html>
