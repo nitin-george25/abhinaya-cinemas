@@ -17,7 +17,24 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.4}
-  .wrap{max-width:1180px;margin:0 auto;padding:22px 18px 70px}
+  .wrap{max-width:1480px;margin:0 auto;padding:22px 18px 70px}
+  /* ===== F&B sub-tabs (extensible: drop more buttons in fbSubtabs to add new sections) ===== */
+  nav.subtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 14px;flex-wrap:wrap}
+  nav.subtabs button{background:transparent;border:0;color:var(--muted);padding:8px 14px;font-size:13.5px;font-family:var(--font);font-weight:600;letter-spacing:.01em;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px;border-radius:4px 4px 0 0}
+  nav.subtabs button:hover{color:var(--ink);background:rgba(0,0,0,.03)}
+  nav.subtabs button.active{color:var(--ink);border-bottom-color:var(--amber);background:rgba(247,182,31,.08)}
+  .subpane{display:block}
+  .subpane.hidden{display:none}
+  /* editable Menu Items inputs */
+  #fbProductsTable input[type=text],
+  #fbProductsTable input[type=number]{background:transparent;border:1px solid transparent;border-radius:4px;padding:4px 6px;font-family:var(--font);font-size:13px;width:100%;box-sizing:border-box}
+  #fbProductsTable input:hover{border-color:var(--line)}
+  #fbProductsTable input:focus{outline:none;border-color:var(--amber);background:#fff}
+  #fbProductsTable td{padding:5px 8px}
+  .gst-pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.04em}
+  .gst-5{background:#e8f5e9;color:#2a8}
+  .gst-12{background:#fff3e0;color:#c80}
+  .gst-18{background:#fce4ec;color:#c33}
   header.top{margin-bottom:8px}
   header.top .brand-logo{height:44px;width:auto;display:block;margin-bottom:12px}
   .stripe{height:6px;width:100%;border-radius:4px;display:flex;overflow:hidden}
@@ -376,44 +393,61 @@
   <!-- ============ F&B ============ -->
   <section class="tab-pane" id="pane-fb" style="display:none">
 
-    <div class="panel">
-      <h2>Daily F&amp;B (DSR upload)</h2>
-      <p class="hint">Upload the day's <b>DSR_Items_Breakup</b> CSV exported from your POS. The date is read from the CSV header — one upload = one day. If a day already exists, the new upload <b>replaces</b> it.</p>
-      <div class="toolbar">
-        <button class="btn" id="fbDsrUpload">Upload DSR CSV</button>
-        <input type="file" id="fbDsrFile" accept=".csv,text/csv" style="display:none">
-        <button class="btn ghost sm" id="fbDsrClear" style="display:none">Clear preview</button>
+    <nav class="subtabs" id="fbSubtabs">
+      <button data-fbtab="sales" class="active">Sales</button>
+      <button data-fbtab="menu">Menu Items</button>
+      <!-- More sub-tabs (Inventory, Suppliers, Analytics) drop in here as we build them. -->
+    </nav>
+
+    <!-- ===== F&B :: Sales ===== -->
+    <div class="subpane" id="fbpane-sales">
+
+      <div class="panel">
+        <h2>Daily F&amp;B (DSR upload)</h2>
+        <p class="hint">Upload the day's <b>DSR_Items_Breakup</b> CSV exported from your POS. The date is read from the CSV header — one upload = one day. If a day already exists, the new upload <b>replaces</b> it.</p>
+        <div class="toolbar">
+          <button class="btn" id="fbDsrUpload">Upload DSR CSV</button>
+          <input type="file" id="fbDsrFile" accept=".csv,text/csv" style="display:none">
+          <button class="btn ghost sm" id="fbDsrClear" style="display:none">Clear preview</button>
+        </div>
+        <div id="fbDsrPreview" class="hint" style="margin-top:10px"></div>
+        <button class="btn" id="fbDsrImport" style="display:none;margin-top:10px">Save this day</button>
       </div>
-      <div id="fbDsrPreview" class="hint" style="margin-top:10px"></div>
-      <button class="btn" id="fbDsrImport" style="display:none;margin-top:10px">Save this day</button>
+
+      <div class="panel">
+        <h2>Bulk upload — many days at once</h2>
+        <p class="hint">Got DSRs for several days? Select all the CSVs at once and import them in one go. Existing entries on those dates will be <b>replaced</b>.</p>
+        <div class="toolbar">
+          <button class="btn" id="fbBulkUpload">Upload multiple DSR CSVs</button>
+          <input type="file" id="fbBulkFile" accept=".csv,text/csv" multiple style="display:none">
+        </div>
+        <div id="fbBulkPreview" class="hint" style="margin-top:10px"></div>
+        <button class="btn" id="fbBulkImport" style="display:none;margin-top:10px">Import all these days</button>
+      </div>
+
+      <div class="panel">
+        <h2>Saved days</h2>
+        <div class="grid-wrap"><table class="grid" id="fbHistoryTable"></table></div>
+        <div id="fbDayDetail" style="margin-top:14px;display:none"></div>
+      </div>
+
     </div>
 
-    <div class="panel">
-      <h2>Bulk upload — many days at once</h2>
-      <p class="hint">Got DSRs for several days? Select all the CSVs at once and import them in one go. Existing entries on those dates will be <b>replaced</b>.</p>
-      <div class="toolbar">
-        <button class="btn" id="fbBulkUpload">Upload multiple DSR CSVs</button>
-        <input type="file" id="fbBulkFile" accept=".csv,text/csv" multiple style="display:none">
-      </div>
-      <div id="fbBulkPreview" class="hint" style="margin-top:10px"></div>
-      <button class="btn" id="fbBulkImport" style="display:none;margin-top:10px">Import all these days</button>
-    </div>
+    <!-- ===== F&B :: Menu Items ===== -->
+    <div class="subpane hidden" id="fbpane-menu">
 
-    <div class="panel">
-      <h2>Saved days</h2>
-      <div class="grid-wrap"><table class="grid" id="fbHistoryTable"></table></div>
-      <div id="fbDayDetail" style="margin-top:14px;display:none"></div>
-    </div>
-
-    <div class="panel" id="fbProductsPanel">
-      <h2>Product catalog</h2>
-      <p class="hint">Upload <b>items.csv</b> exported from your POS to refresh the F&amp;B product catalog. This is the master list of products and their default rates — used for cross-checking DSR uploads. (Owner-only.)</p>
-      <div class="toolbar" id="fbCatToolbar">
-        <button class="btn" id="fbCatUpload">Upload items.csv</button>
-        <input type="file" id="fbCatFile" accept=".csv,text/csv" style="display:none">
-        <span class="ok" id="fbCatMsg"></span>
+      <div class="panel" id="fbProductsPanel">
+        <h2>Menu items</h2>
+        <p class="hint">Edit a product&apos;s default rate, GST%, category, or name in place — changes save automatically. Most items are 5% GST; packaged water and a few others are 18%. Add a manual product if it isn&apos;t in the POS yet, or refresh the whole catalog from your <b>items.csv</b> export.</p>
+        <div class="toolbar" id="fbCatToolbar">
+          <button class="btn ghost sm" id="fbAddProduct">+ Add product</button>
+          <button class="btn ghost sm" id="fbCatUpload">Replace catalog from items.csv</button>
+          <input type="file" id="fbCatFile" accept=".csv,text/csv" style="display:none">
+          <span class="ok" id="fbCatMsg"></span>
+        </div>
+        <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="fbProductsTable"></table></div>
       </div>
-      <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="fbProductsTable"></table></div>
+
     </div>
 
   </section>
@@ -1697,7 +1731,7 @@ renderEntry();
   var pushTimer=null, pullTimer=null;
   var synced={ cfg:null, ent:{} };
 
-  var CFG_KEYS=['cinema','tax','classes','screens','movies','serialStarts','openings','fbProducts'];
+  var CFG_KEYS=['cinema','tax','classes','screens','movies','serialStarts','openings'];
   function cfgObj(){ var o={}; CFG_KEYS.forEach(function(k){ o[k]=S[k]; }); return o; }
   function entKey(e){ return (e.date||'')+'|'+e.movieId+'|'+e.screenId; }
   function entSig(e){ return JSON.stringify({share:e.share, shows:e.shows||[]}); }
@@ -2187,11 +2221,15 @@ renderEntry();
             var list = parseCatalog(rd2.result);
             if(!list.length){ alert('No products found in that CSV.'); return; }
             if(!confirm('Replace the current F&B catalog ('+S.fbProducts.length+' products) with '+list.length+' product(s) from this file?')) return;
-            S.fbProducts = list;
             var msg = document.getElementById('fbCatMsg');
-            if(msg){ msg.textContent = 'Catalog replaced ('+list.length+' products). Syncing…'; setTimeout(function(){ msg.textContent=''; }, 4000); }
-            if(typeof save==='function') save();
-            renderProducts();
+            if(msg){ msg.textContent = 'Uploading…'; }
+            replaceProducts(list).then(function(){
+              if(msg){ msg.textContent = 'Catalog replaced ('+list.length+' products).'; setTimeout(function(){ msg.textContent=''; }, 4000); }
+              renderProducts();
+            }).catch(function(err){
+              alert('Catalog upload failed: '+(err && err.message || err));
+              if(msg) msg.textContent = '';
+            });
           }catch(err){ alert('Could not read items.csv: '+err.message); }
           e.target.value='';
         };
@@ -2354,6 +2392,98 @@ renderEntry();
       return Promise.all(ops);
     }
 
+
+    // ============ F&B products catalog (fb_products table) ============
+    function fbProductFromRow(p){
+      return {
+        id: p.id,
+        name: p.name || '',
+        defaultPrice: p.default_rate==null ? '' : Number(p.default_rate),
+        gstPct: p.default_gst_pct==null ? 5 : Number(p.default_gst_pct),
+        category: p.category || '',
+        superCategory: p.super_category || '',
+        itemNumber: p.pos_item_number || '',
+        nonVeg: !!p.is_non_veg,
+        isActive: p.is_active !== false
+      };
+    }
+    function fbProductToRow(p){
+      return {
+        name: (p.name || '').trim(),
+        default_rate: p.defaultPrice==='' || p.defaultPrice==null ? 0 : Number(p.defaultPrice),
+        default_gst_pct: p.gstPct==='' || p.gstPct==null ? 5 : Number(p.gstPct),
+        category: p.category || '',
+        super_category: p.superCategory || '',
+        pos_item_number: p.itemNumber || null,
+        is_non_veg: !!p.nonVeg,
+        is_active: p.isActive !== false,
+        updated_at: new Date().toISOString()
+      };
+    }
+
+    function pullProducts(){
+      var sb = window._sb; if(!sb) return Promise.resolve();
+      window.__pullProducts = pullProducts;
+      return sb.from('fb_products').select('*').order('category').order('name').then(function(r){
+        if(r.error){ console.warn('fb_products not available yet (run Step 4 SQL)', r.error.message); return; }
+        if(r.data && r.data.length){
+          S.fbProducts = r.data.map(fbProductFromRow);
+        } else if(!Array.isArray(S.fbProducts)){
+          S.fbProducts = [];
+        }
+        if(typeof renderProducts==='function') renderProducts();
+      });
+    }
+
+    // Replace the entire catalog with `list` — used by the items.csv upload.
+    function replaceProducts(list){
+      var sb = window._sb; if(!sb) return Promise.reject(new Error('No client'));
+      if(window.__DCR_ROLE==='accountant') return Promise.reject(new Error('Read-only'));
+      // Delete all then insert in batches.
+      return sb.from('fb_products').delete().neq('id','00000000-0000-0000-0000-000000000000').then(function(d){
+        if(d.error) throw d.error;
+        if(!list.length) return { data: [] };
+        var rows = list.map(fbProductToRow);
+        // Insert in chunks of 200
+        var chunks = [];
+        for(var i=0;i<rows.length;i+=200) chunks.push(rows.slice(i, i+200));
+        var p = Promise.resolve();
+        chunks.forEach(function(c){
+          p = p.then(function(){ return sb.from('fb_products').insert(c); });
+        });
+        return p;
+      }).then(function(){ return pullProducts(); });
+    }
+
+    function deleteProduct(id){
+      var sb = window._sb; if(!sb) return Promise.reject(new Error('No client'));
+      if(window.__DCR_ROLE==='accountant') return Promise.reject(new Error('Read-only'));
+      return sb.from('fb_products').delete().eq('id', id).then(function(){ return pullProducts(); });
+    }
+
+    function upsertProduct(p){
+      var sb = window._sb; if(!sb) return Promise.reject(new Error('No client'));
+      if(window.__DCR_ROLE==='accountant') return Promise.reject(new Error('Read-only'));
+      var row = fbProductToRow(p);
+      // Upsert by name (case-insensitive — we have a unique index on lower(name))
+      return sb.from('fb_products').upsert(row, { onConflict: 'name' }).then(function(){ return pullProducts(); });
+    }
+
+    function subscribeProducts(){
+      var sb = window._sb; if(!sb || !sb.channel) return;
+      try{
+        sb.channel('fb-products-sync')
+          .on('postgres_changes',{ event:'*', schema:'public', table:'fb_products' }, function(){
+            clearTimeout(window.__fbPdtPullTimer);
+            window.__fbPdtPullTimer = setTimeout(function(){ pullProducts(); }, 500);
+          })
+          .subscribe();
+      }catch(e){ console.error('fb-products subscribe', e); }
+    }
+
+    // Expose for the items.csv upload handler to call
+    window.__replaceFbProducts = replaceProducts;
+
     function subscribeFB(){
       var sb = window._sb; if(!sb || !sb.channel) return;
       try{
@@ -2380,11 +2510,11 @@ renderEntry();
       sb.auth.getUser().then(function(res){
         var u = res && res.data && res.data.user;
         if(!u){ setTimeout(tryBoot, 800); return; }
-        pullFB().then(function(){ subscribeFB(); });
+        Promise.all([pullFB(), pullProducts()]).then(function(){ subscribeFB(); subscribeProducts(); });
       }).catch(function(){ setTimeout(tryBoot, 800); });
       try{
         sb.auth.onAuthStateChange(function(evt){
-          if(evt==='SIGNED_IN'){ pullFB().then(function(){ subscribeFB(); }); }
+          if(evt==='SIGNED_IN'){ Promise.all([pullFB(), pullProducts()]).then(function(){ subscribeFB(); subscribeProducts(); }); }
         });
       }catch(_){}
     }
@@ -2559,6 +2689,179 @@ renderEntry();
       }
     });
 
+
+  });
+})();
+</script>
+
+<!-- ====================== F&B sub-tabs + editable Menu Items ====================== -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+  ready(function(){
+
+    // ---- Sub-tab switching (extensible) ----
+    function switchFbTab(name){
+      document.querySelectorAll('#fbSubtabs button').forEach(function(b){
+        b.classList.toggle('active', b.dataset.fbtab===name);
+      });
+      document.querySelectorAll('#pane-fb .subpane').forEach(function(p){
+        p.classList.toggle('hidden', p.id !== 'fbpane-'+name);
+      });
+      // Lazy refresh of the active sub-tab's content
+      if(name==='menu' && typeof renderProducts==='function') renderProducts();
+      if(name==='sales'){
+        if(typeof renderHistory==='function') renderHistory();
+      }
+    }
+    var fbnav = document.getElementById('fbSubtabs');
+    if(fbnav){
+      fbnav.addEventListener('click', function(e){
+        var b = e.target.closest && e.target.closest('button[data-fbtab]');
+        if(!b) return;
+        switchFbTab(b.dataset.fbtab);
+      });
+    }
+    // When the sidebar opens F&B, default to "sales" sub-tab on first visit
+    var fbnavOpened = false;
+    var sidebar = document.querySelector('.sidebar');
+    if(sidebar){
+      sidebar.addEventListener('click', function(e){
+        var b = e.target.closest && e.target.closest('.side-item[data-side="fb"]');
+        if(!b) return;
+        if(!fbnavOpened){ switchFbTab('sales'); fbnavOpened=true; }
+      });
+    }
+
+    // ---- Editable Menu Items table ----
+    // Override the global renderProducts (defined in the F&B module) with an editable version.
+    var origRenderProducts = window.renderProducts;
+    function isOwnerNow(){ try{ var b=document.getElementById('dataBar'); return b && /\(owner\)/.test(b.textContent||''); }catch(e){ return false; } }
+    function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];}); }
+    function fmt(n){ var x=Number(n); if(!isFinite(x)) x=0; return x.toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2}); }
+    function gstPillClass(g){ var n=Number(g)||0; if(n>=18) return 'gst-18'; if(n>=12) return 'gst-12'; return 'gst-5'; }
+
+    function renderProductsEditable(){
+      var t = document.getElementById('fbProductsTable'); if(!t) return;
+      var owner = isOwnerNow();
+      var bar = document.getElementById('fbCatToolbar');
+      var addBtn = document.getElementById('fbAddProduct');
+      var upBtn  = document.getElementById('fbCatUpload');
+      if(addBtn) addBtn.style.display = owner ? '' : 'none';
+      if(upBtn)  upBtn.style.display  = owner ? '' : 'none';
+
+      var html = '<tr><th style="min-width:60px">Item #</th><th>Name</th><th>Category</th><th style="width:110px">Default rate (₹)</th><th style="width:110px">GST %</th><th style="width:90px"></th></tr>';
+      if(!S.fbProducts || !S.fbProducts.length){
+        html += '<tr><td colspan="6" style="opacity:.6">No products yet. '+(owner?'Add one above or upload items.csv.':'Ask the owner to add some.')+'</td></tr>';
+      } else {
+        // sort by category then name
+        var list = S.fbProducts.slice().sort(function(a,b){
+          var c = String(a.category||'').localeCompare(b.category||'');
+          if(c) return c;
+          return String(a.name||'').localeCompare(b.name||'');
+        });
+        list.forEach(function(p){
+          if(owner){
+            html += '<tr data-fbpid="'+esc(p.id)+'">'+
+              '<td style="opacity:.55;font-size:11px;vertical-align:middle">'+esc(p.itemNumber||p.uid||'')+'</td>'+
+              '<td><input type="text" data-fbpf="name" value="'+esc(p.name)+'" placeholder="Item name"></td>'+
+              '<td><input type="text" data-fbpf="category" value="'+esc(p.category||'')+'" placeholder="Snacks / Drinks / …" style="width:140px"></td>'+
+              '<td><input type="number" min="0" step="0.01" data-fbpf="defaultPrice" value="'+esc(p.defaultPrice==null?'':p.defaultPrice)+'" style="text-align:right"></td>'+
+              '<td><input type="number" min="0" max="100" step="0.01" data-fbpf="gstPct" value="'+esc(p.gstPct==null?'':p.gstPct)+'" style="text-align:right"></td>'+
+              '<td style="text-align:center"><button class="btn ghost sm" data-fbpd="'+esc(p.id)+'" title="Delete">×</button></td>'+
+            '</tr>';
+          } else {
+            html += '<tr>'+
+              '<td style="opacity:.55;font-size:11px">'+esc(p.itemNumber||p.uid||'')+'</td>'+
+              '<td>'+esc(p.name)+'</td>'+
+              '<td>'+esc(p.category||'')+'</td>'+
+              '<td style="text-align:right">₹ '+fmt(p.defaultPrice||0)+'</td>'+
+              '<td style="text-align:right"><span class="gst-pill '+gstPillClass(p.gstPct)+'">'+fmt(p.gstPct||0)+'%</span></td>'+
+              '<td></td>'+
+            '</tr>';
+          }
+        });
+      }
+      t.innerHTML = html;
+    }
+    window.renderProducts = renderProductsEditable;
+
+    // Debounced edit handler
+    var saveTimers = {};
+    function flashRow(tr, ok){
+      if(!tr) return;
+      tr.style.transition = 'background-color .2s';
+      tr.style.background = ok ? 'rgba(57,181,74,.10)' : 'rgba(249,56,32,.10)';
+      setTimeout(function(){ tr.style.background = ''; }, 700);
+    }
+    document.addEventListener('input', function(e){
+      var f = e.target.dataset && e.target.dataset.fbpf; if(!f) return;
+      var tr = e.target.closest('tr[data-fbpid]'); if(!tr) return;
+      var id = tr.dataset.fbpid;
+      var prod = (S.fbProducts||[]).find(function(p){return p.id===id;}); if(!prod) return;
+      // Update local model
+      if(f==='name' || f==='category') prod[f] = e.target.value;
+      else prod[f] = e.target.value==='' ? '' : Number(e.target.value);
+      // Debounced save
+      clearTimeout(saveTimers[id]);
+      saveTimers[id] = setTimeout(function(){
+        var sb = window._sb; if(!sb) return;
+        var row = {
+          name: (prod.name||'').trim(),
+          category: prod.category||'',
+          super_category: prod.superCategory||'',
+          default_rate: prod.defaultPrice===''||prod.defaultPrice==null ? 0 : Number(prod.defaultPrice),
+          default_gst_pct: prod.gstPct===''||prod.gstPct==null ? 5 : Number(prod.gstPct),
+          pos_item_number: prod.itemNumber||null,
+          is_non_veg: !!prod.nonVeg,
+          is_active: prod.isActive!==false,
+          updated_at: new Date().toISOString()
+        };
+        sb.from('fb_products').update(row).eq('id', id).then(function(r){
+          flashRow(tr, !r.error);
+          if(r.error){ console.error('product update', r.error); }
+        });
+      }, 600);
+    });
+
+    // Delete product
+    document.addEventListener('click', function(e){
+      if(e.target.dataset && e.target.dataset.fbpd){
+        if(!isOwnerNow()){ alert('Only the owner can delete products.'); return; }
+        var id = e.target.dataset.fbpd;
+        var p = (S.fbProducts||[]).find(function(x){return x.id===id;});
+        var nm = p ? p.name : '(unnamed)';
+        if(!confirm('Delete product "'+nm+'"? This only removes it from the catalog — historical sales records stay intact.')) return;
+        var sb = window._sb;
+        sb.from('fb_products').delete().eq('id', id).then(function(r){
+          if(r.error){ alert('Delete failed: '+r.error.message); return; }
+          S.fbProducts = (S.fbProducts||[]).filter(function(x){return x.id!==id;});
+          renderProductsEditable();
+        });
+      }
+      // Add product (blank row)
+      if(e.target.id==='fbAddProduct'){
+        if(!isOwnerNow()){ alert('Only the owner can add products.'); return; }
+        var sb = window._sb;
+        var row = {
+          name: 'New product '+(Math.floor(Math.random()*9000)+1000),
+          category: '',
+          super_category: 'Indian',
+          default_rate: 0,
+          default_gst_pct: 5,
+          is_active: true
+        };
+        sb.from('fb_products').insert(row).select().then(function(r){
+          if(r.error){ alert('Add failed: '+r.error.message); return; }
+          if(r.data && r.data[0]){
+            // pullProducts() refreshes from server — easier than mirroring
+            if(typeof pullProducts==='function') pullProducts();
+            else if(window.__pullProducts) window.__pullProducts();
+            else renderProductsEditable();
+          }
+        });
+      }
+    });
 
   });
 })();
