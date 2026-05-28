@@ -130,7 +130,8 @@
   body.role-accountant #entryEditor,
   body.role-accountant .sidebar .side-section:nth-of-type(2),
   body.role-accountant .sidebar .side-section:nth-of-type(3),
-  body.role-accountant .sidebar .side-item[data-side="fb"],
+  body.role-accountant .sidebar .side-item[data-side="fb-sales"],
+  body.role-accountant .sidebar .side-item[data-side="fb-menu"],
   body.role-accountant .sidebar .side-item[data-side="dashboard"],
   body.role-accountant .sidebar .side-item[data-side="entry"],
   body.role-accountant .sidebar .side-item[data-side="serials"],
@@ -139,7 +140,8 @@
   body.role-accountant .sidebar .side-item[data-side="cards"],
   body.role-accountant .sidebar .side-item[data-side="config"],
   body.role-accountant .sidebar .side-item[data-side="backup"],
-  body.role-accountant #pane-fb,
+  body.role-accountant #pane-fb-sales,
+  body.role-accountant #pane-fb-menu,
   body.role-accountant #pane-dashboard,
   body.role-accountant #pane-serials,
   body.role-accountant #pane-openings,
@@ -197,7 +199,8 @@
     <button data-tab="cards">Price Cards</button>
     <button data-tab="config">Screens &amp; Tax</button>
     <button data-tab="backup">Backup</button>
-    <button data-tab="fb">F&amp;B</button>
+    <button data-tab="fb-sales">F&amp;B Sales</button>
+    <button data-tab="fb-menu">F&amp;B Menu</button>
     <button data-tab="dashboard">Owner&#39;s Dashboard</button>
   </nav>
   <div class="layout">
@@ -213,7 +216,8 @@
       <button class="side-item" data-side="backup">Backup</button>
 
       <div class="side-section">F&amp;B</div>
-      <button class="side-item" data-side="fb">F&amp;B</button>
+      <button class="side-item" data-side="fb-sales">Sales</button>
+      <button class="side-item" data-side="fb-menu">Menu Items</button>
 
       <div class="side-section">Owner&#39;s Dashboard</div>
       <button class="side-item" data-side="dashboard">Overview</button>
@@ -390,76 +394,65 @@
   </section>
 
 
-  <!-- ============ F&B ============ -->
-  <section class="tab-pane" id="pane-fb" style="display:none">
+  <!-- ============ F&B :: Sales ============ -->
+  <section class="tab-pane" id="pane-fb-sales" style="display:none">
 
-    <nav class="subtabs" id="fbSubtabs">
-      <button data-fbtab="sales" class="active">Sales</button>
-      <button data-fbtab="menu">Menu Items</button>
-      <!-- More sub-tabs (Inventory, Suppliers, Analytics) drop in here as we build them. -->
-    </nav>
-
-    <!-- ===== F&B :: Sales ===== -->
-    <div class="subpane" id="fbpane-sales">
-
-      <div class="panel">
-        <h2>Daily F&amp;B (DSR upload)</h2>
-        <p class="hint">Upload the day's <b>DSR_Items_Breakup</b> CSV exported from your POS. The date is read from the CSV header — one upload = one day. If a day already exists, the new upload <b>replaces</b> it.</p>
-        <div class="toolbar">
-          <button class="btn" id="fbDsrUpload">Upload DSR CSV</button>
-          <input type="file" id="fbDsrFile" accept=".csv,text/csv" style="display:none">
-          <button class="btn ghost sm" id="fbDsrClear" style="display:none">Clear preview</button>
-        </div>
-        <div id="fbDsrPreview" class="hint" style="margin-top:10px"></div>
-        <button class="btn" id="fbDsrImport" style="display:none;margin-top:10px">Save this day</button>
+    <div class="panel">
+      <h2>Daily F&amp;B (DSR upload)</h2>
+      <p class="hint">Upload the day's <b>DSR_Items_Breakup</b> CSV exported from your POS. The date is read from the CSV header — one upload = one day. If a day already exists, the new upload <b>replaces</b> it.</p>
+      <div class="toolbar">
+        <button class="btn" id="fbDsrUpload">Upload DSR CSV</button>
+        <input type="file" id="fbDsrFile" accept=".csv,text/csv" style="display:none">
+        <button class="btn ghost sm" id="fbDsrClear" style="display:none">Clear preview</button>
       </div>
-
-      <div class="panel">
-        <h2>Bulk upload — many days at once</h2>
-        <p class="hint">Got DSRs for several days? Select all the CSVs at once and import them in one go. Existing entries on those dates will be <b>replaced</b>.</p>
-        <div class="toolbar">
-          <button class="btn" id="fbBulkUpload">Upload multiple DSR CSVs</button>
-          <input type="file" id="fbBulkFile" accept=".csv,text/csv" multiple style="display:none">
-        </div>
-        <div id="fbBulkPreview" class="hint" style="margin-top:10px"></div>
-        <button class="btn" id="fbBulkImport" style="display:none;margin-top:10px">Import all these days</button>
-      </div>
-
-      <div class="panel">
-        <h2>Bulk upload (single combined CSV)</h2>
-        <p class="hint">For backfills or corrections: one CSV file with many days. Each row = one item (Date, ItemName, Qty are the only required columns). Existing entries for those dates are <b>replaced</b> on import.</p>
-        <div class="toolbar">
-          <button class="btn ghost" id="fbCombTemplate">Download CSV template</button>
-          <button class="btn" id="fbCombUpload">Upload combined CSV</button>
-          <input type="file" id="fbCombFile" accept=".csv,text/csv" style="display:none">
-        </div>
-        <div id="fbCombPreview" class="hint" style="margin-top:10px"></div>
-        <button class="btn" id="fbCombImport" style="display:none;margin-top:10px">Import all these days</button>
-      </div>
-
-      <div class="panel">
-        <h2>Saved days</h2>
-        <div class="grid-wrap"><table class="grid" id="fbHistoryTable"></table></div>
-        <div id="fbDayDetail" style="margin-top:14px;display:none"></div>
-      </div>
-
+      <div id="fbDsrPreview" class="hint" style="margin-top:10px"></div>
+      <button class="btn" id="fbDsrImport" style="display:none;margin-top:10px">Save this day</button>
     </div>
 
-    <!-- ===== F&B :: Menu Items ===== -->
-    <div class="subpane hidden" id="fbpane-menu">
-
-      <div class="panel" id="fbProductsPanel">
-        <h2>Menu items</h2>
-        <p class="hint">Edit a product&apos;s default rate, GST%, category, or name in place — changes save automatically. Most items are 5% GST; packaged water and a few others are 18%. Add a manual product if it isn&apos;t in the POS yet, or refresh the whole catalog from your <b>items.csv</b> export.</p>
-        <div class="toolbar" id="fbCatToolbar">
-          <button class="btn ghost sm" id="fbAddProduct">+ Add product</button>
-          <button class="btn ghost sm" id="fbCatUpload">Replace catalog from items.csv</button>
-          <input type="file" id="fbCatFile" accept=".csv,text/csv" style="display:none">
-          <span class="ok" id="fbCatMsg"></span>
-        </div>
-        <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="fbProductsTable"></table></div>
+    <div class="panel">
+      <h2>Bulk upload — many DSR files</h2>
+      <p class="hint">Got DSRs for several days? Select all the CSVs at once and import them in one go. Existing entries on those dates will be <b>replaced</b>.</p>
+      <div class="toolbar">
+        <button class="btn" id="fbBulkUpload">Upload multiple DSR CSVs</button>
+        <input type="file" id="fbBulkFile" accept=".csv,text/csv" multiple style="display:none">
       </div>
+      <div id="fbBulkPreview" class="hint" style="margin-top:10px"></div>
+      <button class="btn" id="fbBulkImport" style="display:none;margin-top:10px">Import all these days</button>
+    </div>
 
+    <div class="panel">
+      <h2>Bulk upload (single combined CSV)</h2>
+      <p class="hint">For backfills or corrections: one CSV file with many days. Each row = one item (Date, ItemName, Qty are the only required columns). Existing entries for those dates are <b>replaced</b> on import.</p>
+      <div class="toolbar">
+        <button class="btn ghost" id="fbCombTemplate">Download CSV template</button>
+        <button class="btn" id="fbCombUpload">Upload combined CSV</button>
+        <input type="file" id="fbCombFile" accept=".csv,text/csv" style="display:none">
+      </div>
+      <div id="fbCombPreview" class="hint" style="margin-top:10px"></div>
+      <button class="btn" id="fbCombImport" style="display:none;margin-top:10px">Import all these days</button>
+    </div>
+
+    <div class="panel">
+      <h2>Saved days</h2>
+      <div class="grid-wrap"><table class="grid" id="fbHistoryTable"></table></div>
+      <div id="fbDayDetail" style="margin-top:14px;display:none"></div>
+    </div>
+
+  </section>
+
+  <!-- ============ F&B :: Menu Items ============ -->
+  <section class="tab-pane" id="pane-fb-menu" style="display:none">
+
+    <div class="panel" id="fbProductsPanel">
+      <h2>Menu items</h2>
+      <p class="hint">Edit a product&apos;s default rate, GST%, category, or name in place — changes save automatically. Most items are 5% GST; packaged water and a few others are 18%. Add a manual product if it isn&apos;t in the POS yet, or refresh the whole catalog from your <b>items.csv</b> export.</p>
+      <div class="toolbar" id="fbCatToolbar">
+        <button class="btn ghost sm" id="fbAddProduct">+ Add product</button>
+        <button class="btn ghost sm" id="fbCatUpload">Replace catalog from items.csv</button>
+        <input type="file" id="fbCatFile" accept=".csv,text/csv" style="display:none">
+        <span class="ok" id="fbCatMsg"></span>
+      </div>
+      <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="fbProductsTable"></table></div>
     </div>
 
   </section>
@@ -761,7 +754,7 @@ function renderDataBar(){
 function flash(msg){ const el=document.getElementById('dataMsg'); if(el){ el.textContent=msg; setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },4500); } }
 function refreshActive(){ const b=document.querySelector('#tabnav button.active'); if(!b) return; const tab=b.dataset.tab;
   if(tab==='entry') renderEntry(); else if(tab==='serials') renderSerials(); else if(tab==='openings') renderOpenings(); else if(tab==='movies') renderMovies();
-  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); else if(tab==='fb') { if(typeof renderFB==='function') renderFB(); } }
+  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); else if(tab==='fb-sales'){ if(typeof renderHistory==='function') renderHistory(); } else if(tab==='fb-menu'){ if(typeof renderProducts==='function') renderProducts(); } }
 
 // ====================== TABS ======================
 document.getElementById('tabnav').addEventListener('click',e=>{
@@ -778,7 +771,8 @@ document.getElementById('tabnav').addEventListener('click',e=>{
   if(tab==='cards') renderCards();
   if(tab==='config') renderConfig();
   if(tab==='backup') renderEntries();
-  if(tab==='fb' && typeof renderFB==='function') renderFB();
+  if(tab==='fb-sales'){ if(typeof renderHistory==='function') renderHistory(); }
+  if(tab==='fb-menu'){ if(typeof renderProducts==='function') renderProducts(); }
 });
 
 // ====================== DAILY ENTRY ======================
@@ -2706,178 +2700,7 @@ renderEntry();
 })();
 </script>
 
-<!-- ====================== F&B sub-tabs + editable Menu Items ====================== -->
-<script>
-(function(){
-  function ready(fn){ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
-  ready(function(){
 
-    // ---- Sub-tab switching (extensible) ----
-    function switchFbTab(name){
-      document.querySelectorAll('#fbSubtabs button').forEach(function(b){
-        b.classList.toggle('active', b.dataset.fbtab===name);
-      });
-      document.querySelectorAll('#pane-fb .subpane').forEach(function(p){
-        p.classList.toggle('hidden', p.id !== 'fbpane-'+name);
-      });
-      // Lazy refresh of the active sub-tab's content
-      if(name==='menu' && typeof renderProducts==='function') renderProducts();
-      if(name==='sales'){
-        if(typeof renderHistory==='function') renderHistory();
-      }
-    }
-    var fbnav = document.getElementById('fbSubtabs');
-    if(fbnav){
-      fbnav.addEventListener('click', function(e){
-        var b = e.target.closest && e.target.closest('button[data-fbtab]');
-        if(!b) return;
-        switchFbTab(b.dataset.fbtab);
-      });
-    }
-    // When the sidebar opens F&B, default to "sales" sub-tab on first visit
-    var fbnavOpened = false;
-    var sidebar = document.querySelector('.sidebar');
-    if(sidebar){
-      sidebar.addEventListener('click', function(e){
-        var b = e.target.closest && e.target.closest('.side-item[data-side="fb"]');
-        if(!b) return;
-        if(!fbnavOpened){ switchFbTab('sales'); fbnavOpened=true; }
-      });
-    }
-
-    // ---- Editable Menu Items table ----
-    // Override the global renderProducts (defined in the F&B module) with an editable version.
-    var origRenderProducts = window.renderProducts;
-    function isOwnerNow(){ try{ var b=document.getElementById('dataBar'); return b && /\(owner\)/.test(b.textContent||''); }catch(e){ return false; } }
-    function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];}); }
-    function fmt(n){ var x=Number(n); if(!isFinite(x)) x=0; return x.toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2}); }
-    function gstPillClass(g){ var n=Number(g)||0; if(n>=18) return 'gst-18'; if(n>=12) return 'gst-12'; return 'gst-5'; }
-
-    function renderProductsEditable(){
-      var t = document.getElementById('fbProductsTable'); if(!t) return;
-      var owner = isOwnerNow();
-      var bar = document.getElementById('fbCatToolbar');
-      var addBtn = document.getElementById('fbAddProduct');
-      var upBtn  = document.getElementById('fbCatUpload');
-      if(addBtn) addBtn.style.display = owner ? '' : 'none';
-      if(upBtn)  upBtn.style.display  = owner ? '' : 'none';
-
-      var html = '<tr><th style="min-width:60px">Item #</th><th>Name</th><th>Category</th><th style="width:110px">Default rate (₹)</th><th style="width:110px">GST %</th><th style="width:90px"></th></tr>';
-      if(!S.fbProducts || !S.fbProducts.length){
-        html += '<tr><td colspan="6" style="opacity:.6">No products yet. '+(owner?'Add one above or upload items.csv.':'Ask the owner to add some.')+'</td></tr>';
-      } else {
-        // sort by category then name
-        var list = S.fbProducts.slice().sort(function(a,b){
-          var c = String(a.category||'').localeCompare(b.category||'');
-          if(c) return c;
-          return String(a.name||'').localeCompare(b.name||'');
-        });
-        list.forEach(function(p){
-          if(owner){
-            html += '<tr data-fbpid="'+esc(p.id)+'">'+
-              '<td style="opacity:.55;font-size:11px;vertical-align:middle">'+esc(p.itemNumber||p.uid||'')+'</td>'+
-              '<td><input type="text" data-fbpf="name" value="'+esc(p.name)+'" placeholder="Item name"></td>'+
-              '<td><input type="text" data-fbpf="category" value="'+esc(p.category||'')+'" placeholder="Snacks / Drinks / …" style="width:140px"></td>'+
-              '<td><input type="number" min="0" step="0.01" data-fbpf="defaultPrice" value="'+esc(p.defaultPrice==null?'':p.defaultPrice)+'" style="text-align:right"></td>'+
-              '<td><input type="number" min="0" max="100" step="0.01" data-fbpf="gstPct" value="'+esc(p.gstPct==null?'':p.gstPct)+'" style="text-align:right"></td>'+
-              '<td style="text-align:center"><button class="btn ghost sm" data-fbpd="'+esc(p.id)+'" title="Delete">×</button></td>'+
-            '</tr>';
-          } else {
-            html += '<tr>'+
-              '<td style="opacity:.55;font-size:11px">'+esc(p.itemNumber||p.uid||'')+'</td>'+
-              '<td>'+esc(p.name)+'</td>'+
-              '<td>'+esc(p.category||'')+'</td>'+
-              '<td style="text-align:right">₹ '+fmt(p.defaultPrice||0)+'</td>'+
-              '<td style="text-align:right"><span class="gst-pill '+gstPillClass(p.gstPct)+'">'+fmt(p.gstPct||0)+'%</span></td>'+
-              '<td></td>'+
-            '</tr>';
-          }
-        });
-      }
-      t.innerHTML = html;
-    }
-    window.renderProducts = renderProductsEditable;
-
-    // Debounced edit handler
-    var saveTimers = {};
-    function flashRow(tr, ok){
-      if(!tr) return;
-      tr.style.transition = 'background-color .2s';
-      tr.style.background = ok ? 'rgba(57,181,74,.10)' : 'rgba(249,56,32,.10)';
-      setTimeout(function(){ tr.style.background = ''; }, 700);
-    }
-    document.addEventListener('input', function(e){
-      var f = e.target.dataset && e.target.dataset.fbpf; if(!f) return;
-      var tr = e.target.closest('tr[data-fbpid]'); if(!tr) return;
-      var id = tr.dataset.fbpid;
-      var prod = (S.fbProducts||[]).find(function(p){return p.id===id;}); if(!prod) return;
-      // Update local model
-      if(f==='name' || f==='category') prod[f] = e.target.value;
-      else prod[f] = e.target.value==='' ? '' : Number(e.target.value);
-      // Debounced save
-      clearTimeout(saveTimers[id]);
-      saveTimers[id] = setTimeout(function(){
-        var sb = window._sb; if(!sb) return;
-        var row = {
-          name: (prod.name||'').trim(),
-          category: prod.category||'',
-          super_category: prod.superCategory||'',
-          default_rate: prod.defaultPrice===''||prod.defaultPrice==null ? 0 : Number(prod.defaultPrice),
-          default_gst_pct: prod.gstPct===''||prod.gstPct==null ? 5 : Number(prod.gstPct),
-          pos_item_number: prod.itemNumber||null,
-          is_non_veg: !!prod.nonVeg,
-          is_active: prod.isActive!==false,
-          updated_at: new Date().toISOString()
-        };
-        sb.from('fb_products').update(row).eq('id', id).then(function(r){
-          flashRow(tr, !r.error);
-          if(r.error){ console.error('product update', r.error); }
-        });
-      }, 600);
-    });
-
-    // Delete product
-    document.addEventListener('click', function(e){
-      if(e.target.dataset && e.target.dataset.fbpd){
-        if(!isOwnerNow()){ alert('Only the owner can delete products.'); return; }
-        var id = e.target.dataset.fbpd;
-        var p = (S.fbProducts||[]).find(function(x){return x.id===id;});
-        var nm = p ? p.name : '(unnamed)';
-        if(!confirm('Delete product "'+nm+'"? This only removes it from the catalog — historical sales records stay intact.')) return;
-        var sb = window._sb;
-        sb.from('fb_products').delete().eq('id', id).then(function(r){
-          if(r.error){ alert('Delete failed: '+r.error.message); return; }
-          S.fbProducts = (S.fbProducts||[]).filter(function(x){return x.id!==id;});
-          renderProductsEditable();
-        });
-      }
-      // Add product (blank row)
-      if(e.target.id==='fbAddProduct'){
-        if(!isOwnerNow()){ alert('Only the owner can add products.'); return; }
-        var sb = window._sb;
-        var row = {
-          name: 'New product '+(Math.floor(Math.random()*9000)+1000),
-          category: '',
-          super_category: 'Indian',
-          default_rate: 0,
-          default_gst_pct: 5,
-          is_active: true
-        };
-        sb.from('fb_products').insert(row).select().then(function(r){
-          if(r.error){ alert('Add failed: '+r.error.message); return; }
-          if(r.data && r.data[0]){
-            // pullProducts() refreshes from server — easier than mirroring
-            if(typeof pullProducts==='function') pullProducts();
-            else if(window.__pullProducts) window.__pullProducts();
-            else renderProductsEditable();
-          }
-        });
-      }
-    });
-
-  });
-})();
-</script>
 
 <!-- ====================== F&B combined CSV bulk upload ====================== -->
 <script>
@@ -3094,6 +2917,131 @@ renderEntry();
         e.target.value='';
       };
       rd.readAsText(f);
+    });
+  });
+})();
+</script>
+
+<!-- ====================== Editable Menu Items (replaces the read-only renderProducts) ====================== -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+  ready(function(){
+    function isOwnerNow(){ try{ var b=document.getElementById('dataBar'); return b && /\(owner\)/.test(b.textContent||''); }catch(e){ return false; } }
+    function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];}); }
+    function fmt(n){ var x=Number(n); if(!isFinite(x)) x=0; return x.toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2}); }
+    function gstPillClass(g){ var n=Number(g)||0; if(n>=18) return 'gst-18'; if(n>=12) return 'gst-12'; return 'gst-5'; }
+
+    function renderProductsEditable(){
+      var t = document.getElementById('fbProductsTable'); if(!t) return;
+      var owner = isOwnerNow();
+      var addBtn = document.getElementById('fbAddProduct');
+      var upBtn  = document.getElementById('fbCatUpload');
+      if(addBtn) addBtn.style.display = owner ? '' : 'none';
+      if(upBtn)  upBtn.style.display  = owner ? '' : 'none';
+
+      var html = '<tr><th style="min-width:60px">Item #</th><th>Name</th><th>Category</th><th style="width:120px">Default rate (₹)</th><th style="width:110px">GST %</th><th style="width:90px"></th></tr>';
+      if(!S.fbProducts || !S.fbProducts.length){
+        html += '<tr><td colspan="6" style="opacity:.6">No products yet. '+(owner?'Add one above or upload items.csv.':'Ask the owner to add some.')+'</td></tr>';
+      } else {
+        var list = (S.fbProducts||[]).slice().sort(function(a,b){
+          var c = String(a.category||'').localeCompare(b.category||'');
+          if(c) return c;
+          return String(a.name||'').localeCompare(b.name||'');
+        });
+        list.forEach(function(p){
+          if(owner){
+            html += '<tr data-fbpid="'+esc(p.id)+'">'+
+              '<td style="opacity:.55;font-size:11px;vertical-align:middle">'+esc(p.itemNumber||p.uid||'')+'</td>'+
+              '<td><input type="text" data-fbpf="name" value="'+esc(p.name)+'" placeholder="Item name"></td>'+
+              '<td><input type="text" data-fbpf="category" value="'+esc(p.category||'')+'" placeholder="Snacks / Drinks / …" style="width:140px"></td>'+
+              '<td><input type="number" min="0" step="0.01" data-fbpf="defaultPrice" value="'+esc(p.defaultPrice==null?'':p.defaultPrice)+'" style="text-align:right"></td>'+
+              '<td><input type="number" min="0" max="100" step="0.01" data-fbpf="gstPct" value="'+esc(p.gstPct==null?'':p.gstPct)+'" style="text-align:right"></td>'+
+              '<td style="text-align:center"><button class="btn ghost sm" data-fbpd="'+esc(p.id)+'" title="Delete">×</button></td>'+
+            '</tr>';
+          } else {
+            html += '<tr>'+
+              '<td style="opacity:.55;font-size:11px">'+esc(p.itemNumber||p.uid||'')+'</td>'+
+              '<td>'+esc(p.name)+'</td>'+
+              '<td>'+esc(p.category||'')+'</td>'+
+              '<td style="text-align:right">₹ '+fmt(p.defaultPrice||0)+'</td>'+
+              '<td style="text-align:right"><span class="gst-pill '+gstPillClass(p.gstPct)+'">'+fmt(p.gstPct||0)+'%</span></td>'+
+              '<td></td>'+
+            '</tr>';
+          }
+        });
+      }
+      t.innerHTML = html;
+    }
+    window.renderProducts = renderProductsEditable;
+
+    var saveTimers = {};
+    function flashRow(tr, ok){
+      if(!tr) return;
+      tr.style.transition = 'background-color .2s';
+      tr.style.background = ok ? 'rgba(57,181,74,.10)' : 'rgba(249,56,32,.10)';
+      setTimeout(function(){ tr.style.background = ''; }, 700);
+    }
+    document.addEventListener('input', function(e){
+      var f = e.target.dataset && e.target.dataset.fbpf; if(!f) return;
+      var tr = e.target.closest('tr[data-fbpid]'); if(!tr) return;
+      var id = tr.dataset.fbpid;
+      var prod = (S.fbProducts||[]).find(function(p){return p.id===id;}); if(!prod) return;
+      if(f==='name' || f==='category') prod[f] = e.target.value;
+      else prod[f] = e.target.value==='' ? '' : Number(e.target.value);
+      clearTimeout(saveTimers[id]);
+      saveTimers[id] = setTimeout(function(){
+        var sb = window._sb; if(!sb) return;
+        var row = {
+          name: (prod.name||'').trim(),
+          category: prod.category||'',
+          super_category: prod.superCategory||'',
+          default_rate: prod.defaultPrice===''||prod.defaultPrice==null ? 0 : Number(prod.defaultPrice),
+          default_gst_pct: prod.gstPct===''||prod.gstPct==null ? 5 : Number(prod.gstPct),
+          pos_item_number: prod.itemNumber||null,
+          is_non_veg: !!prod.nonVeg,
+          is_active: prod.isActive!==false,
+          updated_at: new Date().toISOString()
+        };
+        sb.from('fb_products').update(row).eq('id', id).then(function(r){
+          flashRow(tr, !r.error);
+          if(r.error){ console.error('product update', r.error); }
+        });
+      }, 600);
+    });
+
+    document.addEventListener('click', function(e){
+      if(e.target.dataset && e.target.dataset.fbpd){
+        if(!isOwnerNow()){ alert('Only the owner can delete products.'); return; }
+        var id = e.target.dataset.fbpd;
+        var p = (S.fbProducts||[]).find(function(x){return x.id===id;});
+        var nm = p ? p.name : '(unnamed)';
+        if(!confirm('Delete product "'+nm+'"? Historical sales records stay intact.')) return;
+        var sb = window._sb;
+        sb.from('fb_products').delete().eq('id', id).then(function(r){
+          if(r.error){ alert('Delete failed: '+r.error.message); return; }
+          S.fbProducts = (S.fbProducts||[]).filter(function(x){return x.id!==id;});
+          renderProductsEditable();
+        });
+      }
+      if(e.target.id==='fbAddProduct'){
+        if(!isOwnerNow()){ alert('Only the owner can add products.'); return; }
+        var sb = window._sb;
+        var row = {
+          name: 'New product '+(Math.floor(Math.random()*9000)+1000),
+          category: '',
+          super_category: 'Indian',
+          default_rate: 0,
+          default_gst_pct: 5,
+          is_active: true
+        };
+        sb.from('fb_products').insert(row).select().then(function(r){
+          if(r.error){ alert('Add failed: '+r.error.message); return; }
+          if(typeof pullProducts==='function') pullProducts();
+          else if(window.__pullProducts) window.__pullProducts();
+          else renderProductsEditable();
+        });
+      }
     });
   });
 })();
