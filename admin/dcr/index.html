@@ -665,6 +665,7 @@ function computeSerials(entries){
         const tickets=N((sw.rows[cid]||{}).tickets);
         const key=`${sw.entryId}__${sw.showIdx}__${cid}`;
         if(counter!=null && tickets>0){ map[key]={from:counter,to:counter+tickets-1}; counter+=tickets; }
+        else if(counter!=null){ map[key]={from:counter,to:'NA'}; }   // no sales: show where it WOULD have started; counter unchanged
         else map[key]={from:'',to:''};
       });
     });
@@ -1087,8 +1088,8 @@ function renderDCR(C){
         ${s.rows.map(r=>`<tr>
           <td class="cls">${esc(r.cls)}</td><td>${int(r.seats)}</td>
           <td class="num">${r.tickets?money(r.poa):''}</td>
-          <td>${r.from!==''?int(r.from):''}</td><td>${r.to!==''?int(r.to):''}</td>
-          <td>${r.tickets?int(r.tickets):''}</td>
+          <td>${r.from!==''&&r.from!=null?int(r.from):''}</td><td>${r.to==='NA'?'NA':(r.to!==''&&r.to!=null?int(r.to):'')}</td>
+          <td>${int(r.tickets||0)}</td>
           <td class="num">${r.tickets?money(r.grossColl):''}</td><td class="num">${r.tickets?money(r.totalPOA):''}</td>
           <td class="num">${r.tickets?money(r.tmc):''}</td><td class="num">${r.tickets?money(r.cess):''}</td>
           <td class="num">${r.tickets?money(r.etax):''}</td><td class="num">${r.tickets?money(r.total):''}</td>
@@ -1219,7 +1220,7 @@ function dcrToPdf(C){
       F(sc(6.6),isTot); tc(INK);
       cells.forEach((v,i)=>{ const r=i>=1; rowText(v, r?xat(i)+W[i]-3:xat(i)+3, y, h, sc(6.6), r?'right':'left'); });
       dc(LINE); doc.setLineWidth(0.3); doc.line(x0,y+h,x0+TW,y+h); y+=h; };
-    (sh.rows||[]).forEach(r=> drow([r.cls,int(r.seats),r.tickets?money(r.poa):'',(r.from!==''&&r.from!=null)?int(r.from):'',(r.to!==''&&r.to!=null)?int(r.to):'',r.tickets?int(r.tickets):'',r.tickets?money(r.grossColl):'',r.tickets?money(r.totalPOA):'',r.tickets?money(r.tmc):'',r.tickets?money(r.cess):'',r.tickets?money(r.etax):'',r.tickets?money(r.total):'',r.tickets?money(r.gst):''], false));
+    (sh.rows||[]).forEach(r=> drow([r.cls,int(r.seats),r.tickets?money(r.poa):'',(r.from!==''&&r.from!=null)?int(r.from):'',(r.to==='NA'?'NA':((r.to!==''&&r.to!=null)?int(r.to):'')),int(r.tickets||0),r.tickets?money(r.grossColl):'',r.tickets?money(r.totalPOA):'',r.tickets?money(r.tmc):'',r.tickets?money(r.cess):'',r.tickets?money(r.etax):'',r.tickets?money(r.total):'',r.tickets?money(r.gst):''], false));
     drow(['Total','','','','',int(t.tickets),money(t.grossColl),money(t.totalPOA),money(t.tmc),money(t.cess),money(t.etax),money(t.total),money(t.gst)], true);
     y+=sc(gShow);
   });
@@ -1286,7 +1287,7 @@ function dcrCsvRows(C){
   R.push(['Screen',C.screen.name,'','Week Day',weekday(C.entry.date)]); R.push([]);
   R.push(['Show','Class','Total Seats','POA','Sl From','Sl To','Tkts Sold','Gross Collection','Total POA','TMC','Cess','E-Tax','Total','GST']);
   C.shows.forEach((s,i)=>{
-    s.rows.forEach(r=> R.push([`Show ${i+1} ${fmtTime(s.showtime)}`, r.cls, r.seats, r.tickets?r.poa.toFixed(2):'', r.from, r.to, r.tickets||'',
+    s.rows.forEach(r=> R.push([`Show ${i+1} ${fmtTime(s.showtime)}`, r.cls, r.seats, r.tickets?r.poa.toFixed(2):'', r.from, r.to, r.tickets||0,
       r.tickets?r.grossColl.toFixed(2):'', r.tickets?r.totalPOA.toFixed(2):'', r.tickets?r.tmc.toFixed(2):'', r.tickets?r.cess.toFixed(2):'', r.tickets?r.etax.toFixed(2):'', r.tickets?r.total.toFixed(2):'', r.tickets?r.gst.toFixed(2):'']));
     R.push(['',`Show ${i+1} Total`,'','','','',s.totals.tickets,s.totals.grossColl.toFixed(2),s.totals.totalPOA.toFixed(2),s.totals.tmc.toFixed(2),s.totals.cess.toFixed(2),s.totals.etax.toFixed(2),s.totals.total.toFixed(2),s.totals.gst.toFixed(2)]);
   });
