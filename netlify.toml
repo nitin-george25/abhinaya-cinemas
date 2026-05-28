@@ -1,0 +1,3 @@
+# Netlify configuration for abhinayacinemas.com/admin/dcr
+[build]
+  publish = "."
