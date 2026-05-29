@@ -1,0 +1,18 @@
+# Netlify headers — long cache on static assets, short on HTML
+# HTML must revalidate so deploys propagate instantly.
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/admin/dcr/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Long cache (1 year) on hashable assets — the file names get a hash from Netlify
+# only when changed, so we can safely tell browsers to keep them forever.
+/admin/dcr/js/*
+  Cache-Control: public, max-age=31536000, must-revalidate
+
+/admin/dcr/css/*
+  Cache-Control: public, max-age=31536000, must-revalidate
+
+/admin/dcr/img/*
+  Cache-Control: public, max-age=31536000, immutable
