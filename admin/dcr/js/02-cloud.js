@@ -115,7 +115,7 @@
     );
     var b=document.getElementById('gBtn');
     if(b) b.onclick=function(){
-      sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: 'https://www.abhinayacinemas.com/admin/dcr/' } });
+      sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: IS_PROD ? 'https://www.abhinayacinemas.com/admin/dcr/' : (location.origin + location.pathname) } });
     };
   }
 
