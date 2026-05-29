@@ -152,3 +152,10 @@ If a future change to these is proposed: stop, dump 10 days' computed numbers fr
 2. **Want to change a SQL view or table?** Add a new step SQL file in the project folder (Step 5, 6, …). Keep them idempotent.
 3. **Want to migrate to React?** Start with C.1, then C.2, then C.3 dashboard-first. Read `B.2` for the module-boundary contract.
 4. **Want to verify nothing broke?** Compare `v_daily_combined` results before and after, and re-export the Tally CSV for any known DCR — it should be byte-identical.
+
+---
+
+## Build log
+
+- 2026-05-29 — Phase A refactor landed. `index.html` split into 9 JS modules + 1 CSS file. Logos externalised to `img/` for cache-friendly delivery. `_headers` added for long-lived asset caching.
+
