@@ -31,8 +31,10 @@
   // (Netlify branch deploys are 'staging--<site>.netlify.app'; PR previews are
   // 'deploy-preview-N--<site>.netlify.app'). Everything else — the custom
   // domain AND the bare netlify.app default URL — is prod.
-  var IS_STAGING = /(^|\.)staging--/.test(location.hostname) ||
-                   /^deploy-preview-/.test(location.hostname) ||
+  // Any branch deploy or PR preview on netlify.app is staging (hostnames look like
+  // 'staging-refactor--<site>.netlify.app' or 'deploy-preview-N--<site>.netlify.app').
+  // The bare site URL '<site>.netlify.app' has no '--' and is therefore prod.
+  var IS_STAGING = (location.hostname.endsWith('.netlify.app') && location.hostname.includes('--')) ||
                    location.hostname === 'localhost' ||
                    location.hostname === '127.0.0.1';
   var IS_PROD = !IS_STAGING;
