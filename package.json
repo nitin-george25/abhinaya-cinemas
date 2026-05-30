@@ -1,0 +1,16 @@
+{
+  "name": "abhinaya-cinemas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static site + Netlify Scheduled Function for the daily DCR digest.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^2.8.0"
+  }
+}
