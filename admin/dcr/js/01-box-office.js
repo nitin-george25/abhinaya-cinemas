@@ -279,7 +279,7 @@ function renderDataBar(){
 function flash(msg){ const el=document.getElementById('dataMsg'); if(el){ el.textContent=msg; setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },4500); } }
 function refreshActive(){ const b=document.querySelector('#tabnav button.active'); if(!b) return; const tab=b.dataset.tab;
   if(tab==='entry') renderEntry(); else if(tab==='serials') renderSerials(); else if(tab==='openings') renderOpenings(); else if(tab==='movies') renderMovies();
-  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); else if(tab==='fb-sales'){ if(typeof renderHistory==='function') renderHistory(); } else if(tab==='fb-menu'){ if(typeof renderProducts==='function') renderProducts(); } }
+  else if(tab==='cards') renderCards(); else if(tab==='config') renderConfig(); else if(tab==='backup') renderEntries(); else if(tab==='fb-sales'){ if(typeof renderHistory==='function') renderHistory(); } else if(tab==='fb-menu'){ if(typeof renderProducts==='function') renderProducts(); } else if(tab==='activity'){ if(window.__renderActivityLog) window.__renderActivityLog(); } }
 
 // ====================== TABS ======================
 document.getElementById('tabnav').addEventListener('click',e=>{
@@ -298,6 +298,7 @@ document.getElementById('tabnav').addEventListener('click',e=>{
   if(tab==='backup') renderEntries();
   if(tab==='fb-sales'){ if(typeof renderHistory==='function') renderHistory(); }
   if(tab==='fb-menu'){ if(typeof renderProducts==='function') renderProducts(); }
+  if(tab==='activity'){ if(window.__renderActivityLog) window.__renderActivityLog(); }
 });
 
 // ====================== DAILY ENTRY ======================

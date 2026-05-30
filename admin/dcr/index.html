@@ -33,6 +33,7 @@
     <button data-tab="fb-sales">F&amp;B Sales</button>
     <button data-tab="fb-menu">F&amp;B Menu</button>
     <button data-tab="dashboard">Owner&#39;s Dashboard</button>
+    <button data-tab="activity">Activity Log</button>
   </nav>
   <div class="layout">
     <aside class="sidebar no-print">
@@ -52,6 +53,7 @@
 
       <div class="side-section">Owner&#39;s Dashboard</div>
       <button class="side-item" data-side="dashboard">Overview</button>
+      <button class="side-item" data-side="activity">Activity Log</button>
     </aside>
     <div class="main">
   <div id="dataBar" class="data-bar no-print"></div>
@@ -363,9 +365,36 @@
     <!-- Recent activity -->
     <div class="panel">
       <h2>Recent activity</h2>
+      <p class="hint">Last 5 events. For the full filterable history, open <b>Activity Log</b> from the sidebar.</p>
       <div id="dashRecent" class="hint">No data yet.</div>
     </div>
 
+  </section>
+
+  <!-- ============ ACTIVITY LOG ============ -->
+  <section class="tab-pane" id="pane-activity" style="display:none">
+    <div class="panel">
+      <h2>Activity Log</h2>
+      <p class="hint">Who changed what, when. Entries are tagged with <b>cinema × screen × movie</b> for easy traceability across locations and screens.</p>
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:end">
+        <div class="field" style="min-width:160px"><label>User</label><select id="al_user"><option value="">All users</option></select></div>
+        <div class="field" style="min-width:140px"><label>Type</label>
+          <select id="al_type">
+            <option value="">All types</option>
+            <option value="bo">Box Office DCR</option>
+            <option value="fb">F&amp;B day</option>
+            <option value="cfg">Cinema config</option>
+            <option value="cat">F&amp;B catalog</option>
+          </select>
+        </div>
+        <div class="field"><label>From</label><input type="date" id="al_from"></div>
+        <div class="field"><label>To</label><input type="date" id="al_to"></div>
+        <button class="btn ghost sm" id="al_clear">Clear filters</button>
+        <button class="btn ghost sm" id="al_refresh">Refresh</button>
+        <span id="al_status" style="opacity:.6;font-size:12px;margin-left:auto"></span>
+      </div>
+      <div class="grid-wrap" style="margin-top:10px"><table class="grid" id="activityTable"></table></div>
+    </div>
   </section>
 
   <footer>
