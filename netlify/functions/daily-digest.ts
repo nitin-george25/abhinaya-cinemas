@@ -34,22 +34,35 @@ function renderBody(opts: {
   fbForDay: FbAgg | null;
   last7BoTicketsPerDay: number;
   last7FbNetPerDay: number;
+  last7AtpAvg: number;
+  last7OccAvg: number;
+  last7SphAvg: number;
   missingScreens: string[];
   noBoAtAll: boolean;
 }): string {
-  const { targetDate, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, missingScreens, noBoAtAll } = opts;
+  const { targetDate, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, last7AtpAvg, last7OccAvg, last7SphAvg, missingScreens, noBoAtAll } = opts;
   const totalTickets = boByEntry.reduce((s, r) => s + r.tickets, 0);
   const totalShows = boByEntry.reduce((s, r) => s + r.shows, 0);
+  const totalGross = boByEntry.reduce((s, r) => s + r.grossColl, 0);
+  const totalSeats = boByEntry.reduce((s, r) => s + r.seats, 0);
   const fbNet = fbForDay ? fbForDay.net : 0;
   const fbBills = fbForDay ? fbForDay.bills : 0;
 
-  const screenRowsHtml = boByEntry.map((r) => `
+  const atp = totalTickets > 0 ? totalGross / totalTickets : 0;
+  const occ = totalSeats > 0 ? (totalTickets / totalSeats) * 100 : 0;
+  const sph = totalTickets > 0 ? fbNet / totalTickets : 0;
+
+  const screenRowsHtml = boByEntry.map((r) => {
+    const rowOcc = r.seats > 0 ? (r.tickets / r.seats) * 100 : 0;
+    return `
     <tr>
       <td style="padding:10px 8px;border-bottom:1px solid #eee;font-weight:500">${escapeHtml(r.screenName)}</td>
       <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#555">${escapeHtml(r.movieName)}</td>
       <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right">${fmtInt(r.shows)}</td>
       <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right">${fmtInt(r.tickets)}</td>
-    </tr>`).join("");
+      <td style="padding:10px 8px;border-bottom:1px solid #eee;text-align:right">${r.seats > 0 ? rowOcc.toFixed(1) + "%" : "—"}</td>
+    </tr>`;
+  }).join("");
 
   const missingHtml = missingScreens.length
     ? warningBlock(`<b>Heads up:</b> ${escapeHtml(missingScreens.join(", "))} ${missingScreens.length === 1 ? "has" : "have"} no DCR entry for ${fmtDate(targetDate)}.`)
@@ -63,14 +76,36 @@ function renderBody(opts: {
           <th style="padding:10px 8px;text-align:left">Movie</th>
           <th style="padding:10px 8px;text-align:right">Shows</th>
           <th style="padding:10px 8px;text-align:right">Tickets</th>
+          <th style="padding:10px 8px;text-align:right">Occ %</th>
         </tr></thead>
         <tbody>${screenRowsHtml}</tbody>
         <tfoot><tr style="background:#f0f0f0;font-weight:600">
           <td colspan="2" style="padding:10px 8px">Total</td>
           <td style="padding:10px 8px;text-align:right">${fmtInt(totalShows)}</td>
           <td style="padding:10px 8px;text-align:right">${fmtInt(totalTickets)}</td>
+          <td style="padding:10px 8px;text-align:right">${totalSeats > 0 ? occ.toFixed(1) + "%" : "—"}</td>
         </tr></tfoot>
       </table>`;
+
+  // Yesterday's headline KPIs — ATP, Occ %, SPH
+  const kpiBlock = noBoAtAll ? "" : `
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <div style="flex:1;background:#fafafa;border-radius:6px;padding:12px">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">ATP</div>
+        <div style="font-size:18px;font-weight:700;margin-top:2px;color:#111">${fmtINR(atp)}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">Avg ticket price</div>
+      </div>
+      <div style="flex:1;background:#fafafa;border-radius:6px;padding:12px">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Occ %</div>
+        <div style="font-size:18px;font-weight:700;margin-top:2px;color:#111">${totalSeats > 0 ? occ.toFixed(1) + "%" : "—"}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">Tickets / capacity</div>
+      </div>
+      <div style="flex:1;background:#fafafa;border-radius:6px;padding:12px">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">SPH</div>
+        <div style="font-size:18px;font-weight:700;margin-top:2px;color:#111">${fbForDay ? fmtINR(sph) : "—"}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">F&B per head</div>
+      </div>
+    </div>`;
 
   const fbBlockHtml = fbForDay
     ? `<table style="width:100%;border-collapse:collapse;background:#fafafa;border-radius:6px;overflow:hidden">
@@ -84,6 +119,7 @@ function renderBody(opts: {
 
     <h2 style="font-size:15px;margin:28px 0 10px;color:#333;font-weight:600">Box Office</h2>
     ${boTable}
+    ${kpiBlock}
 
     <h2 style="font-size:15px;margin:28px 0 10px;color:#333;font-weight:600">F&B</h2>
     ${fbBlockHtml}
@@ -92,26 +128,37 @@ function renderBody(opts: {
     <table style="width:100%;border-collapse:collapse;background:#fafafa;border-radius:6px;overflow:hidden">
       <tr><td style="padding:10px 12px;color:#666">Tickets per day</td><td style="padding:10px 12px;text-align:right;font-weight:600">${fmtInt(last7BoTicketsPerDay)}</td></tr>
       <tr><td style="padding:10px 12px;color:#666;border-top:1px solid #eee">F&B Net per day</td><td style="padding:10px 12px;text-align:right;font-weight:600;border-top:1px solid #eee">${fmtINR(last7FbNetPerDay)}</td></tr>
+      <tr><td style="padding:10px 12px;color:#666;border-top:1px solid #eee">ATP (avg ticket price)</td><td style="padding:10px 12px;text-align:right;font-weight:600;border-top:1px solid #eee">${fmtINR(last7AtpAvg)}</td></tr>
+      <tr><td style="padding:10px 12px;color:#666;border-top:1px solid #eee">Occupancy %</td><td style="padding:10px 12px;text-align:right;font-weight:600;border-top:1px solid #eee">${last7OccAvg > 0 ? last7OccAvg.toFixed(1) + "%" : "—"}</td></tr>
+      <tr><td style="padding:10px 12px;color:#666;border-top:1px solid #eee">SPH (F&B per head)</td><td style="padding:10px 12px;text-align:right;font-weight:600;border-top:1px solid #eee">${fmtINR(last7SphAvg)}</td></tr>
     </table>`;
 }
 
-function plainText(opts: { targetDate: string; cinemaName: string; boByEntry: BoAgg[]; fbForDay: FbAgg | null; last7BoTicketsPerDay: number; last7FbNetPerDay: number; missingScreens: string[]; noBoAtAll: boolean; }): string {
-  const { targetDate, cinemaName, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, missingScreens, noBoAtAll } = opts;
+function plainText(opts: { targetDate: string; cinemaName: string; boByEntry: BoAgg[]; fbForDay: FbAgg | null; last7BoTicketsPerDay: number; last7FbNetPerDay: number; last7AtpAvg: number; last7OccAvg: number; last7SphAvg: number; missingScreens: string[]; noBoAtAll: boolean; }): string {
+  const { targetDate, cinemaName, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, last7AtpAvg, last7OccAvg, last7SphAvg, missingScreens, noBoAtAll } = opts;
   const totalTickets = boByEntry.reduce((s, r) => s + r.tickets, 0);
   const totalShows = boByEntry.reduce((s, r) => s + r.shows, 0);
+  const totalGross = boByEntry.reduce((s, r) => s + r.grossColl, 0);
+  const totalSeats = boByEntry.reduce((s, r) => s + r.seats, 0);
+  const atp = totalTickets > 0 ? totalGross / totalTickets : 0;
+  const occ = totalSeats > 0 ? (totalTickets / totalSeats) * 100 : 0;
+  const sph = totalTickets > 0 && fbForDay ? fbForDay.net / totalTickets : 0;
   return `Abhinaya — ${fmtDate(targetDate)}
 ${cinemaName}
 
 Box Office:
-${noBoAtAll ? "  (no entries)" : boByEntry.map(r => `  ${r.screenName} · ${r.movieName} · ${r.shows} shows · ${r.tickets} tickets`).join("\n")}
-${noBoAtAll ? "" : `  Total: ${totalShows} shows, ${totalTickets} tickets`}
+${noBoAtAll ? "  (no entries)" : boByEntry.map(r => `  ${r.screenName} · ${r.movieName} · ${r.shows} shows · ${r.tickets} tickets · ${r.seats > 0 ? ((r.tickets / r.seats) * 100).toFixed(1) + "% occ" : "—"}`).join("\n")}
+${noBoAtAll ? "" : `  Total: ${totalShows} shows, ${totalTickets} tickets, ATP ${fmtINR(atp)}, Occ ${totalSeats > 0 ? occ.toFixed(1) + "%" : "—"}`}
 
 F&B:
-${fbForDay ? `  Net: ${fmtINR(fbForDay.net)}\n  Bills: ${fmtInt(fbForDay.bills)}` : "  (not entered)"}
+${fbForDay ? `  Net: ${fmtINR(fbForDay.net)}\n  Bills: ${fmtInt(fbForDay.bills)}\n  SPH: ${fmtINR(sph)}` : "  (not entered)"}
 
 7-day rolling avg:
   Tickets/day: ${fmtInt(last7BoTicketsPerDay)}
   F&B Net/day: ${fmtINR(last7FbNetPerDay)}
+  ATP: ${fmtINR(last7AtpAvg)}
+  Occupancy: ${last7OccAvg > 0 ? last7OccAvg.toFixed(1) + "%" : "—"}
+  SPH: ${fmtINR(last7SphAvg)}
 
 ${missingScreens.length ? `Heads up: ${missingScreens.join(", ")} missing.\n` : ""}
 Full financials: https://www.abhinayacinemas.com/admin/dcr/`;
@@ -166,8 +213,15 @@ export default async (req: Request) => {
 
   const bo7 = ((bo7Res.data || []) as Entry[]).map((e) => aggregateBOEntry(e, cfg));
   const fb7 = ((fb7Res.data || []) as FbEntry[]).map((f) => aggregateFB(f));
-  const last7BoTicketsPerDay = Math.round(bo7.reduce((s, r) => s + r.tickets, 0) / 7);
-  const last7FbNetPerDay = Math.round(fb7.reduce((s, r) => s + r.net, 0) / 7);
+  const bo7Tickets = bo7.reduce((s, r) => s + r.tickets, 0);
+  const bo7Gross   = bo7.reduce((s, r) => s + r.grossColl, 0);
+  const bo7Seats   = bo7.reduce((s, r) => s + r.seats, 0);
+  const fb7Net     = fb7.reduce((s, r) => s + r.net, 0);
+  const last7BoTicketsPerDay = Math.round(bo7Tickets / 7);
+  const last7FbNetPerDay     = Math.round(fb7Net / 7);
+  const last7AtpAvg = bo7Tickets > 0 ? bo7Gross / bo7Tickets : 0;       // weighted avg
+  const last7OccAvg = bo7Seats   > 0 ? (bo7Tickets / bo7Seats) * 100 : 0;
+  const last7SphAvg = bo7Tickets > 0 ? fb7Net / bo7Tickets : 0;
 
   const allScreens: string[] = (cfg.screens || []).map((s) => s.name || s.id).filter(Boolean);
   const screensWithData = new Set(boByEntry.map((r) => r.screenName));
@@ -176,9 +230,9 @@ export default async (req: Request) => {
   const totalTickets = boByEntry.reduce((s, r) => s + r.tickets, 0);
   const fbNet = fbForDay ? fbForDay.net : 0;
   const subject = `Abhinaya — ${fmtDate(target)} · ${fmtInt(totalTickets)} tickets · ${fmtINR(fbNet)} F&B`;
-  const bodyHtml = renderBody({ targetDate: target, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, missingScreens, noBoAtAll });
+  const bodyHtml = renderBody({ targetDate: target, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, last7AtpAvg, last7OccAvg, last7SphAvg, missingScreens, noBoAtAll });
   const html = emailShell({ eyebrow: "Daily Digest", title: fmtDate(target), subtitle: cinemaName, bodyHtml });
-  const text = plainText({ targetDate: target, cinemaName, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, missingScreens, noBoAtAll });
+  const text = plainText({ targetDate: target, cinemaName, boByEntry, fbForDay, last7BoTicketsPerDay, last7FbNetPerDay, last7AtpAvg, last7OccAvg, last7SphAvg, missingScreens, noBoAtAll });
 
   if (dry) {
     return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });

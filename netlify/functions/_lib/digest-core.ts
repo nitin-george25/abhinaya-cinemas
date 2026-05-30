@@ -109,14 +109,40 @@ export type FbEntry = {
   updated_by?: string;
   updated_at?: string;
 };
+export type CfgScreen = {
+  id: string;
+  name?: string;
+  classes?: Array<{ classId: string; seats?: number }>;
+  priceCards?: Array<{ id: string; prices?: Record<string, number> }>;
+};
+export type CfgClass = { id: string; name?: string };
 export type Cfg = {
   cinema?: { name?: string };
-  screens?: Array<{ id: string; name?: string }>;
+  screens?: CfgScreen[];
   movies?: Array<{ id: string; name?: string }>;
+  classes?: CfgClass[];
   [k: string]: any;
 };
 
-// ---------- aggregation (no engine math — see comment in daily-digest.ts) ----------
+// ---------- aggregation ----------
+// Operational metrics aggregated per BO entry (one row in `entries`).
+//
+// What's computed without the engine:
+//   - tickets    : sum of qty across shows × class rows
+//   - shows      : number of shows in the entry
+//   - grossColl  : sum of (qty × class_gross_price) using the show's priceCard
+//                  → this is the FACE-VALUE collection (POA + all taxes), same
+//                    value the engine's `today.grossColl` returns. The "engine"
+//                    only gets used to split that into POA/TMC/Cess/Etax/GST/Net
+//                    Share — the gross total is just multiplication.
+//   - seats      : sum of (class.seats × number_of_shows) for the screen — the
+//                  capacity that was *available* for sale across all shows
+//                  in this entry. Used to compute Occupancy %.
+//
+// Derived metrics rolled up at render time:
+//   - ATP        = grossColl / tickets         (Average Ticket Price)
+//   - Occ %      = tickets   / seats × 100     (Occupancy %)
+//   - SPH        = fb_net    / tickets         (Spend Per Head, on F&B)
 export type BoAgg = {
   date: string;
   movieId: string;
@@ -124,6 +150,8 @@ export type BoAgg = {
   screenName: string;
   tickets: number;
   shows: number;
+  grossColl: number;
+  seats: number;
 };
 export type FbAgg = {
   date: string;
@@ -136,15 +164,33 @@ export type FbAgg = {
 
 export function aggregateBOEntry(e: Entry, cfg: Cfg): BoAgg {
   const shows = Array.isArray(e.shows) ? e.shows : [];
+  const screen = (cfg.screens || []).find((s) => s.id === e.screen_id) as CfgScreen | undefined;
+
+  // Build screen → classId → {seats, defaultGrossPrice?} lookup once
+  const seatsByClass: Record<string, number> = {};
+  (screen?.classes || []).forEach((c) => { seatsByClass[c.classId] = Number(c.seats) || 0; });
+  const cardById: Record<string, Record<string, number>> = {};
+  (screen?.priceCards || []).forEach((card) => { cardById[card.id] = card.prices || {}; });
+
+  // seats-per-show = sum of all classes' seat counts on this screen
+  const seatsPerShow = Object.values(seatsByClass).reduce((s, n) => s + n, 0);
+  const totalSeats = seatsPerShow * shows.length;
+
   let tickets = 0;
+  let grossColl = 0;
   shows.forEach((sh: any) => {
+    const cardPrices = cardById[sh?.priceCardId] || {};
     const rows = (sh && sh.rows) || {};
-    Object.values(rows).forEach((r: any) => {
-      tickets += Number(r?.tickets) || 0;
+    Object.keys(rows).forEach((classId) => {
+      const r = rows[classId] || {};
+      const qty = Number(r?.tickets) || 0;
+      tickets += qty;
+      const price = Number(cardPrices[classId]) || 0;
+      grossColl += qty * price;
     });
   });
+
   const movie = (cfg.movies || []).find((m) => m.id === e.movie_id);
-  const screen = (cfg.screens || []).find((s) => s.id === e.screen_id);
   return {
     date: e.entry_date,
     movieId: e.movie_id,
@@ -152,6 +198,8 @@ export function aggregateBOEntry(e: Entry, cfg: Cfg): BoAgg {
     screenName: screen?.name || e.screen_id || "(unknown screen)",
     tickets,
     shows: shows.length,
+    grossColl,
+    seats: totalSeats,
   };
 }
 
