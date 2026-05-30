@@ -409,6 +409,11 @@
         syncedFB = {};
         S.fbEntries.forEach(function(e){ syncedFB[e.date] = fbSig(e); });
         renderHistory();
+        // Bug fix: realtime sync only re-rendered the F&B history. Now re-render
+        // whatever pane is active so dashboard charts + activity log + entries
+        // table also pick up the new F&B day without the user having to switch
+        // tabs or hard-refresh.
+        if(typeof refreshActive==='function') try{ refreshActive(); }catch(e){ console.error(e); }
       });
     }
 
