@@ -1,3 +1,8 @@
 # Netlify configuration for abhinayacinemas.com/admin/dcr
+
 [build]
   publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
