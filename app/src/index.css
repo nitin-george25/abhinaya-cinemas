@@ -18,3 +18,48 @@ body {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ───────────────────────── Print stylesheet ─────────────────────────
+ * Browser "Cmd-P → Save as PDF" is the BACKUP path; the primary PDF
+ * comes from jsPDF (lib/pdf.ts). These rules just make the backup look
+ * passable: hide the app shell, drop borders/shadows, fit to landscape.
+ * Add `print:hidden` to anything you want suppressed on print.
+ * --------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  /* Hide the app shell — sidebar / header / nav. The DCR view at
+   * #dcr-printable expands to fill the page. */
+  aside, header, footer, nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  #dcr-printable {
+    max-width: none !important;
+  }
+
+  /* Strip the on-screen card chrome so the document prints flat. */
+  .dcr-page {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+  }
+
+  /* Avoid breaking individual show blocks across pages where possible. */
+  section, table, tr {
+    page-break-inside: avoid;
+  }
+}

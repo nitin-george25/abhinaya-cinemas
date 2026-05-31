@@ -12,6 +12,7 @@ import FBPage from "./pages/FB";
 import ActivityPage from "./pages/Activity";
 import BackupPage from "./pages/Backup";
 import SettingsPage from "./pages/Settings";
+import DcrPage from "./pages/Dcr";
 
 export default function App() {
   return (
@@ -96,6 +97,12 @@ function AppGate() {
               <Route path="/settings/*" element={<SettingsPage />} />
             ) : null}
             <Route path="/history" element={<HistoryPage />} />
+            {/* DCR view is reachable from Entry + History. Accountants
+                see it too, since History is their landing tab. */}
+            <Route
+              path="/dcr/:date/:movieId/:screenId"
+              element={<DcrPage />}
+            />
             <Route path="*"        element={<NotFound />} />
           </Routes>
         </AppShell>

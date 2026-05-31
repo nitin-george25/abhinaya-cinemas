@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { todayIso } from "../lib/dates";
@@ -13,7 +14,15 @@ import {
   upsertEntry,
 } from "../lib/entry";
 import { computeEntry } from "../lib/engine";
-import type { DateISO, Entry, UUID } from "../lib/types";
+import { downloadDcrPdf } from "../lib/pdf";
+import {
+  dcrCsvFilename,
+  dcrCsvRows,
+  downloadCsv,
+  tallyCsvFilename,
+  tallyCsvRows,
+} from "../lib/csv";
+import type { AppState, DateISO, Entry, UUID } from "../lib/types";
 
 import { Card, CardBody } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -110,9 +119,11 @@ export default function EntryPage() {
           </p>
         </div>
         {existing ? (
-          <Button variant="ghost" size="sm" onClick={onDelete}>
-            Delete entry
-          </Button>
+          <EntryActions
+            entry={existing}
+            appState={appState}
+            onDelete={onDelete}
+          />
         ) : null}
       </div>
 
@@ -203,6 +214,57 @@ function EntryBody({
       </Button>
 
       <EntryPreview computed={computed} />
+    </div>
+  );
+}
+
+/**
+ * Right-aligned action row for the entry header. Only shown when an entry
+ * exists. Delete is a ghost button so it's clearly destructive but not
+ * visually loud.
+ */
+function EntryActions({
+  entry,
+  appState,
+  onDelete,
+}: {
+  entry: Entry;
+  appState: AppState;
+  onDelete: () => void;
+}) {
+  const computed = useMemo(
+    () => computeEntry(appState, entry),
+    [appState, entry],
+  );
+  const dcrPath = `/dcr/${entry.date}/${entry.movieId}/${entry.screenId}`;
+
+  function dlPdf() {
+    downloadDcrPdf(computed, { cinema: appState.cinema, tax: appState.tax });
+  }
+  function dlCsv() {
+    downloadCsv(dcrCsvFilename(computed), dcrCsvRows(computed, appState.cinema));
+  }
+  function dlTally() {
+    const rows = tallyCsvRows(computed);
+    if (rows.length < 2) {
+      alert(
+        "No sold tickets with serials to export yet. Enter tickets and make " +
+          "sure a serial starting point exists.",
+      );
+      return;
+    }
+    downloadCsv(tallyCsvFilename(computed), rows);
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <Link to={dcrPath}>
+        <Button variant="secondary" size="sm">View DCR</Button>
+      </Link>
+      <Button variant="secondary" size="sm" onClick={dlCsv}>CSV</Button>
+      <Button variant="secondary" size="sm" onClick={dlTally}>Tally CSV</Button>
+      <Button size="sm" onClick={dlPdf}>Download PDF</Button>
+      <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
     </div>
   );
 }
