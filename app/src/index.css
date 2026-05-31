@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Inter via system stack works fine without a font CDN; if we want the
+ * geometric Inter look later we can self-host or use Bunny Fonts. */
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Tabular numerals on anything that prints money or counts. Useful
+ * default for an ops dashboard — kpi values line up across rows. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,13 +1,15 @@
-# Netlify headers — long cache on static assets, short on HTML
+# Cloudflare Pages headers — long cache on static assets, short on HTML.
 # HTML must revalidate so deploys propagate instantly.
+
+# ── Legacy vanilla console (/admin/dcr/) ────────────────────────────────────
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
 
 /admin/dcr/index.html
   Cache-Control: public, max-age=0, must-revalidate
 
-# Long cache (1 year) on hashable assets — the file names get a hash from Netlify
-# only when changed, so we can safely tell browsers to keep them forever.
+# Hashable static assets — safe to cache aggressively. Filenames are bumped
+# (manually for legacy, automatically by Vite for /v2/) when contents change.
 /admin/dcr/js/*
   Cache-Control: public, max-age=31536000, must-revalidate
 
@@ -16,3 +18,16 @@
 
 /admin/dcr/img/*
   Cache-Control: public, max-age=31536000, immutable
+
+# ── New React app (/v2/) ────────────────────────────────────────────────────
+# Vite puts hashed JS/CSS under /v2/assets/. The hashes change on every
+# rebuild, so these are safe to cache for a year.
+/v2/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The shell HTML must revalidate so users pick up new builds immediately.
+/v2/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/v2/
+  Cache-Control: public, max-age=0, must-revalidate
