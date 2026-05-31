@@ -85,7 +85,10 @@ function fmtTime(t){ if(!t) return ''; const [h,m]=t.split(':').map(Number); con
 function weekday(d){ if(!d) return ''; return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(d+'T00:00:00').getDay()]; }
 function daysBetween(a,b){ return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
 function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-const today=()=>new Date().toISOString().slice(0,10);
+// Local-time today as YYYY-MM-DD. toISOString() returns UTC and shifts dates
+// by -1 day in IST after ~6:30 PM local — caused entries to default to "yesterday"
+// on late-evening sessions. Use local components instead.
+const today=()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; };
 
 // ---------- catalog / screen lookups ----------
 function catClass(id){ return S.classes.find(c=>c.id===id); }
@@ -534,7 +537,10 @@ document.getElementById('saveDay').onclick=()=>{
 document.getElementById('newDay').onclick=()=>{
   upsertDraft();   // store the day you're leaving so it feeds future "Previous" rows
   const prev=S.draft, d=new Date((prev.date||today())+'T00:00:00'); d.setDate(d.getDate()+1);
-  S.draft={id:uid(), date:d.toISOString().slice(0,10), movieId:prev.movieId, screenId:prev.screenId, share:prev.share, shows:[blankShow(prev.screenId)]};
+  // Use local date components (not toISOString which returns UTC and would
+  // shift the date back by 1 day in IST).
+  const _y=d.getFullYear(), _m=String(d.getMonth()+1).padStart(2,'0'), _dd=String(d.getDate()).padStart(2,'0');
+  S.draft={id:uid(), date:_y+'-'+_m+'-'+_dd, movieId:prev.movieId, screenId:prev.screenId, share:prev.share, shows:[blankShow(prev.screenId)]};
   save(); renderEntry();
   document.getElementById('dcrWrap').innerHTML='<div class="empty-state">New day started — enter tickets, then Generate. The previous day is saved and will show in the “Previous” row.</div>';
   const m=document.getElementById('saveMsg'); m.textContent='✓ Previous day saved.'; setTimeout(()=>m.textContent='',2500);

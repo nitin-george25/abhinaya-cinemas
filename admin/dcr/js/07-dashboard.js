@@ -26,7 +26,10 @@
     };
     var CAT_PALETTE = ['#3488C0','#F7B61F','#F93820','#39B54A','#9B59B6','#16A085','#E67E22','#7F8C8D'];
 
-    function iso(d){ return d.toISOString().slice(0,10); }
+    // Local-time date string (YYYY-MM-DD). toISOString() returns UTC, which
+    // shifts dates in IST (and any non-UTC zone) by -1 day for any local-midnight
+    // Date object — caused the "custom range Apr 1–Apr 30 shows Mar 31–Apr 29" bug.
+    function iso(d){ var y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; }
     function dt(s){ if(!s) return null; var p=s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
     function addDays(d, n){ var x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
     function daysBetween(a, b){ return Math.round((b - a) / 86400000) + 1; }
