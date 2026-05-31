@@ -34,6 +34,11 @@ export function DcrView({ computed, cinema, tax }: Props) {
     );
   }
 
+  // Destructure the narrowed fields. TS doesn't carry narrowing across
+  // `const C = computed`, so the guard above only proves `computed.movie`
+  // is non-null — destructuring is the cleanest way to surface that to
+  // the rest of the render tree.
+  const { movie, screen } = computed;
   const C = computed;
   const g = C.grand;
 
@@ -44,9 +49,9 @@ export function DcrView({ computed, cinema, tax }: Props) {
       <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <MetaTable
           rows={[
-            ["Name of the Picture", C.movie.name],
-            ["Name of the Distributor", C.movie.distributor ?? ""],
-            ["Screen", C.screen.name],
+            ["Name of the Picture", movie.name],
+            ["Name of the Distributor", movie.distributor ?? ""],
+            ["Screen", screen.name],
           ]}
         />
         <MetaTable
