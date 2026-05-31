@@ -2,13 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/v2/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0F1115" />
     <title>Abhinaya Cinemas · Console</title>
   </head>
   <body class="bg-paper text-ink antialiased">
     <div id="root"></div>
-    <script type="module" src="/v2/src/main.tsx"></script>
+    <!--
+      Paths in index.html are relative to the Vite project root, NOT to the
+      deployed site. Vite applies the `base` ('/v2/') prefix during build,
+      rewriting this to /v2/assets/main-<hash>.js in the production HTML.
+    -->
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
