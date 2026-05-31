@@ -27,17 +27,17 @@
     anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjdGt2bXB6aWphc3BheXR1bmttIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTU0NDgsImV4cCI6MjA5NTYzMTQ0OH0.YeYegXQvX0l0FMABDgljs_bV_t9C66x77Y3kj2YZ55A'
   };
 
-  // Treat the URL as STAGING only if the hostname explicitly signals it
-  // (Netlify branch deploys are 'staging--<site>.netlify.app'; PR previews are
-  // 'deploy-preview-N--<site>.netlify.app'). Everything else — the custom
-  // domain AND the bare netlify.app default URL — is prod.
-  // Any branch deploy or PR preview on netlify.app is staging (hostnames look like
-  // 'staging-refactor--<site>.netlify.app' or 'deploy-preview-N--<site>.netlify.app').
-  // The bare site URL '<site>.netlify.app' has no '--' and is therefore prod.
-  var IS_STAGING = (location.hostname.endsWith('.netlify.app') && location.hostname.includes('--')) ||
-                   location.hostname === 'localhost' ||
-                   location.hostname === '127.0.0.1';
-  var IS_PROD = !IS_STAGING;
+  // After Cloudflare migration we changed strategy:
+  //   PROD = anything served from the custom domain (abhinayacinemas.com / www.*).
+  //   STAGING = everything else — Cloudflare preview deploys (*.pages.dev,
+  //             whether the hashed hostname like 'abcdef12.<proj>.pages.dev' or
+  //             the branch alias like 'staging-refactor.<proj>.pages.dev'),
+  //             localhost, plus any leftover *.netlify.app URLs still alive.
+  // This is more robust than enumerating staging patterns — anything that isn't
+  // the prod custom domain is treated as staging by default.
+  var PROD_HOSTS = ['abhinayacinemas.com', 'www.abhinayacinemas.com'];
+  var IS_PROD = PROD_HOSTS.indexOf(location.hostname) !== -1;
+  var IS_STAGING = !IS_PROD;
   var ENV = IS_PROD ? PROD : STAGING;
   window.__DCR_ENV = IS_PROD ? 'prod' : 'staging';
 
