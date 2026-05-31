@@ -53,7 +53,10 @@
       if(diff < 86400) return Math.floor(diff/3600) + 'h ago';
       var d = Math.floor(diff / 86400);
       if(d < 30) return d + 'd ago';
-      return then.toISOString().slice(0,10);
+      // Use local date components — toISOString returns UTC which would show
+      // "2026-05-30" for a 1 AM IST May 31 event (off-by-one in IST).
+      var _y=then.getFullYear(), _m=String(then.getMonth()+1).padStart(2,'0'), _dd=String(then.getDate()).padStart(2,'0');
+      return _y+'-'+_m+'-'+_dd;
     }
     function describeEntry(e){
       var m = (S.movies||[]).find(function(x){return x.id===e.movie_id;});
@@ -124,7 +127,10 @@
       if(diff < 86400) return Math.floor(diff/3600) + 'h ago';
       var d = Math.floor(diff / 86400);
       if(d < 30) return d + 'd ago';
-      return then.toISOString().slice(0,10);
+      // Use local date components — toISOString returns UTC which would show
+      // "2026-05-30" for a 1 AM IST May 31 event (off-by-one in IST).
+      var _y=then.getFullYear(), _m=String(then.getMonth()+1).padStart(2,'0'), _dd=String(then.getDate()).padStart(2,'0');
+      return _y+'-'+_m+'-'+_dd;
     }
     function absTime(iso){ if(!iso) return ''; var d = new Date(iso); return d.toLocaleString('en-IN', {dateStyle:'short', timeStyle:'short'}); }
 
