@@ -41,6 +41,10 @@ export function RollupTable<T>({
         {rows.length === 0 ? (
           <p className="p-5 text-sm text-ink-muted">{empty}</p>
         ) : (
+          // overflow-x-auto: if the screen is narrower than the table needs,
+          // horizontal-scroll instead of wrapping number cells onto two lines.
+          // table-fixed prevents the browser from over-allocating to a long
+          // movie name and starving the money columns.
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -49,7 +53,7 @@ export function RollupTable<T>({
                     <th
                       key={i}
                       className={
-                        "px-5 py-3 font-semibold " +
+                        "px-3 py-3 font-semibold whitespace-nowrap " +
                         (c.align === "right" ? "text-right" : "text-left") +
                         (c.width ? " " + c.width : "")
                       }
@@ -66,11 +70,17 @@ export function RollupTable<T>({
                     className="border-b border-line last:border-b-0 hover:bg-paper/60"
                   >
                     {cols.map((c, ci) => (
+                      // whitespace-nowrap on numeric cells so 8-digit ₹
+                      // figures never wrap to a second line. Text cells
+                      // (left-aligned, usually a name) keep their default
+                      // wrapping so long movie titles still display fully.
                       <td
                         key={ci}
                         className={
-                          "px-5 py-3 " +
-                          (c.align === "right" ? "text-right tabular-nums" : "")
+                          "px-3 py-3 " +
+                          (c.align === "right"
+                            ? "text-right tabular-nums whitespace-nowrap"
+                            : "")
                         }
                       >
                         {c.render(row)}
@@ -81,7 +91,7 @@ export function RollupTable<T>({
               </tbody>
             </table>
             {hidden > 0 ? (
-              <div className="px-5 py-3 text-xs text-ink-muted border-t border-line">
+              <div className="px-3 py-3 text-xs text-ink-muted border-t border-line">
                 + {hidden} more
               </div>
             ) : null}
