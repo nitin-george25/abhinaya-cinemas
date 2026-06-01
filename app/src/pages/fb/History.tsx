@@ -83,7 +83,10 @@ export default function FBHistoryPage() {
     setEditing(null);
   }
 
-  const canEdit = state.role === "owner" || state.role === "manager";
+  const canEdit =
+    state.role === "owner" ||
+    state.role === "manager" ||
+    state.role === "daily_manager";
 
   return (
     <div className="space-y-5 max-w-7xl">

@@ -41,7 +41,10 @@ type NavItem = NavLeaf | NavGroup;
 
 const OWNER_MANAGER: Role[] = ["owner", "manager"];
 const OWNER_ONLY: Role[] = ["owner"];
-const ALL: Role[] = ["owner", "manager", "accountant"];
+const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+// Day-to-day data-entry roles: can write BO + F&B but nothing else.
+const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
+const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 
 const NAV: NavItem[] = [
   {
@@ -58,8 +61,8 @@ const NAV: NavItem[] = [
     Icon: IconEntry,
     roles: ALL,
     children: [
-      { kind: "leaf", to: "/box-office/entry",   label: "Entry",   roles: OWNER_MANAGER },
-      { kind: "leaf", to: "/box-office/history", label: "History", roles: ALL },
+      { kind: "leaf", to: "/box-office/entry",   label: "Entry",   roles: ENTRY_ROLES },
+      { kind: "leaf", to: "/box-office/history", label: "History", roles: BO_HISTORY_ROLES },
     ],
   },
   {
@@ -67,10 +70,10 @@ const NAV: NavItem[] = [
     id: "fb",
     label: "F&B",
     Icon: IconFB,
-    roles: OWNER_MANAGER,
+    roles: ENTRY_ROLES,
     children: [
-      { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: OWNER_MANAGER },
-      { kind: "leaf", to: "/fb/history",    label: "History",    roles: OWNER_MANAGER },
+      { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: ENTRY_ROLES },
+      { kind: "leaf", to: "/fb/history",    label: "History",    roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/menu-items", label: "Menu Items", roles: OWNER_ONLY },
     ],
   },
@@ -90,6 +93,15 @@ const NAV: NavItem[] = [
   { kind: "leaf", to: "/activity", label: "Activity Log", Icon: IconActivity, roles: OWNER_MANAGER },
   { kind: "leaf", to: "/backup",   label: "Backup",       Icon: IconBackup,   roles: OWNER_MANAGER },
 ];
+
+function roleLabel(role: Role): string {
+  switch (role) {
+    case "owner":         return "owner";
+    case "manager":       return "manager";
+    case "daily_manager": return "daily manager";
+    case "accountant":    return "accountant";
+  }
+}
 
 function filterForRole(items: NavItem[], role: Role): NavItem[] {
   const out: NavItem[] = [];
@@ -159,7 +171,7 @@ export function Sidebar({ role }: { role: Role }) {
 
       {/* Footer caption */}
       <div className="px-5 py-3 border-t border-white/10 text-[10px] uppercase tracking-wider text-white/30">
-        v2 preview · {role}
+        v2 preview · {roleLabel(role)}
       </div>
     </aside>
   );

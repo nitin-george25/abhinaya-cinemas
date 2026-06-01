@@ -40,7 +40,14 @@ import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { IconSpinner } from "../components/icons";
 
-const ROLES: Role[] = ["owner", "manager", "accountant"];
+const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+
+const ROLE_LABELS: Record<Role, string> = {
+  owner: "Owner",
+  manager: "Manager",
+  daily_manager: "Daily Manager",
+  accountant: "Accountant",
+};
 
 // ── users section ─────────────────────────────────────────────────────
 
@@ -245,7 +252,7 @@ function UserRow({
           className="w-36 h-8 text-sm"
         >
           {ROLES.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
           ))}
         </Select>
       </td>
@@ -369,7 +376,7 @@ function AddUserForm({
       </Field>
       <Field label="Role">
         <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
         </Select>
       </Field>
       <div className="flex items-center gap-2">

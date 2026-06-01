@@ -77,83 +77,82 @@ function AppGate() {
 
     case "ready":
       if (!state.role) return <SignInScreen />;
-      return (
-        <AppShell role={state.role}>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <Navigate
-                  to={
-                    state.role === "accountant"
-                      ? "/box-office/history"
-                      : "/dashboard"
-                  }
-                  replace
-                />
-              }
-            />
+      {
+        const role = state.role;
+        const canEnterBO = role === "owner" || role === "manager" || role === "daily_manager";
+        const canDoFB    = canEnterBO; // same set: owner, manager, daily_manager
+        const canSeeAdmin = role === "owner" || role === "manager"; // Dashboard, Activity, Backup, Settings
+        const landing =
+          role === "accountant"     ? "/box-office/history" :
+          role === "daily_manager"  ? "/box-office/entry"   :
+                                      "/dashboard";
+        return (
+          <AppShell role={role}>
+            <Routes>
+              <Route path="/" element={<Navigate to={landing} replace />} />
 
-            {/* Box Office */}
-            <Route
-              path="/box-office"
-              element={
-                <Navigate
-                  to={
-                    state.role === "accountant"
-                      ? "/box-office/history"
-                      : "/box-office/entry"
-                  }
-                  replace
-                />
-              }
-            />
-            {state.role !== "accountant" ? (
-              <Route path="/box-office/entry" element={<EntryPage />} />
-            ) : null}
-            <Route path="/box-office/history" element={<HistoryPage />} />
+              {/* Box Office */}
+              <Route
+                path="/box-office"
+                element={
+                  <Navigate
+                    to={
+                      role === "accountant"
+                        ? "/box-office/history"
+                        : "/box-office/entry"
+                    }
+                    replace
+                  />
+                }
+              />
+              {canEnterBO ? (
+                <Route path="/box-office/entry" element={<EntryPage />} />
+              ) : null}
+              <Route path="/box-office/history" element={<HistoryPage />} />
 
-            {/* Legacy URL redirects */}
-            <Route path="/entry"   element={<Navigate to="/box-office/entry"   replace />} />
-            <Route path="/history" element={<Navigate to="/box-office/history" replace />} />
-            <Route path="/fb"      element={<Navigate to="/fb/history"         replace />} />
-            <Route path="/settings" element={<Navigate to="/settings/movies"   replace />} />
+              {/* Legacy URL redirects */}
+              <Route path="/entry"    element={<Navigate to="/box-office/entry"   replace />} />
+              <Route path="/history"  element={<Navigate to="/box-office/history" replace />} />
+              <Route path="/fb"       element={<Navigate to="/fb/history"         replace />} />
+              <Route path="/settings" element={<Navigate to="/settings/movies"    replace />} />
 
-            {state.role !== "accountant" ? (
-              <>
-                <Route path="/dashboard" element={<Dashboard />} />
+              {/* F&B — owner, manager, daily_manager */}
+              {canDoFB ? (
+                <>
+                  <Route path="/fb/entry"   element={<FBEntryPage />} />
+                  <Route path="/fb/history" element={<FBHistoryPage />} />
+                </>
+              ) : null}
+              {role === "owner" ? (
+                <Route path="/fb/menu-items" element={<FBMenuItemsPage />} />
+              ) : null}
 
-                {/* F&B */}
-                <Route path="/fb/entry"   element={<FBEntryPage />} />
-                <Route path="/fb/history" element={<FBHistoryPage />} />
-                {state.role === "owner" ? (
-                  <Route path="/fb/menu-items" element={<FBMenuItemsPage />} />
-                ) : null}
+              {/* Admin-only: Dashboard, Activity, Backup, Settings */}
+              {canSeeAdmin ? (
+                <>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/activity"  element={<ActivityPage />} />
+                  <Route path="/backup"    element={<BackupPage />} />
+                  <Route path="/settings/movies"  element={<SettingsMoviesPage />} />
+                  <Route path="/settings/screens" element={<SettingsScreensPage />} />
+                  <Route path="/settings/tax"     element={<SettingsTaxPage />} />
+                  {role === "owner" ? (
+                    <Route path="/settings/users" element={<SettingsUsersPage />} />
+                  ) : null}
+                </>
+              ) : null}
 
-                {/* Activity + Backup — owner + manager only */}
-                <Route path="/activity" element={<ActivityPage />} />
-                <Route path="/backup"   element={<BackupPage />} />
-
-                {/* Settings */}
-                <Route path="/settings/movies"  element={<SettingsMoviesPage />} />
-                <Route path="/settings/screens" element={<SettingsScreensPage />} />
-                <Route path="/settings/tax"     element={<SettingsTaxPage />} />
-                {state.role === "owner" ? (
-                  <Route path="/settings/users" element={<SettingsUsersPage />} />
-                ) : null}
-              </>
-            ) : null}
-
-            {/* DCR view is reachable from Entry + History. Accountants
-                see it too, since History is their landing tab. */}
-            <Route
-              path="/dcr/:date/:movieId/:screenId"
-              element={<DcrPage />}
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AppShell>
-      );
+              {/* DCR view is reachable from Entry + History. Accountants
+                  see it too, since History is their landing tab. */}
+              <Route
+                path="/dcr/:date/:movieId/:screenId"
+                element={<DcrPage />}
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AppShell>
+        );
+      }
   }
 }
 

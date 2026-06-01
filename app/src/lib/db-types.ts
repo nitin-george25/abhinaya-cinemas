@@ -41,7 +41,7 @@ export interface ConfigPayload {
 /** `public.authorized_users` — access allowlist + role. */
 export interface AuthorizedUserRow {
   email: string;
-  role: "owner" | "manager" | "accountant";
+  role: "owner" | "manager" | "daily_manager" | "accountant";
   full_name: string | null;
   /** Set when the user signs in via username + PIN. Null for Google users. */
   username: string | null;

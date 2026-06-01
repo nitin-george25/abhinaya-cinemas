@@ -40,7 +40,10 @@ export default function FBEntryPage() {
     );
   }
 
-  const canEdit = state.role === "owner" || state.role === "manager";
+  const canEdit =
+    state.role === "owner" ||
+    state.role === "manager" ||
+    state.role === "daily_manager";
 
   function handleSave(entry: FbEntry) {
     if (!appState) return;

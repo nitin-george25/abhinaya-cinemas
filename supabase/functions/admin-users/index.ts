@@ -29,9 +29,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const LOCAL_DOMAIN = "local.abhinayacinemas.com";
 const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{1,30}[a-z0-9])?$/i;
 const PIN_RE = /^\d{6}$/;
-const ROLES = new Set(["owner", "manager", "accountant"]);
+const ROLES = new Set(["owner", "manager", "daily_manager", "accountant"]);
 
-type Role = "owner" | "manager" | "accountant";
+type Role = "owner" | "manager" | "daily_manager" | "accountant";
 
 interface CreateBody { action: "create"; username: string; pin: string; fullName: string; role: Role; }
 interface ResetPinBody { action: "reset_pin"; username: string; pin: string; }
