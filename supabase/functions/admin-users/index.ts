@@ -1,0 +1,203 @@
+// ============================================================================
+// admin-users — owner-only user management.
+//
+// One Edge Function with action routing. Actions:
+//   • create       { username, pin, fullName, role }
+//   • reset_pin    { username, pin }
+//   • update_role  { username, role }
+//   • remove       { username }
+//
+// Auth model:
+//   • Caller's JWT (from the browser session) is verified via getUser().
+//   • Caller's role is looked up in authorized_users.
+//   • Only `owner` may invoke any action.
+//   • Mutations themselves go through the SERVICE ROLE client.
+//
+// Username → email mapping:
+//   <username>@local.abhinayacinemas.com
+//   No real email is ever sent to this address; it's just Supabase's
+//   identifier for the user.
+//
+// Deploy: copy this file's contents into the Supabase dashboard
+//   Edge Functions → Create function → admin-users
+// Env vars needed: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+//   (the first two are set automatically; the anon key is also injected.)
+// ============================================================================
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const LOCAL_DOMAIN = "local.abhinayacinemas.com";
+const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{1,30}[a-z0-9])?$/i;
+const PIN_RE = /^\d{6}$/;
+const ROLES = new Set(["owner", "manager", "accountant"]);
+
+type Role = "owner" | "manager" | "accountant";
+
+interface CreateBody { action: "create"; username: string; pin: string; fullName: string; role: Role; }
+interface ResetPinBody { action: "reset_pin"; username: string; pin: string; }
+interface UpdateRoleBody { action: "update_role"; username: string; role: Role; }
+interface RemoveBody { action: "remove"; username: string; }
+type Body = CreateBody | ResetPinBody | UpdateRoleBody | RemoveBody;
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+const usernameToEmail = (u: string) => `${u.toLowerCase()}@${LOCAL_DOMAIN}`;
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+  const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
+    return json({ error: "Supabase env vars not configured" }, 500);
+  }
+
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return json({ error: "missing authorization header" }, 401);
+
+  // 1) Verify caller via the user's JWT
+  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userRes, error: userErr } = await userClient.auth.getUser();
+  if (userErr || !userRes.user?.email) {
+    return json({ error: "invalid session" }, 401);
+  }
+  const callerEmail = userRes.user.email.toLowerCase();
+
+  // 2) Verify caller is an owner
+  const svc = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: callerRow } = await svc
+    .from("authorized_users")
+    .select("role")
+    .eq("email", callerEmail)
+    .maybeSingle();
+  if (callerRow?.role !== "owner") {
+    return json({ error: "owner role required" }, 403);
+  }
+
+  // 3) Dispatch
+  let body: Body;
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    return json({ error: "invalid JSON body" }, 400);
+  }
+
+  switch (body.action) {
+    case "create":      return await createUser(svc, body);
+    case "reset_pin":   return await resetPin(svc, body);
+    case "update_role": return await updateRole(svc, body);
+    case "remove":      return await removeUser(svc, body);
+    default:
+      return json({ error: "unknown action" }, 400);
+  }
+});
+
+// ── actions ────────────────────────────────────────────────────────────
+
+type Svc = ReturnType<typeof createClient>;
+
+async function createUser(svc: Svc, b: CreateBody): Promise<Response> {
+  const v = validate(b);
+  if (v) return json({ error: v }, 400);
+
+  const email = usernameToEmail(b.username);
+
+  // Create the auth user with email_confirm so the user can sign in
+  // immediately without an OTP / confirmation email round-trip.
+  const { data: created, error: createErr } = await svc.auth.admin.createUser({
+    email,
+    password: b.pin,
+    email_confirm: true,
+    user_metadata: { username: b.username, full_name: b.fullName },
+  });
+  if (createErr) return json({ error: createErr.message }, 400);
+
+  // Insert into authorized_users so the existing role-lookup works.
+  const { error: insertErr } = await svc.from("authorized_users").insert({
+    email,
+    role: b.role,
+    full_name: b.fullName,
+    username: b.username,
+  });
+  if (insertErr) {
+    // Roll back the auth user so we don't leave an orphan.
+    await svc.auth.admin.deleteUser(created.user!.id);
+    return json({ error: `insert failed: ${insertErr.message}` }, 400);
+  }
+  return json({ ok: true, email });
+}
+
+async function resetPin(svc: Svc, b: ResetPinBody): Promise<Response> {
+  if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
+  if (!PIN_RE.test(b.pin)) return json({ error: "PIN must be exactly 6 digits" }, 400);
+
+  const email = usernameToEmail(b.username);
+  const user = await findAuthUser(svc, email);
+  if (!user) return json({ error: "user not found" }, 404);
+
+  const { error } = await svc.auth.admin.updateUserById(user.id, { password: b.pin });
+  if (error) return json({ error: error.message }, 400);
+  return json({ ok: true });
+}
+
+async function updateRole(svc: Svc, b: UpdateRoleBody): Promise<Response> {
+  if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
+  if (!ROLES.has(b.role)) return json({ error: "invalid role" }, 400);
+
+  const email = usernameToEmail(b.username);
+  const { error } = await svc
+    .from("authorized_users")
+    .update({ role: b.role })
+    .eq("email", email);
+  if (error) return json({ error: error.message }, 400);
+  return json({ ok: true });
+}
+
+async function removeUser(svc: Svc, b: RemoveBody): Promise<Response> {
+  if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
+
+  const email = usernameToEmail(b.username);
+  const user = await findAuthUser(svc, email);
+  if (user) {
+    const { error } = await svc.auth.admin.deleteUser(user.id);
+    if (error) return json({ error: error.message }, 400);
+  }
+  // Delete the authorized_users row too (cascade isn't set up).
+  await svc.from("authorized_users").delete().eq("email", email);
+  return json({ ok: true });
+}
+
+// ── helpers ────────────────────────────────────────────────────────────
+
+function validate(b: CreateBody): string | null {
+  if (!USERNAME_RE.test(b.username)) {
+    return "Username must be 2–32 chars, letters/digits/._- only, starting and ending with letter/digit.";
+  }
+  if (!PIN_RE.test(b.pin)) return "PIN must be exactly 6 digits.";
+  if (!b.fullName || b.fullName.length < 2) return "Full name required.";
+  if (!ROLES.has(b.role)) return "Invalid role.";
+  return null;
+}
+
+async function findAuthUser(svc: Svc, email: string) {
+  // The admin API doesn't expose `getUserByEmail` directly — list + filter.
+  // For our scale (low double-digit users) one page is plenty.
+  const { data, error } = await svc.auth.admin.listUsers({ page: 1, perPage: 200 });
+  if (error) return null;
+  return data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
+}

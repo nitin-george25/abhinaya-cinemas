@@ -56,6 +56,9 @@ export type Role = AuthorizedUserRow["role"];
 export interface SyncState {
   status: SyncStatus;
   email: string | null;
+  /** Set when the user signed in via username + PIN. Null for Google users. */
+  username: string | null;
+  fullName: string | null;
   role: Role | null;
   appState: AppState | null;
   error: string | null;
@@ -88,6 +91,8 @@ export function useSupabaseSync(): SyncApi {
   const [state, setState] = useState<SyncState>({
     status: "booting",
     email: null,
+    username: null,
+    fullName: null,
     role: null,
     appState: null,
     error: null,
@@ -239,7 +244,7 @@ export function useSupabaseSync(): SyncApi {
       const email = (user.email ?? "").toLowerCase();
       const lookup = await sb
         .from("authorized_users")
-        .select("email,role,full_name")
+        .select("email,role,full_name,username")
         .eq("email", email)
         .maybeSingle();
       if (lookup.error) console.error(lookup.error);
@@ -249,6 +254,8 @@ export function useSupabaseSync(): SyncApi {
           ...p,
           status: "unauthorized",
           email,
+          username: null,
+          fullName: null,
           role: null,
           error: `${email} isn't on the access list yet — ask the owner to add your email.`,
         }));
@@ -259,6 +266,8 @@ export function useSupabaseSync(): SyncApi {
         ...p,
         status: appState ? "ready" : "error",
         email,
+        username: row.username,
+        fullName: row.full_name,
         role: row.role,
         appState,
         saveState: "saved",
@@ -284,6 +293,8 @@ export function useSupabaseSync(): SyncApi {
           ...p,
           status: "signed-out",
           email: null,
+          username: null,
+          fullName: null,
           role: null,
           appState: null,
         }));

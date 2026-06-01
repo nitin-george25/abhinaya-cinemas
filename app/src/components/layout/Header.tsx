@@ -38,7 +38,10 @@ export function Header() {
 
         <div className="flex items-center gap-3">
           <SyncPill />
-          <UserMenu email={state.email} onSignOut={signOut} />
+          <UserMenu
+            label={state.fullName ?? state.username ?? state.email}
+            onSignOut={signOut}
+          />
         </div>
       </div>
     </header>
@@ -72,16 +75,18 @@ function SyncPill() {
 }
 
 function UserMenu({
-  email,
+  label,
   onSignOut,
 }: {
-  email: string | null;
+  label: string | null;
   onSignOut: () => Promise<void>;
 }) {
-  if (!email) return null;
+  if (!label) return null;
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-ink-muted hidden sm:inline">{email}</span>
+      <span className="text-sm text-ink-muted hidden sm:inline truncate max-w-[200px]">
+        {label}
+      </span>
       <Button
         size="sm"
         variant="ghost"

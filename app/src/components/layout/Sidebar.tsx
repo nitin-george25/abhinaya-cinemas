@@ -36,20 +36,19 @@ export function Sidebar({ role }: { role: Role }) {
   const visible = NAV.filter((n) => n.roles.includes(role));
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
-      {/* Brand — we ship one logo asset (the dark-on-light version used in
-       *  the DCR PDF). For the dark sidebar we re-tint it white in CSS via
-       *  `brightness(0) invert(1)`. When a proper white logomark arrives
-       *  (Logo-White.png in iCloud is still a placeholder right now), drop
-       *  it into app/src/assets/ and swap this src. */}
-      <div className="px-5 py-5 flex items-center gap-3 border-b border-white/10">
+      {/* Brand — the logo asset is designed for a white DCR header, with
+       *  bright colour accents on a dark mark. On the dark sidebar the
+       *  dark parts vanish and the colour pops, which reads OK. When a
+       *  proper white logomark arrives (Logo-White.png is iCloud
+       *  placeholder right now), drop it into app/src/assets/ and swap. */}
+      <div className="px-5 py-4 flex items-center gap-2.5 border-b border-white/10">
         <img
           src={LOGO_DATA_URL}
           alt="Abhinaya Cinemas"
-          className="h-9 w-auto shrink-0"
-          style={{ filter: "brightness(0) invert(1)" }}
+          className="h-6 w-auto shrink-0"
         />
         <div className="leading-tight">
-          <div className="text-[10px] text-white/50 tracking-wider">CINEMAS · CONSOLE</div>
+          <div className="text-[10px] text-white/50 tracking-wider">CONSOLE</div>
         </div>
       </div>
 

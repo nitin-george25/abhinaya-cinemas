@@ -43,6 +43,8 @@ export interface AuthorizedUserRow {
   email: string;
   role: "owner" | "manager" | "accountant";
   full_name: string | null;
+  /** Set when the user signs in via username + PIN. Null for Google users. */
+  username: string | null;
 }
 
 /** `public.fb_entries` — daily F&B summary, one row per (date, screen). */
