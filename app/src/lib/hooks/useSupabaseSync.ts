@@ -35,6 +35,10 @@ import {
   entryKey,
   entrySignature,
   entryToRow,
+  fbEntryKey,
+  fbEntrySignature,
+  fbEntryToRow,
+  fbProductRowToProduct,
   fbRowToEntry,
   rowToEntry,
 } from "../mappers";
@@ -43,8 +47,9 @@ import type {
   ConfigRow,
   EntryRow,
   FbEntryRow,
+  FbProductRow,
 } from "../db-types";
-import type { AppState, Entry, FbEntry } from "../types";
+import type { AppState, Entry, FbEntry, FbProduct } from "../types";
 
 export type SyncStatus =
   | "booting"
@@ -103,9 +108,14 @@ export function useSupabaseSync(): SyncApi {
 
   // The "what's in the cloud right now" cache — used to compute deltas.
   // Held in a ref so updates don't trigger re-renders.
-  const synced = useRef<{ cfg: string | null; ent: Record<string, string> }>({
+  const synced = useRef<{
+    cfg: string | null;
+    ent: Record<string, string>;
+    fb: Record<string, string>;
+  }>({
     cfg: null,
     ent: {},
+    fb: {},
   });
 
   // Debounce timers
@@ -118,10 +128,11 @@ export function useSupabaseSync(): SyncApi {
 
   const pullAll = useCallback(async (): Promise<AppState | null> => {
     try {
-      const [cfgRes, entRes, fbRes] = await Promise.all([
+      const [cfgRes, entRes, fbRes, prodRes] = await Promise.all([
         sb.from("config").select("data").eq("id", 1).maybeSingle(),
         sb.from("entries").select("*"),
         sb.from("fb_entries").select("*"),
+        sb.from("fb_products").select("*"),
       ]);
 
       const cfg = (cfgRes.data as Pick<ConfigRow, "data"> | null)?.data ?? null;
@@ -130,6 +141,9 @@ export function useSupabaseSync(): SyncApi {
 
       const fbRows = ((fbRes.data as FbEntryRow[]) || []);
       const fbEntries: FbEntry[] = fbRows.map(fbRowToEntry);
+
+      const prodRows = ((prodRes.data as FbProductRow[]) || []);
+      const fbProducts: FbProduct[] = prodRows.map(fbProductRowToProduct);
 
       // Build a fresh AppState. Catalog comes from cfg; entries from rows.
       // Leave `draft` alone — it's not synced; the caller manages it locally.
@@ -144,6 +158,7 @@ export function useSupabaseSync(): SyncApi {
         openings: [],
         entries,
         fbEntries,
+        fbProducts,
         draft,
       };
       const next = applyConfigPayload(base, cfg);
@@ -153,6 +168,10 @@ export function useSupabaseSync(): SyncApi {
       synced.current.ent = {};
       entries.forEach((e) => {
         synced.current.ent[entryKey(e)] = entrySignature(e);
+      });
+      synced.current.fb = {};
+      fbEntries.forEach((e) => {
+        synced.current.fb[fbEntryKey(e)] = fbEntrySignature(e);
       });
 
       localState.current = next as AppState;
@@ -217,6 +236,35 @@ export function useSupabaseSync(): SyncApi {
             .then((r) => {
               if (r.error) console.error(r.error);
               else delete synced.current.ent[k];
+            }),
+        );
+      }
+    });
+
+    // F&B entries — upsert changes, delete missing. Key is entry_date.
+    const curFb: Record<string, true> = {};
+    s.fbEntries.forEach((e) => {
+      const k = fbEntryKey(e);
+      const sig = fbEntrySignature(e);
+      curFb[k] = true;
+      if (synced.current.fb[k] !== sig) {
+        ops.push(
+          sb.from("fb_entries").upsert(fbEntryToRow(e, email), {
+            onConflict: "entry_date",
+          }).then((r) => {
+            if (r.error) console.error(r.error);
+            else synced.current.fb[k] = sig;
+          }),
+        );
+      }
+    });
+    Object.keys(synced.current.fb).forEach((k) => {
+      if (!curFb[k]) {
+        ops.push(
+          sb.from("fb_entries").delete().eq("entry_date", k)
+            .then((r) => {
+              if (r.error) console.error(r.error);
+              else delete synced.current.fb[k];
             }),
         );
       }
@@ -319,9 +367,10 @@ export function useSupabaseSync(): SyncApi {
     if (state.status !== "ready") return;
     const channel = sb
       .channel("dcr-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "entries" },    onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "config" },     onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" }, onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "entries" },     onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "config" },      onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" },  onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fb_products" }, onRemote)
       .subscribe();
 
     function onRemote(): void {

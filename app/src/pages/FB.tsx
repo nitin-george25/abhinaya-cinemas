@@ -1,10 +1,8 @@
 // ============================================================================
 // F&B Sales — daily summary view of fb_entries.
 //
-// READ-ONLY in /v2/ for this first pass — POS upload + manual entry remain
-// in the legacy app at /admin/dcr/ until C6.2. The realtime subscription
-// (set up in useSupabaseSync) means new days entered there appear here
-// within ~700ms.
+// Manual add / edit / delete now lives here (C6.2). Bulk PDF upload stays
+// at /admin/dcr-legacy/ — that's the 800-LOC POS parser we haven't ported.
 // ============================================================================
 
 import { useMemo, useState } from "react";
@@ -14,12 +12,14 @@ import { useSync } from "../lib/hooks/SyncContext";
 import { fmtINR, fmtInt } from "../lib/dashboard";
 import { N } from "../lib/engine";
 import { weekday } from "../lib/format";
+import { deleteFbEntry, upsertFbEntry } from "../lib/fb";
 import type { DateISO, FbEntry } from "../lib/types";
 
 import { Card, CardBody } from "../components/ui/Card";
 import { Field, Input } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { FbEntryForm } from "../components/fb/FbEntryForm";
 
 interface Filters {
   from: DateISO | "";
@@ -28,9 +28,11 @@ interface Filters {
 const EMPTY_FILTERS: Filters = { from: "", to: "" };
 
 export default function FBPage() {
-  const { state } = useSync();
+  const { state, setAppState } = useSync();
   const appState = state.appState;
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [editing, setEditing] = useState<FbEntry | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const rows = useMemo<FbEntry[]>(() => {
     if (!appState) return [];
@@ -63,20 +65,47 @@ export default function FBPage() {
     { net: 0, total: 0, tax: 0, bills: 0, items: 0 },
   );
 
+  function handleSave(entry: FbEntry) {
+    // If the date conflicts with another existing entry that isn't this
+    // same id, refuse — the DB enforces uniqueness too but better UX to
+    // catch it here.
+    const conflict = appState!.fbEntries.find(
+      (e) => e.date === entry.date && e.id !== entry.id,
+    );
+    if (conflict) {
+      alert(
+        `An F&B day already exists for ${entry.date}. Open that one and edit instead.`,
+      );
+      return;
+    }
+    setAppState(upsertFbEntry(appState!, entry));
+    setEditing(null);
+    setAdding(false);
+  }
+
+  function handleDelete(date: DateISO) {
+    setAppState(deleteFbEntry(appState!, date));
+    setEditing(null);
+  }
+
+  const canEdit = state.role === "owner" || state.role === "manager";
+
   return (
     <div className="space-y-5 max-w-7xl">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-bold tracking-tight">F&amp;B sales</h2>
           <p className="text-sm text-ink-muted mt-1">
-            Read-only view of every F&amp;B day in the cloud. POS upload + manual
-            entry remain on{" "}
+            Daily summary per day. Bulk POS upload still lives at{" "}
             <a className="text-amber-600 underline" href="/admin/dcr-legacy/">
               the legacy console
-            </a>{" "}
-            for now.
+            </a>
+            ; manual entry is here.
           </p>
         </div>
+        {canEdit ? (
+          <Button onClick={() => setAdding(true)}>+ Add F&amp;B day</Button>
+        ) : null}
       </div>
 
       <FilterBar
@@ -87,7 +116,24 @@ export default function FBPage() {
 
       <ResultsCount count={rows.length} totals={totals} />
 
-      <FBTable rows={rows} />
+      <FBTable
+        rows={rows}
+        canEdit={canEdit}
+        onSelect={(e) => canEdit && setEditing(e)}
+      />
+
+      <FbEntryForm
+        open={adding}
+        onClose={() => setAdding(false)}
+        onSave={handleSave}
+      />
+      <FbEntryForm
+        open={!!editing}
+        initial={editing}
+        onClose={() => setEditing(null)}
+        onSave={handleSave}
+        onDelete={() => editing && handleDelete(editing.date)}
+      />
     </div>
   );
 }
@@ -165,7 +211,15 @@ function ResultsCount({
 
 // ── table ──────────────────────────────────────────────────────────────
 
-function FBTable({ rows }: { rows: FbEntry[] }) {
+function FBTable({
+  rows,
+  canEdit,
+  onSelect,
+}: {
+  rows: FbEntry[];
+  canEdit: boolean;
+  onSelect: (e: FbEntry) => void;
+}) {
   if (rows.length === 0) {
     return (
       <Card>
@@ -200,7 +254,11 @@ function FBTable({ rows }: { rows: FbEntry[] }) {
                 return (
                   <tr
                     key={e.id}
-                    className="border-b border-line last:border-b-0 hover:bg-paper/60"
+                    onClick={() => onSelect(e)}
+                    className={
+                      "border-b border-line last:border-b-0 hover:bg-paper/60 " +
+                      (canEdit ? "cursor-pointer" : "")
+                    }
                   >
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       <div>{niceDate(e.date)}</div>
@@ -242,3 +300,4 @@ function niceDate(d: DateISO | undefined): string {
   if (!d) return "—";
   try { return format(parseISO(d), "d MMM yyyy"); } catch { return d; }
 }
+

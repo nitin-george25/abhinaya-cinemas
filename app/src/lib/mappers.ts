@@ -5,8 +5,20 @@
 // between Supabase and the engine. Tested via mappers.test.ts (TODO).
 // ============================================================================
 
-import type { ConfigPayload, EntryRow, FbEntryRow } from "./db-types";
-import type { AppState, Entry, FbEntry, FbItem, Show } from "./types";
+import type {
+  ConfigPayload,
+  EntryRow,
+  FbEntryRow,
+  FbProductRow,
+} from "./db-types";
+import type {
+  AppState,
+  Entry,
+  FbEntry,
+  FbItem,
+  FbProduct,
+  Show,
+} from "./types";
 
 /** Generate a stable client-side id. Matches the uid() used in the legacy JS. */
 export const uid = (): string => Math.random().toString(36).slice(2, 9);
@@ -111,3 +123,38 @@ export function fbRowToEntry(r: FbEntryRow): FbEntry {
     notes: r.notes ?? undefined,
   };
 }
+
+/** Engine `FbEntry` → DB `fb_entries` row payload for insert/upsert. */
+export function fbEntryToRow(
+  e: FbEntry,
+  updatedBy: string,
+): Omit<FbEntryRow, "id" | "updated_at"> & { updated_at: string } {
+  return {
+    entry_date: e.date,
+    summary: e.summary as Record<string, unknown>,
+    items: e.items as Array<Record<string, unknown>>,
+    notes: e.notes ?? null,
+    updated_by: updatedBy,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** Convert a `fb_products` row to the in-memory FbProduct shape. */
+export function fbProductRowToProduct(r: FbProductRow): FbProduct {
+  return {
+    id: r.id,
+    name: r.name,
+    category: r.category ?? "",
+    defaultRate: r.default_rate ?? 0,
+    defaultGstPct: r.default_gst_pct ?? 5,
+    posItemNumber: r.pos_item_number ?? undefined,
+    isActive: r.is_active ?? true,
+  };
+}
+
+/** Stable key for an FbEntry — used for delta detection in the sync loop. */
+export const fbEntryKey = (e: FbEntry): string => e.date;
+
+/** Cheap content signature for FbEntry delta detection. */
+export const fbEntrySignature = (e: FbEntry): string =>
+  JSON.stringify({ summary: e.summary, items: e.items, notes: e.notes ?? "" });

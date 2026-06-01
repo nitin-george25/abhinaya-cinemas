@@ -130,7 +130,19 @@ export interface AppState {
   openings: Opening[];
   entries: Entry[];
   fbEntries: FbEntry[];
+  fbProducts: FbProduct[];
   draft: Entry | null;
+}
+
+/** F&B menu catalog item. Owner-only edit; everyone reads. */
+export interface FbProduct {
+  id: UUID;
+  name: string;
+  category: string;
+  defaultRate: number;
+  defaultGstPct: number;
+  posItemNumber?: string;
+  isActive: boolean;
 }
 
 // ── Food & Beverage ────────────────────────────────────────────────────

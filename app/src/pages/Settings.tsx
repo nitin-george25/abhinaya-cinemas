@@ -17,6 +17,9 @@ import {
   type ListedUser,
   type Role,
 } from "../lib/users";
+import { fbProducts as fbProductsApi } from "../lib/fb";
+import { fmtINR } from "../lib/dashboard";
+import type { FbProduct, UUID } from "../lib/types";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../components/ui/Card";
 import { Field, Input, Select } from "../components/ui/Input";
@@ -38,6 +41,7 @@ export default function SettingsPage() {
       </div>
 
       <UsersSection />
+      <MenuItemsSection />
     </div>
   );
 }
@@ -382,6 +386,262 @@ function AddUserForm({
       {error ? (
         <p className="col-span-full text-sm text-red-700">{error}</p>
       ) : null}
+    </form>
+  );
+}
+
+// ============================================================================
+// Menu items section — owner-only editor on top of fb_products.
+// Inserts / updates / deletes call Supabase directly (RLS enforces
+// owner-only writes); the realtime subscription picks the change up via
+// useSupabaseSync's onRemote pull so the UI re-renders within ~700ms.
+// ============================================================================
+
+function MenuItemsSection() {
+  const { state } = useSync();
+  const appState = state.appState;
+  const products = appState?.fbProducts ?? [];
+  const [adding, setAdding] = useState(false);
+
+  if (state.role !== "owner") {
+    return (
+      <Card>
+        <CardBody className="text-sm text-ink-muted">
+          F&amp;B menu items can only be edited by the owner.
+        </CardBody>
+      </Card>
+    );
+  }
+
+  const sorted = [...products].sort((a, b) => {
+    const c = a.category.localeCompare(b.category);
+    if (c) return c;
+    return a.name.localeCompare(b.name);
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>F&amp;B menu items</CardTitle>
+        <Button size="sm" onClick={() => setAdding((a) => !a)}>
+          {adding ? "Cancel" : "+ Add item"}
+        </Button>
+      </CardHeader>
+      {adding ? (
+        <CardBody className="border-b border-line bg-paper">
+          <AddProductForm
+            onCancel={() => setAdding(false)}
+            onCreated={() => setAdding(false)}
+          />
+        </CardBody>
+      ) : null}
+      <CardBody className="p-0">
+        {sorted.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            No products yet. Add one above.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
+                  <th className="text-left  px-5 py-3 font-semibold w-20">Item #</th>
+                  <th className="text-left  px-5 py-3 font-semibold">Name</th>
+                  <th className="text-left  px-5 py-3 font-semibold w-44">Category</th>
+                  <th className="text-right px-5 py-3 font-semibold w-32">Default rate</th>
+                  <th className="text-right px-5 py-3 font-semibold w-24">GST %</th>
+                  <th className="text-right px-5 py-3 font-semibold w-32">Status</th>
+                  <th className="text-right px-5 py-3 font-semibold w-20"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((p) => (
+                  <ProductRow key={p.id} product={p} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function ProductRow({ product }: { product: FbProduct }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(product.name);
+  const [category, setCategory] = useState(product.category);
+  const [rate, setRate] = useState(String(product.defaultRate));
+  const [gst, setGst] = useState(String(product.defaultGstPct));
+
+  async function save() {
+    setBusy(true);
+    try {
+      await fbProductsApi.update(product.id, {
+        name: name.trim(),
+        category: category.trim(),
+        defaultRate: Number(rate) || 0,
+        defaultGstPct: Number(gst) || 0,
+      });
+      setEditing(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleActive() {
+    setBusy(true);
+    try {
+      await fbProductsApi.update(product.id, { isActive: !product.isActive });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm(`Delete "${product.name}"? This can't be undone.`)) return;
+    setBusy(true);
+    try {
+      await fbProductsApi.remove(product.id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <tr className="border-b border-line bg-amber-50/40">
+        <td className="px-5 py-2 text-[11px] text-ink-muted">{product.posItemNumber ?? "—"}</td>
+        <td className="px-5 py-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" />
+        </td>
+        <td className="px-5 py-2">
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} className="h-8" />
+        </td>
+        <td className="px-5 py-2">
+          <Input
+            type="number" min={0} step={0.01}
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            className="h-8 text-right"
+          />
+        </td>
+        <td className="px-5 py-2">
+          <Input
+            type="number" min={0} max={100} step={0.01}
+            value={gst}
+            onChange={(e) => setGst(e.target.value)}
+            className="h-8 text-right"
+          />
+        </td>
+        <td />
+        <td className="px-5 py-2 text-right whitespace-nowrap">
+          <Button size="sm" onClick={() => void save()} disabled={busy}>Save</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
+            Cancel
+          </Button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-b border-line hover:bg-paper/60">
+      <td className="px-5 py-2 text-[11px] text-ink-muted">{product.posItemNumber ?? "—"}</td>
+      <td className="px-5 py-2 font-medium">{product.name}</td>
+      <td className="px-5 py-2 text-ink-muted">{product.category || "—"}</td>
+      <td className="px-5 py-2 text-right tabular-nums">{fmtINR(product.defaultRate)}</td>
+      <td className="px-5 py-2 text-right tabular-nums">{product.defaultGstPct}%</td>
+      <td className="px-5 py-2 text-right">
+        <Badge tone={product.isActive ? "green" : "neutral"}>
+          {product.isActive ? "active" : "inactive"}
+        </Badge>
+      </td>
+      <td className="px-5 py-2 text-right whitespace-nowrap">
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)} disabled={busy}>
+          Edit
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void toggleActive()} disabled={busy}>
+          {product.isActive ? "Hide" : "Show"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void remove()} disabled={busy} className="text-red-700">
+          ×
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+function AddProductForm({
+  onCancel,
+  onCreated,
+}: {
+  onCancel: () => void;
+  onCreated: (id: UUID) => void;
+}) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [rate, setRate] = useState("");
+  const [gst, setGst] = useState("5");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!name.trim()) { setError("Name required."); return; }
+    setBusy(true);
+    try {
+      const id = await fbProductsApi.create({
+        name: name.trim(),
+        category: category.trim(),
+        defaultRate: Number(rate) || 0,
+        defaultGstPct: Number(gst) || 0,
+      });
+      onCreated(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
+      <Field label="Name">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Popcorn — Large" />
+      </Field>
+      <Field label="Category">
+        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Snacks" />
+      </Field>
+      <Field label="Default rate">
+        <Input
+          type="number" min={0} step={0.01}
+          value={rate} onChange={(e) => setRate(e.target.value)}
+          placeholder="0.00" className="text-right"
+        />
+      </Field>
+      <Field label="GST %">
+        <Input
+          type="number" min={0} max={100} step={0.01}
+          value={gst} onChange={(e) => setGst(e.target.value)}
+          className="text-right"
+        />
+      </Field>
+      <div className="flex items-center gap-2">
+        <Button type="submit" disabled={busy} className="flex-1">
+          {busy ? <IconSpinner className="w-4 h-4" /> : null}
+          Add
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+      </div>
+      {error ? <p className="col-span-full text-sm text-red-700">{error}</p> : null}
     </form>
   );
 }

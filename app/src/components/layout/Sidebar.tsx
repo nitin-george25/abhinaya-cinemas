@@ -42,7 +42,7 @@ export function Sidebar({ role }: { role: Role }) {
         <img
           src="/admin/dcr/img/logomark-white.png"
           alt="Abhinaya Cinemas"
-          className="h-10 w-auto shrink-0"
+          className="h-7 w-auto shrink-0"
         />
         <div className="leading-tight min-w-0">
           <div className="font-display text-[13px] font-bold tracking-wider truncate">ABHINAYA</div>
