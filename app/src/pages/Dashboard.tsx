@@ -60,7 +60,7 @@ export default function Dashboard() {
     <div className="space-y-6 max-w-7xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Box office</h2>
+          <h2 className="font-display text-3xl font-bold tracking-tight">Box office</h2>
           <p className="text-sm text-ink-muted mt-1">
             Read-only snapshot of cloud data. F&amp;B layer arrives in Phase C6.
           </p>

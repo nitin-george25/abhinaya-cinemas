@@ -43,7 +43,7 @@ export function SignInScreen({ message }: Props) {
           <i className="inline-block w-2.5 h-9 rounded-sm bg-amber-400" />
           <i className="inline-block w-2.5 h-9 rounded-sm bg-blue-500" />
         </div>
-        <h1 className="text-2xl font-bold tracking-wide">ABHINAYA CINEMAS</h1>
+        <h1 className="font-display text-3xl font-bold tracking-wide">ABHINAYA CINEMAS</h1>
         <p className="text-sm text-white/60 mt-1">Daily Collection Report</p>
 
         {message ? (

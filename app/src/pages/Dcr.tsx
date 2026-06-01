@@ -91,7 +91,7 @@ export default function DcrPage() {
       {/* Action bar — hidden on print so the DCR fills the page */}
       <div className="flex items-center justify-between gap-3 print:hidden">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">DCR</h2>
+          <h2 className="font-display text-3xl font-bold tracking-tight">DCR</h2>
           <p className="text-sm text-ink-muted mt-1">
             {computed.movie?.name} · {computed.screen?.name} · {computed.entry.date}
           </p>

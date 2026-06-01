@@ -113,7 +113,7 @@ export default function EntryPage() {
     <div className="space-y-5 max-w-6xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Today's entry</h2>
+          <h2 className="font-display text-3xl font-bold tracking-tight">Today's entry</h2>
           <p className="text-sm text-ink-muted mt-1">
             Pick the date / movie / screen, then enter shows. The cloud saves
             automatically — watch the badge in the header.

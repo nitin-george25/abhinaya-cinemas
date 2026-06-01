@@ -30,7 +30,28 @@ export default {
         line: "#E6E4DE",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+        // Body / default. Barlow Semi Condensed first, then a clean system
+        // sans fallback. This is what `font-sans` (Tailwind's default) maps
+        // to and what <body> inherits.
+        sans: [
+          "Barlow Semi Condensed",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "sans-serif",
+        ],
+        // Primary display. Pontiac for the wordmark + large headings, with
+        // Barlow as the per-glyph fallback for characters Pontiac DEMO is
+        // missing (apostrophe, '4', etc — handled per-glyph by the browser
+        // when a font lacks a glyph).
+        // Apply via `font-display` Tailwind class.
+        display: [
+          "Pontiac",
+          "Barlow Semi Condensed",
+          "system-ui",
+          "sans-serif",
+        ],
         mono: ["JetBrains Mono", "Menlo", "monospace"],
       },
       borderRadius: {

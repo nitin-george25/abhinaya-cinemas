@@ -2,8 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Inter via system stack works fine without a font CDN; if we want the
- * geometric Inter look later we can self-host or use Bunny Fonts. */
+/* ───────────────────────── Brand fonts ─────────────────────────
+ *
+ *  Primary (display) : Pontiac
+ *      Used for large headers + the brand wordmark. The Fontspring DEMO
+ *      version we have is glyph-limited — it's missing some characters
+ *      (apostrophe, '4', etc). The CSS fallback chain handles this on a
+ *      per-glyph basis: any missing glyph silently falls through to the
+ *      next family.
+ *
+ *  Secondary (body) : Barlow Semi Condensed
+ *      Used for everything else. Carried over from the legacy app and
+ *      acts as the per-glyph fallback for Pontiac.
+ *
+ *  TODO: swap to Brother 1816 (see task #71) once webfont files arrive.
+ *
+ *  Paths are absolute under /v2/fonts/... because Vite serves /public
+ *  assets at the configured base ('/v2/').
+ * ─────────────────────────────────────────────────────────────── */
+
+/* ── Pontiac ── */
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/pontiac/Pontiac-Light.otf") format("opentype");
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/pontiac/Pontiac-Regular.otf") format("opentype");
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/pontiac/Pontiac-Bold.otf") format("opentype");
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/pontiac/Pontiac-Black.otf") format("opentype");
+}
+
+/* ── Barlow Semi Condensed ── */
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/barlow-semi-condensed/BarlowSemiCondensed-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/barlow-semi-condensed/BarlowSemiCondensed-Medium.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/barlow-semi-condensed/BarlowSemiCondensed-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  src: url("/v2/fonts/barlow-semi-condensed/BarlowSemiCondensed-ExtraBold.ttf") format("truetype");
+}
 
 html, body, #root {
   height: 100%;

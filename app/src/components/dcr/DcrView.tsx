@@ -101,10 +101,10 @@ function BrandHeader({ cinema }: { cinema: Cinema }) {
           className="h-10 w-auto shrink-0"
         />
         <div className="text-center flex-1">
-          <h1 className="text-lg font-bold tracking-wide">{cinema.name}</h1>
+          <h1 className="font-display text-xl font-bold tracking-wide">{cinema.name}</h1>
           <p className="text-xs text-ink-muted">GSTIN : {cinema.gstin}</p>
         </div>
-        <h2 className="text-sm font-bold tracking-wider shrink-0">
+        <h2 className="font-display text-base font-bold tracking-wider shrink-0">
           DAILY COLLECTION REPORT
         </h2>
       </div>

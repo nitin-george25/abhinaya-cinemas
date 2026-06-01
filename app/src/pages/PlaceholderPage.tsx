@@ -18,7 +18,7 @@ export function PlaceholderPage({ title, phase, description, notes }: Props) {
           <Badge tone="amber">{`Phase ${phase}`}</Badge>
           <span className="text-xs uppercase tracking-wider text-ink-muted">Placeholder</span>
         </div>
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        <h2 className="font-display text-3xl font-bold tracking-tight">{title}</h2>
         <p className="text-ink-muted mt-2 leading-relaxed">{description}</p>
       </div>
       {notes ? (

@@ -43,7 +43,7 @@ export function Sidebar({ role }: { role: Role }) {
           <i className="inline-block w-1.5 h-5 rounded-sm bg-blue-500" />
         </div>
         <div className="leading-tight">
-          <div className="text-[13px] font-bold tracking-wider">ABHINAYA</div>
+          <div className="font-display text-[15px] font-bold tracking-wider">ABHINAYA</div>
           <div className="text-[10px] text-white/50 tracking-wider">CINEMAS · CONSOLE</div>
         </div>
       </div>
