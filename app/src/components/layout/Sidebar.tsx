@@ -12,7 +12,6 @@ import { cn } from "../ui/cn";
 import {
   IconDashboard,
   IconEntry,
-  IconHistory,
   IconFB,
   IconActivity,
   IconBackup,
