@@ -129,7 +129,45 @@ export interface AppState {
   serialStarts: SerialStart[];
   openings: Opening[];
   entries: Entry[];
+  fbEntries: FbEntry[];
   draft: Entry | null;
+}
+
+// ── Food & Beverage ────────────────────────────────────────────────────
+//
+// One row per date (the cinema is single-screen for F&B reporting; the
+// `fb_entries.entry_date` column is the table's unique key). `summary`
+// and `items` are stored in the DB as JSONB blobs.
+
+export interface FbItem {
+  name: string;
+  qty: number;
+  netAmount: number;
+  category?: string;
+}
+
+/**
+ * The shape the legacy app stores in `fb_entries.summary`. All fields are
+ * optional because not every POS export populates every figure. Use N()
+ * to coerce when reading.
+ */
+export interface FbSummary {
+  grossSales?: number;
+  foodSales?: number;
+  beveragesSales?: number;
+  addTax?: number;
+  netSalesWithTax?: number;
+  bills?: number | null;
+  // Escape hatch for any fields we haven't typed yet.
+  [key: string]: unknown;
+}
+
+export interface FbEntry {
+  id: UUID;
+  date: DateISO;
+  summary: FbSummary;
+  items: FbItem[];
+  notes?: string;
 }
 
 // ── Computed output shapes ───────────────────────────────────────────────

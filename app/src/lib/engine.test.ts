@@ -85,6 +85,7 @@ function makeDefaultState(): AppState {
     ],
     openings: [],
     entries: [],
+    fbEntries: [],
     draft: null,
   };
 }

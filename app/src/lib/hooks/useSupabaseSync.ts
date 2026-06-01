@@ -35,14 +35,16 @@ import {
   entryKey,
   entrySignature,
   entryToRow,
+  fbRowToEntry,
   rowToEntry,
 } from "../mappers";
 import type {
   AuthorizedUserRow,
   ConfigRow,
   EntryRow,
+  FbEntryRow,
 } from "../db-types";
-import type { AppState, Entry } from "../types";
+import type { AppState, Entry, FbEntry } from "../types";
 
 export type SyncStatus =
   | "booting"
@@ -116,14 +118,18 @@ export function useSupabaseSync(): SyncApi {
 
   const pullAll = useCallback(async (): Promise<AppState | null> => {
     try {
-      const [cfgRes, entRes] = await Promise.all([
+      const [cfgRes, entRes, fbRes] = await Promise.all([
         sb.from("config").select("data").eq("id", 1).maybeSingle(),
         sb.from("entries").select("*"),
+        sb.from("fb_entries").select("*"),
       ]);
 
       const cfg = (cfgRes.data as Pick<ConfigRow, "data"> | null)?.data ?? null;
       const rows = ((entRes.data as EntryRow[]) || []);
       const entries: Entry[] = rows.map(rowToEntry);
+
+      const fbRows = ((fbRes.data as FbEntryRow[]) || []);
+      const fbEntries: FbEntry[] = fbRows.map(fbRowToEntry);
 
       // Build a fresh AppState. Catalog comes from cfg; entries from rows.
       // Leave `draft` alone — it's not synced; the caller manages it locally.
@@ -137,6 +143,7 @@ export function useSupabaseSync(): SyncApi {
         serialStarts: [],
         openings: [],
         entries,
+        fbEntries,
         draft,
       };
       const next = applyConfigPayload(base, cfg);
@@ -312,8 +319,9 @@ export function useSupabaseSync(): SyncApi {
     if (state.status !== "ready") return;
     const channel = sb
       .channel("dcr-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "config" }, onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "entries" },    onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "config" },     onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" }, onRemote)
       .subscribe();
 
     function onRemote(): void {

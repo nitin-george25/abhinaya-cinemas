@@ -21,7 +21,15 @@ import {
 } from "date-fns";
 
 import { computeEntry, screenClasses, screenById, N } from "./engine";
-import type { AppState, DateISO, Entry, Movie, Screen, UUID } from "./types";
+import type {
+  AppState,
+  DateISO,
+  Entry,
+  FbEntry,
+  Movie,
+  Screen,
+  UUID,
+} from "./types";
 
 // ── period selector ────────────────────────────────────────────────────
 
@@ -78,7 +86,9 @@ export function resolvePeriod(
       to = iso(t < endOfMonth(t) ? t : endOfMonth(t));
       break;
     case "all": {
-      const all = (state.entries ?? []).map((e) => e.date).filter(Boolean) as DateISO[];
+      const all: DateISO[] = [];
+      (state.entries ?? []).forEach((e) => { if (e.date) all.push(e.date); });
+      (state.fbEntries ?? []).forEach((e) => { if (e.date) all.push(e.date); });
       if (all.length) {
         all.sort();
         from = all[0]!;
@@ -303,6 +313,107 @@ function safeCompute(state: AppState, e: Entry) {
     console.warn("computeEntry failed for entry", e.id, err);
     return null;
   }
+}
+
+// ── F&B aggregation ────────────────────────────────────────────────────
+
+export interface FbDailyAggregate {
+  /** Net F&B sales (legacy `summary.grossSales`, despite the name). */
+  net: number;
+  /** Net food sales. */
+  food: number;
+  /** Net beverages sales. */
+  beverages: number;
+  /** Add-on tax (GST etc). */
+  tax: number;
+  /** Gross with tax. */
+  totalWithTax: number;
+  /** Bill count for the day. */
+  bills: number | null;
+}
+
+export interface FbCategoryAggregate {
+  category: string;
+  net: number;
+  qty: number;
+}
+
+export interface FbTotals {
+  net: number;
+  totalWithTax: number;
+  tax: number;
+  bills: number;
+  /** Sales per head = net / BO audience for the same period. Null when no audience. */
+  sph: number | null;
+}
+
+export interface FbAggregate {
+  daily: Map<DateISO, FbDailyAggregate>;
+  byCategory: FbCategoryAggregate[];
+  totals: FbTotals;
+}
+
+/**
+ * Aggregate F&B entries in a period. Legacy field names preserved
+ * (`grossSales` is actually net of tax — kept for compatibility with
+ * existing data).
+ */
+export function aggregateFB(
+  state: AppState,
+  period: Period,
+  audience: number,
+): FbAggregate {
+  const daily = new Map<DateISO, FbDailyAggregate>();
+  const byCat = new Map<string, FbCategoryAggregate>();
+  let net = 0;
+  let totalWithTax = 0;
+  let tax = 0;
+  let bills = 0;
+
+  for (const e of state.fbEntries ?? []) {
+    if (!e.date || e.date < period.from || e.date > period.to) continue;
+    const s = e.summary ?? {};
+    const dNet      = N(s.grossSales);
+    const dFood     = N(s.foodSales);
+    const dBev      = N(s.beveragesSales);
+    const dTax      = N(s.addTax);
+    const dTotal    = N(s.netSalesWithTax);
+    const dBills    = s.bills == null ? null : N(s.bills);
+
+    daily.set(e.date, {
+      net: dNet,
+      food: dFood,
+      beverages: dBev,
+      tax: dTax,
+      totalWithTax: dTotal,
+      bills: dBills,
+    });
+
+    net += dNet;
+    totalWithTax += dTotal;
+    tax += dTax;
+    if (dBills != null) bills += dBills;
+
+    for (const it of e.items ?? []) {
+      const cat = it.category && it.category.trim() ? it.category : "Uncategorised";
+      const cur = byCat.get(cat) ?? { category: cat, net: 0, qty: 0 };
+      cur.net += N(it.netAmount);
+      cur.qty += N(it.qty);
+      byCat.set(cat, cur);
+    }
+  }
+
+  return {
+    daily,
+    byCategory: [...byCat.values()].sort((a, b) => b.net - a.net),
+    totals: {
+      net,
+      totalWithTax,
+      tax,
+      bills,
+      sph: audience > 0 ? net / audience : null,
+    },
+  };
 }
 
 // ── formatters ─────────────────────────────────────────────────────────

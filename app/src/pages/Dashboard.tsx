@@ -4,6 +4,7 @@ import { format, parseISO } from "date-fns";
 import { useSync } from "../lib/hooks/SyncContext";
 import {
   aggregateBO,
+  aggregateFB,
   buildDateList,
   fmtINR,
   fmtInt,
@@ -17,7 +18,6 @@ import { PeriodSelector } from "../components/dashboard/PeriodSelector";
 import { RevenueChart } from "../components/dashboard/RevenueChart";
 import { RollupTable } from "../components/dashboard/RollupTable";
 import { Card, CardBody } from "../components/ui/Card";
-import { Badge } from "../components/ui/Badge";
 
 type Custom = { from: DateISO; to: DateISO } | null;
 
@@ -33,15 +33,18 @@ export default function Dashboard() {
     if (!appState) return null;
     const period = resolvePeriod(preset, appState, custom ?? undefined);
     const dates = buildDateList(period);
-    const cur = aggregateBO(appState, period);
-    const prev = aggregateBO(appState, {
+    const prevPeriod = {
       from: period.prevFrom,
       to: period.prevTo,
       days: period.days,
       prevFrom: period.prevFrom,
       prevTo: period.prevTo,
-    });
-    return { period, dates, cur, prev };
+    };
+    const cur = aggregateBO(appState, period);
+    const prev = aggregateBO(appState, prevPeriod);
+    const fbCur  = aggregateFB(appState, period,     cur.totals.audience);
+    const fbPrev = aggregateFB(appState, prevPeriod, prev.totals.audience);
+    return { period, dates, cur, prev, fbCur, fbPrev };
   }, [appState, preset, custom]);
 
   if (!appState) {
@@ -53,16 +56,18 @@ export default function Dashboard() {
   }
   if (!view) return null;
 
-  const { period, dates, cur, prev } = view;
+  const { period, dates, cur, prev, fbCur, fbPrev } = view;
+  const combinedCur  = cur.totals.grossColl + fbCur.totals.net;
+  const combinedPrev = prev.totals.grossColl + fbPrev.totals.net;
   const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days} day${period.days === 1 ? "" : "s"} · vs ${niceDate(period.prevFrom)} → ${niceDate(period.prevTo)}`;
 
   return (
     <div className="space-y-6 max-w-7xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">Box office</h2>
+          <h2 className="font-display text-3xl font-bold tracking-tight">Dashboard</h2>
           <p className="text-sm text-ink-muted mt-1">
-            Read-only snapshot of cloud data. F&amp;B layer arrives in Phase C6.
+            Read-only snapshot of cloud data — box office + F&amp;B.
           </p>
         </div>
       </div>
@@ -78,40 +83,77 @@ export default function Dashboard() {
         }}
       />
 
-      {/* KPI strip */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-        <KpiCard
-          label="Tickets sold"
-          value={cur.totals.audience}
-          prevValue={prev.totals.audience}
-          format="int"
-        />
-        <KpiCard
-          label="BO Gross"
-          value={cur.totals.grossColl}
-          prevValue={prev.totals.grossColl}
-          format="inr"
-        />
-        <KpiCard
-          label="ATP"
-          value={cur.totals.atp}
-          prevValue={prev.totals.atp}
-          format="inr2"
-          sublabel="₹ / ticket"
-        />
-        <KpiCard
-          label="Occupancy"
-          value={cur.totals.occupancyPct}
-          prevValue={prev.totals.occupancyPct}
-          format="pct"
-        />
-        <KpiCard
-          label="Net Share"
-          value={cur.totals.netShare}
-          prevValue={prev.totals.netShare}
-          format="inr"
-          sublabel="after taxes & fund"
-        />
+      {/* KPI strip — combined revenue + BO core + F&B core */}
+      <div className="space-y-3">
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+          <KpiCard
+            label="Combined Revenue"
+            value={combinedCur}
+            prevValue={combinedPrev}
+            format="inr"
+            sublabel="BO + F&B"
+          />
+          <KpiCard
+            label="Tickets sold"
+            value={cur.totals.audience}
+            prevValue={prev.totals.audience}
+            format="int"
+          />
+          <KpiCard
+            label="BO Gross"
+            value={cur.totals.grossColl}
+            prevValue={prev.totals.grossColl}
+            format="inr"
+          />
+          <KpiCard
+            label="ATP"
+            value={cur.totals.atp}
+            prevValue={prev.totals.atp}
+            format="inr2"
+            sublabel="₹ / ticket"
+          />
+          <KpiCard
+            label="Occupancy"
+            value={cur.totals.occupancyPct}
+            prevValue={prev.totals.occupancyPct}
+            format="pct"
+          />
+        </div>
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+          <KpiCard
+            label="Net Share"
+            value={cur.totals.netShare}
+            prevValue={prev.totals.netShare}
+            format="inr"
+            sublabel="after taxes & fund"
+          />
+          <KpiCard
+            label="F&B Net"
+            value={fbCur.totals.net}
+            prevValue={fbPrev.totals.net}
+            format="inr"
+          />
+          <KpiCard
+            label="SPH"
+            value={fbCur.totals.sph}
+            prevValue={fbPrev.totals.sph}
+            format="inr2"
+            sublabel="₹ / ticket"
+          />
+          <KpiCard
+            label="F&B Bills"
+            value={fbCur.totals.bills}
+            prevValue={fbPrev.totals.bills}
+            format="int"
+          />
+          <KpiCard
+            label="F&B Tax"
+            value={fbCur.totals.tax}
+            prevValue={fbPrev.totals.tax}
+            format="inr"
+            sublabel="GST etc."
+          />
+        </div>
       </div>
 
       {/* Chart */}
@@ -146,23 +188,47 @@ export default function Dashboard() {
         />
       </div>
 
-      <FBPlaceholder />
+      <CategoryMixCard categories={fbCur.byCategory} />
     </div>
   );
 }
 
-function FBPlaceholder() {
+function CategoryMixCard({
+  categories,
+}: {
+  categories: Array<{ category: string; net: number; qty: number }>;
+}) {
+  if (!categories.length) return null;
+  const total = categories.reduce((a, c) => a + c.net, 0);
+  if (!total) return null;
   return (
     <Card>
-      <CardBody className="flex items-center gap-3">
-        <Badge tone="amber">F&amp;B coming in C6</Badge>
-        <p className="text-sm text-ink-muted">
-          F&amp;B sync isn't wired into the React app yet. Until then,{" "}
-          <a className="text-amber-600 underline" href="/admin/dcr/">
-            the legacy dashboard
-          </a>{" "}
-          remains the source of truth for SPH, F&amp;B Net, and category mix.
-        </p>
+      <CardBody>
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="font-semibold tracking-tight">F&amp;B category mix</h3>
+          <span className="text-xs text-ink-muted">{fmtINR(total)} total</span>
+        </div>
+        <ul className="space-y-2">
+          {categories.slice(0, 8).map((c) => {
+            const pct = (c.net / total) * 100;
+            return (
+              <li key={c.category} className="space-y-1">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="font-medium">{c.category}</span>
+                  <span className="tabular-nums text-ink-muted">
+                    {fmtINR(c.net)} · {pct.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-paper rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </CardBody>
     </Card>
   );

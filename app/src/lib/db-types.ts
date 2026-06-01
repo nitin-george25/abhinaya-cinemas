@@ -47,20 +47,33 @@ export interface AuthorizedUserRow {
   username: string | null;
 }
 
-/** `public.fb_entries` — daily F&B summary, one row per (date, screen). */
+/** `public.fb_entries` — one row per date. Single-screen cinema, no
+ *  screen_id. `summary` and `items` are JSONB blobs (see types.ts for
+ *  the typed reads). */
 export interface FbEntryRow {
+  id: string;
   entry_date: string;
-  screen_id: string;
-  gross: number | null;
-  net: number | null;
-  discounts: number | null;
-  tax: number | null;
-  bills: number | null;
-  guests: number | null;
-  // Phase 1.6 analytics-ready columns:
-  items_sold: number | null;
-  // Free-form payload for bits we want to preserve but don't have columns for:
-  raw: Record<string, unknown> | null;
+  summary: Record<string, unknown> | null;
+  items: Array<Record<string, unknown>> | null;
+  notes: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/** `public.fb_products` — the menu catalog. */
+export interface FbProductRow {
+  id: string;
+  pos_item_number: string | null;
+  pos_uid: string | null;
+  name: string;
+  category: string | null;
+  super_category: string | null;
+  default_rate: number | null;
+  default_gst_pct: number | null;
+  is_non_veg: boolean | null;
+  is_active: boolean | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
   updated_at: string | null;
 }
 

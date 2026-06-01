@@ -5,8 +5,8 @@
 // between Supabase and the engine. Tested via mappers.test.ts (TODO).
 // ============================================================================
 
-import type { ConfigPayload, EntryRow } from "./db-types";
-import type { AppState, Entry, Show } from "./types";
+import type { ConfigPayload, EntryRow, FbEntryRow } from "./db-types";
+import type { AppState, Entry, FbEntry, FbItem, Show } from "./types";
 
 /** Generate a stable client-side id. Matches the uid() used in the legacy JS. */
 export const uid = (): string => Math.random().toString(36).slice(2, 9);
@@ -87,3 +87,27 @@ export const entryKey = (e: Entry): string =>
 /** Cheap content signature for delta detection (matches legacy entSig). */
 export const entrySignature = (e: Entry): string =>
   JSON.stringify({ share: e.share, shows: e.shows ?? [] });
+
+// ── F&B ────────────────────────────────────────────────────────────────
+
+/** Coerce a JSONB items array to typed FbItems (tolerates missing fields). */
+function toFbItems(raw: Array<Record<string, unknown>> | null): FbItem[] {
+  if (!raw) return [];
+  return raw.map((r) => ({
+    name:      String(r["name"] ?? ""),
+    qty:       Number(r["qty"]) || 0,
+    netAmount: Number(r["netAmount"]) || 0,
+    category:  r["category"] != null ? String(r["category"]) : undefined,
+  }));
+}
+
+/** Convert a `fb_entries` row to the in-memory FbEntry shape. */
+export function fbRowToEntry(r: FbEntryRow): FbEntry {
+  return {
+    id: r.id,
+    date: r.entry_date,
+    summary: (r.summary ?? {}) as FbEntry["summary"],
+    items: toFbItems(r.items),
+    notes: r.notes ?? undefined,
+  };
+}
