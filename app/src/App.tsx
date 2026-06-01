@@ -86,15 +86,13 @@ function AppGate() {
             />
             {state.role !== "accountant" ? (
               <>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/entry"     element={<EntryPage />} />
-                <Route path="/fb/*"      element={<FBPage />} />
-                <Route path="/activity"  element={<ActivityPage />} />
-                <Route path="/backup"    element={<BackupPage />} />
+                <Route path="/dashboard"  element={<Dashboard />} />
+                <Route path="/entry"      element={<EntryPage />} />
+                <Route path="/fb/*"       element={<FBPage />} />
+                <Route path="/activity"   element={<ActivityPage />} />
+                <Route path="/backup"     element={<BackupPage />} />
+                <Route path="/settings/*" element={<SettingsPage />} />
               </>
-            ) : null}
-            {state.role === "owner" ? (
-              <Route path="/settings/*" element={<SettingsPage />} />
             ) : null}
             <Route path="/history" element={<HistoryPage />} />
             {/* DCR view is reachable from Entry + History. Accountants

@@ -28,7 +28,7 @@ const NAV: NavItem[] = [
   { to: "/fb",        label: "F&B",          Icon: IconFB,        roles: ["owner", "manager"] },
   { to: "/activity",  label: "Activity Log", Icon: IconActivity,  roles: ["owner", "manager"] },
   { to: "/backup",    label: "Backup",       Icon: IconBackup,    roles: ["owner", "manager"] },
-  { to: "/settings",  label: "Settings",     Icon: IconSettings,  roles: ["owner"] },
+  { to: "/settings",  label: "Settings",     Icon: IconSettings,  roles: ["owner", "manager"] },
 ];
 
 export function Sidebar({ role }: { role: Role }) {
