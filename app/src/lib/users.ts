@@ -78,7 +78,10 @@ export interface CreatePayload {
   role: Role;
 }
 
-async function invoke<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+// `payload` is widened to `object` (instead of Record<string, unknown>) so
+// strict-typed interfaces like CreatePayload assign cleanly without a cast.
+// At runtime we just spread it into the JSON body.
+async function invoke<T>(action: string, payload: object): Promise<T> {
   const sb = getSupabase();
   const { data, error } = await sb.functions.invoke("admin-users", {
     body: { action, ...payload },
