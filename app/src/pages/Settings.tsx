@@ -1,7 +1,10 @@
 // ============================================================================
-// Settings — owner-only. C6.1 will add Movies / Price Cards / Screens & Tax
-// sub-pages; for now this is just the Users manager (new in Phase C6, paired
-// with the username + PIN auth flow).
+// Settings section components.
+//
+// Each section is exported and rendered by its own route page under
+// /settings/<slug>. The legacy all-in-one SettingsPage default export is
+// retired in favor of dedicated routes (Movies, Screens & Classes, Tax,
+// Users). MenuItemsSection moved out to /fb/menu-items.
 // ============================================================================
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
@@ -39,30 +42,9 @@ import { IconSpinner } from "../components/icons";
 
 const ROLES: Role[] = ["owner", "manager", "accountant"];
 
-export default function SettingsPage() {
-  return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h2 className="font-display text-3xl font-bold tracking-tight">Settings</h2>
-        <p className="text-sm text-ink-muted mt-1">
-          Owner only. Movies catalog, price cards, screens &amp; tax move here in
-          the next phase.
-        </p>
-      </div>
-
-      <MoviesSection />
-      <PriceCardsSection />
-      <ScreensSection />
-      <TaxSection />
-      <UsersSection />
-      <MenuItemsSection />
-    </div>
-  );
-}
-
 // ── users section ─────────────────────────────────────────────────────
 
-function UsersSection() {
+export function UsersSection() {
   const { state } = useSync();
   const [users, setUsers] = useState<ListedUser[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -411,7 +393,7 @@ function AddUserForm({
 // useSupabaseSync's onRemote pull so the UI re-renders within ~700ms.
 // ============================================================================
 
-function MenuItemsSection() {
+export function MenuItemsSection() {
   const { state } = useSync();
   const appState = state.appState;
   const products = appState?.fbProducts ?? [];
@@ -672,7 +654,7 @@ function canEditCatalog(role: Role | null): boolean {
 
 // ── Movies ─────────────────────────────────────────────────────────────
 
-function MoviesSection() {
+export function MoviesSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   if (!appState || !canEditCatalog(state.role)) return null;
@@ -837,7 +819,7 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
 
 // ── Price Cards (per screen) ──────────────────────────────────────────
 
-function PriceCardsSection() {
+export function PriceCardsSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   if (!appState || !canEditCatalog(state.role)) return null;
@@ -974,7 +956,7 @@ function PriceCardRow({
 
 // ── Screens & class assignments ───────────────────────────────────────
 
-function ScreensSection() {
+export function ScreensSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   if (!appState || !canEditCatalog(state.role)) return null;
@@ -1158,7 +1140,7 @@ function ScreenEditor({
 
 // ── Tax slabs ─────────────────────────────────────────────────────────
 
-function TaxSection() {
+export function TaxSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   if (!appState || !canEditCatalog(state.role)) return null;

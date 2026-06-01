@@ -8,10 +8,15 @@ import { Button } from "./components/ui/Button";
 import Dashboard from "./pages/Dashboard";
 import EntryPage from "./pages/Entry";
 import HistoryPage from "./pages/History";
-import FBPage from "./pages/FB";
+import FBEntryPage from "./pages/fb/Entry";
+import FBHistoryPage from "./pages/fb/History";
+import FBMenuItemsPage from "./pages/fb/MenuItems";
 import ActivityPage from "./pages/Activity";
 import BackupPage from "./pages/Backup";
-import SettingsPage from "./pages/Settings";
+import SettingsMoviesPage from "./pages/settings/Movies";
+import SettingsScreensPage from "./pages/settings/Screens";
+import SettingsTaxPage from "./pages/settings/Tax";
+import SettingsUsersPage from "./pages/settings/Users";
 import DcrPage from "./pages/Dcr";
 
 export default function App() {
@@ -79,29 +84,73 @@ function AppGate() {
               path="/"
               element={
                 <Navigate
-                  to={state.role === "accountant" ? "/history" : "/dashboard"}
+                  to={
+                    state.role === "accountant"
+                      ? "/box-office/history"
+                      : "/dashboard"
+                  }
+                  replace
+                />
+              }
+            />
+
+            {/* Box Office */}
+            <Route
+              path="/box-office"
+              element={
+                <Navigate
+                  to={
+                    state.role === "accountant"
+                      ? "/box-office/history"
+                      : "/box-office/entry"
+                  }
                   replace
                 />
               }
             />
             {state.role !== "accountant" ? (
+              <Route path="/box-office/entry" element={<EntryPage />} />
+            ) : null}
+            <Route path="/box-office/history" element={<HistoryPage />} />
+
+            {/* Legacy URL redirects */}
+            <Route path="/entry"   element={<Navigate to="/box-office/entry"   replace />} />
+            <Route path="/history" element={<Navigate to="/box-office/history" replace />} />
+            <Route path="/fb"      element={<Navigate to="/fb/history"         replace />} />
+            <Route path="/settings" element={<Navigate to="/settings/movies"   replace />} />
+
+            {state.role !== "accountant" ? (
               <>
-                <Route path="/dashboard"  element={<Dashboard />} />
-                <Route path="/entry"      element={<EntryPage />} />
-                <Route path="/fb/*"       element={<FBPage />} />
-                <Route path="/activity"   element={<ActivityPage />} />
-                <Route path="/backup"     element={<BackupPage />} />
-                <Route path="/settings/*" element={<SettingsPage />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+
+                {/* F&B */}
+                <Route path="/fb/entry"   element={<FBEntryPage />} />
+                <Route path="/fb/history" element={<FBHistoryPage />} />
+                {state.role === "owner" ? (
+                  <Route path="/fb/menu-items" element={<FBMenuItemsPage />} />
+                ) : null}
+
+                {/* Activity + Backup — owner + manager only */}
+                <Route path="/activity" element={<ActivityPage />} />
+                <Route path="/backup"   element={<BackupPage />} />
+
+                {/* Settings */}
+                <Route path="/settings/movies"  element={<SettingsMoviesPage />} />
+                <Route path="/settings/screens" element={<SettingsScreensPage />} />
+                <Route path="/settings/tax"     element={<SettingsTaxPage />} />
+                {state.role === "owner" ? (
+                  <Route path="/settings/users" element={<SettingsUsersPage />} />
+                ) : null}
               </>
             ) : null}
-            <Route path="/history" element={<HistoryPage />} />
+
             {/* DCR view is reachable from Entry + History. Accountants
                 see it too, since History is their landing tab. */}
             <Route
               path="/dcr/:date/:movieId/:screenId"
               element={<DcrPage />}
             />
-            <Route path="*"        element={<NotFound />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </AppShell>
       );

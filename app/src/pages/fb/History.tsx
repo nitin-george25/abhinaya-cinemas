@@ -1,26 +1,25 @@
 // ============================================================================
-// F&B Sales — daily summary view of fb_entries.
+// Route page: /fb/history — filterable F&B history table.
 //
-// Manual add / edit / delete now lives here (C6.2). Bulk PDF upload stays
-// at /admin/dcr-legacy/ — that's the 800-LOC POS parser we haven't ported.
+// Click a row to open FbEntryForm for editing (owner + manager). Add/upload
+// actions live on the Entry tab now.
 // ============================================================================
 
 import { useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 
-import { useSync } from "../lib/hooks/SyncContext";
-import { fmtINR, fmtInt } from "../lib/dashboard";
-import { N } from "../lib/engine";
-import { weekday } from "../lib/format";
-import { deleteFbEntry, upsertFbEntry } from "../lib/fb";
-import type { DateISO, FbEntry } from "../lib/types";
+import { useSync } from "../../lib/hooks/SyncContext";
+import { fmtINR, fmtInt } from "../../lib/dashboard";
+import { N } from "../../lib/engine";
+import { weekday } from "../../lib/format";
+import { deleteFbEntry, upsertFbEntry } from "../../lib/fb";
+import type { DateISO, FbEntry } from "../../lib/types";
 
-import { Card, CardBody } from "../components/ui/Card";
-import { Field, Input } from "../components/ui/Input";
-import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
-import { FbEntryForm } from "../components/fb/FbEntryForm";
-import { DsrUploadModal } from "../components/fb/DsrUploadModal";
+import { Card, CardBody } from "../../components/ui/Card";
+import { Field, Input } from "../../components/ui/Input";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { FbEntryForm } from "../../components/fb/FbEntryForm";
 
 interface Filters {
   from: DateISO | "";
@@ -28,13 +27,11 @@ interface Filters {
 }
 const EMPTY_FILTERS: Filters = { from: "", to: "" };
 
-export default function FBPage() {
+export default function FBHistoryPage() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [editing, setEditing] = useState<FbEntry | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [uploading, setUploading] = useState(false);
 
   const rows = useMemo<FbEntry[]>(() => {
     if (!appState) return [];
@@ -68,34 +65,21 @@ export default function FBPage() {
   );
 
   function handleSave(entry: FbEntry) {
-    // If the date conflicts with another existing entry that isn't this
-    // same id, refuse — the DB enforces uniqueness too but better UX to
-    // catch it here.
-    const conflict = appState!.fbEntries.find(
+    if (!appState) return;
+    const conflict = appState.fbEntries.find(
       (e) => e.date === entry.date && e.id !== entry.id,
     );
     if (conflict) {
-      alert(
-        `An F&B day already exists for ${entry.date}. Open that one and edit instead.`,
-      );
+      alert(`An F&B day already exists for ${entry.date}.`);
       return;
     }
-    setAppState(upsertFbEntry(appState!, entry));
+    setAppState(upsertFbEntry(appState, entry));
     setEditing(null);
-    setAdding(false);
   }
-
-  // CSV import — DSR overwrites any existing row on the same date (the
-  // user is warned in the preview before they click Import).
-  function handleImport(entry: FbEntry) {
-    setAppState(upsertFbEntry(appState!, entry));
-    setUploading(false);
-  }
-
-  const existingDates = new Set(appState.fbEntries.map((e) => e.date));
 
   function handleDelete(date: DateISO) {
-    setAppState(deleteFbEntry(appState!, date));
+    if (!appState) return;
+    setAppState(deleteFbEntry(appState, date));
     setEditing(null);
   }
 
@@ -103,25 +87,11 @@ export default function FBPage() {
 
   return (
     <div className="space-y-5 max-w-7xl">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">F&amp;B sales</h2>
-          <p className="text-sm text-ink-muted mt-1">
-            Daily summary per day. Bulk POS upload still lives at{" "}
-            <a className="text-amber-600 underline" href="/admin/dcr-legacy/">
-              the legacy console
-            </a>
-            ; manual entry is here.
-          </p>
-        </div>
-        {canEdit ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => setUploading(true)}>
-              Upload daily CSV
-            </Button>
-            <Button onClick={() => setAdding(true)}>+ Add F&amp;B day</Button>
-          </div>
-        ) : null}
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">F&amp;B history</h2>
+        <p className="text-sm text-ink-muted mt-1">
+          Every F&amp;B day. Click a row to edit.
+        </p>
       </div>
 
       <FilterBar
@@ -139,28 +109,15 @@ export default function FBPage() {
       />
 
       <FbEntryForm
-        open={adding}
-        onClose={() => setAdding(false)}
-        onSave={handleSave}
-      />
-      <FbEntryForm
         open={!!editing}
         initial={editing}
         onClose={() => setEditing(null)}
         onSave={handleSave}
         onDelete={() => editing && handleDelete(editing.date)}
       />
-      <DsrUploadModal
-        open={uploading}
-        onClose={() => setUploading(false)}
-        onImport={handleImport}
-        existingDates={existingDates}
-      />
     </div>
   );
 }
-
-// ── filter bar ─────────────────────────────────────────────────────────
 
 function FilterBar({
   filters,
@@ -205,8 +162,6 @@ function FilterBar({
   );
 }
 
-// ── totals strip ───────────────────────────────────────────────────────
-
 function ResultsCount({
   count,
   totals,
@@ -231,8 +186,6 @@ function ResultsCount({
   );
 }
 
-// ── table ──────────────────────────────────────────────────────────────
-
 function FBTable({
   rows,
   canEdit,
@@ -252,7 +205,6 @@ function FBTable({
       </Card>
     );
   }
-
   return (
     <Card>
       <CardBody className="p-0">
@@ -260,7 +212,7 @@ function FBTable({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
-                <th className="text-left px-3 py-3 font-semibold whitespace-nowrap">Date</th>
+                <th className="text-left  px-3 py-3 font-semibold whitespace-nowrap">Date</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Food</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Beverages</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Net</th>
@@ -322,4 +274,3 @@ function niceDate(d: DateISO | undefined): string {
   if (!d) return "—";
   try { return format(parseISO(d), "d MMM yyyy"); } catch { return d; }
 }
-
