@@ -14,6 +14,7 @@ import {
 } from "../lib/entry";
 import { computeEntry } from "../lib/engine";
 import { downloadDcrPdf } from "../lib/pdf";
+import { LOGO_DATA_URL } from "../assets/logo";
 import {
   dcrCsvFilename,
   dcrCsvRows,
@@ -239,7 +240,11 @@ function EntryActions({
   const [dcrOpen, setDcrOpen] = useState(false);
 
   function dlPdf() {
-    downloadDcrPdf(computed, { cinema: appState.cinema, tax: appState.tax });
+    downloadDcrPdf(computed, {
+      cinema: appState.cinema,
+      tax: appState.tax,
+      logoDataUrl: LOGO_DATA_URL,
+    });
   }
   function dlCsv() {
     downloadCsv(dcrCsvFilename(computed), dcrCsvRows(computed, appState.cinema));

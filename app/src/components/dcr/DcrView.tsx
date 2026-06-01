@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { int, money, fmtTime, weekday } from "../../lib/format";
+import { LOGO_DATA_URL } from "../../assets/logo";
 import type {
   Cinema,
   ComputedEntry,
@@ -94,11 +95,18 @@ function BrandHeader({ cinema }: { cinema: Cinema }) {
         <div className="flex-1 bg-blue-500" />
       </div>
       <div className="px-6 py-4 flex items-center justify-between gap-6">
-        <div>
+        <img
+          src={LOGO_DATA_URL}
+          alt=""
+          className="h-10 w-auto shrink-0"
+        />
+        <div className="text-center flex-1">
           <h1 className="text-lg font-bold tracking-wide">{cinema.name}</h1>
           <p className="text-xs text-ink-muted">GSTIN : {cinema.gstin}</p>
         </div>
-        <h2 className="text-sm font-bold tracking-wider">DAILY COLLECTION REPORT</h2>
+        <h2 className="text-sm font-bold tracking-wider shrink-0">
+          DAILY COLLECTION REPORT
+        </h2>
       </div>
     </header>
   );

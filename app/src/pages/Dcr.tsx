@@ -5,6 +5,7 @@ import { useSync } from "../lib/hooks/SyncContext";
 import { computeEntry } from "../lib/engine";
 import { findEntry } from "../lib/entry";
 import { downloadDcrPdf } from "../lib/pdf";
+import { LOGO_DATA_URL } from "../assets/logo";
 import {
   dcrCsvFilename,
   dcrCsvRows,
@@ -65,7 +66,11 @@ export default function DcrPage() {
 
   function dlPdf() {
     if (!computed) return;
-    downloadDcrPdf(computed, { cinema: appState!.cinema, tax: appState!.tax });
+    downloadDcrPdf(computed, {
+      cinema: appState!.cinema,
+      tax: appState!.tax,
+      logoDataUrl: LOGO_DATA_URL,
+    });
   }
   function dlCsv() {
     if (!computed) return;

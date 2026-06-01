@@ -8,6 +8,7 @@ import { DcrView } from "./DcrView";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { downloadDcrPdf } from "../../lib/pdf";
+import { LOGO_DATA_URL } from "../../assets/logo";
 import {
   dcrCsvFilename,
   dcrCsvRows,
@@ -28,7 +29,11 @@ export function DcrModal({ open, onClose, computed, appState }: Props) {
   if (!computed.movie || !computed.screen) return null;
 
   function dlPdf() {
-    downloadDcrPdf(computed, { cinema: appState.cinema, tax: appState.tax });
+    downloadDcrPdf(computed, {
+      cinema: appState.cinema,
+      tax: appState.tax,
+      logoDataUrl: LOGO_DATA_URL,
+    });
   }
   function dlCsv() {
     downloadCsv(dcrCsvFilename(computed), dcrCsvRows(computed, appState.cinema));
