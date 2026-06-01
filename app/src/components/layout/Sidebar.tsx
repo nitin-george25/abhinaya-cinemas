@@ -9,7 +9,6 @@ import {
   IconBackup,
   IconSettings,
 } from "../icons";
-import { LOGO_DATA_URL } from "../../assets/logo";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
 
 interface NavItem {
@@ -36,19 +35,19 @@ export function Sidebar({ role }: { role: Role }) {
   const visible = NAV.filter((n) => n.roles.includes(role));
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
-      {/* Brand — the logo asset is designed for a white DCR header, with
-       *  bright colour accents on a dark mark. On the dark sidebar the
-       *  dark parts vanish and the colour pops, which reads OK. When a
-       *  proper white logomark arrives (Logo-White.png is iCloud
-       *  placeholder right now), drop it into app/src/assets/ and swap. */}
-      <div className="px-5 py-4 flex items-center gap-2.5 border-b border-white/10">
+      {/* Brand — uses the white logomark (just the 'a' mark + colour stripes,
+       *  no wordmark) so it reads cleanly on the dark sidebar. The full
+       *  wordmark is too wide for a 240px sidebar. /v2/img/ assets are
+       *  served by Vite from app/public/img/. */}
+      <div className="px-5 py-4 flex items-center gap-3 border-b border-white/10">
         <img
-          src={LOGO_DATA_URL}
+          src="/v2/img/logomark-white.png"
           alt="Abhinaya Cinemas"
-          className="h-6 w-auto shrink-0"
+          className="h-8 w-auto shrink-0"
         />
         <div className="leading-tight">
-          <div className="text-[10px] text-white/50 tracking-wider">CONSOLE</div>
+          <div className="font-display text-[13px] font-bold tracking-wider">ABHINAYA</div>
+          <div className="text-[10px] text-white/50 tracking-wider">CINEMAS · CONSOLE</div>
         </div>
       </div>
 
