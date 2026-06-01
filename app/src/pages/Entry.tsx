@@ -32,7 +32,6 @@ import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
 import { MessageModal } from "../components/entry/MessageModal";
 import { DcrModal } from "../components/dcr/DcrModal";
-import { buildShowMessage } from "../lib/whatsappMessage";
 
 export default function EntryPage() {
   const { state, setAppState } = useSync();
@@ -194,7 +193,7 @@ function EntryBody({
     [appState, entry],
   );
 
-  const [messageText, setMessageText] = useState<string | null>(null);
+  const [msgIdx, setMsgIdx] = useState<number | null>(null);
 
   return (
     <div className="space-y-5">
@@ -211,9 +210,7 @@ function EntryBody({
             persist(updateShowRow(entry, i, classId, { tickets }))
           }
           onRemove={() => persist(removeShow(entry, i))}
-          onGenerateMessage={() =>
-            setMessageText(buildShowMessage(appState, entry, i, computed))
-          }
+          onGenerateMessage={() => setMsgIdx(i)}
         />
       ))}
 
@@ -224,9 +221,13 @@ function EntryBody({
       <EntryPreview computed={computed} />
 
       <MessageModal
-        open={messageText !== null}
-        text={messageText ?? ""}
-        onClose={() => setMessageText(null)}
+        open={msgIdx !== null}
+        state={appState}
+        entry={entry}
+        showIdx={msgIdx}
+        computed={computed}
+        onPatchShow={(i, patch) => persist(updateShow(entry, i, patch))}
+        onClose={() => setMsgIdx(null)}
       />
     </div>
   );

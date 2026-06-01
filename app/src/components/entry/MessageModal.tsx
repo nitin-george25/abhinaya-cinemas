@@ -1,73 +1,157 @@
 // ============================================================================
-// After-show message modal — shows the generated text, auto-copies on open,
-// has a manual Copy button as backup (some browsers block auto-copy without
-// a recent user gesture; the button gives the user one).
+// After-show message modal — renders a canvas image card (ported from
+// the legacy Cloud build's showMsgModal). Owner/manager can:
+//   • Enter / edit "Online ₹" for this show (writes back to entry.shows[i])
+//   • Save image (PNG download)
+//   • Copy image (clipboard, where supported)
+//   • Copy text (textual fallback)
 // ============================================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import {
+  buildShowText,
+  drawShowCard,
+  safeName,
+  showMessageData,
+  type ShowCardData,
+} from "../../lib/whatsappMessage";
+import type { AppState, ComputedEntry, Entry } from "../../lib/types";
+
+const LOGO_SRC = "/admin/dcr/img/logomark-white.png";
 
 interface Props {
   open: boolean;
-  text: string;
+  state: AppState;
+  entry: Entry;
+  showIdx: number | null;
+  computed: ComputedEntry;
+  /** Persist a patched show back to the entry (online value). */
+  onPatchShow: (showIdx: number, patch: { online?: number }) => void;
   onClose: () => void;
 }
 
-export function MessageModal({ open, text, onClose }: Props) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const [copied, setCopied] = useState(false);
+export function MessageModal({
+  open, state, entry, showIdx, computed, onPatchShow, onClose,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const logoRef = useRef<HTMLImageElement | null>(null);
+  const [logoReady, setLogoReady] = useState(false);
+  const [status, setStatus] = useState<string>("");
 
-  // Auto-copy on open. Clears the copied indicator each time the modal opens.
+  // Load logo once.
+  useEffect(() => {
+    if (logoRef.current) return;
+    const img = new Image();
+    img.onload = () => { logoRef.current = img; setLogoReady(true); };
+    img.onerror = () => { logoRef.current = null; setLogoReady(true); };
+    img.src = LOGO_SRC;
+  }, []);
+
+  const data: ShowCardData | null =
+    showIdx == null ? null : showMessageData(state, entry, showIdx, computed);
+
+  const redraw = useCallback(() => {
+    if (!canvasRef.current || !data) return;
+    drawShowCard(canvasRef.current, data, logoRef.current, state.cinema?.name);
+  }, [data, state.cinema?.name]);
+
   useEffect(() => {
     if (!open) return;
-    setCopied(false);
-    try {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).then(
-          () => setCopied(true),
-          () => {/* silent — user can still hit the button */},
-        );
-      }
-    } catch {
-      /* silent */
+    setStatus("");
+    redraw();
+    // Re-render once fonts are guaranteed ready (Pontiac/Barlow swap can
+    // shift glyph metrics).
+    if (typeof document !== "undefined" && "fonts" in document) {
+      (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready
+        .then(() => { if (open) redraw(); })
+        .catch(() => {/* */});
     }
-  }, [open, text]);
+  }, [open, redraw, logoReady]);
 
-  function manualCopy() {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.focus();
-    ta.select();
-    try {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).then(
-          () => setCopied(true),
-          () => {
-            try { document.execCommand("copy"); setCopied(true); } catch {/* */}
-          },
-        );
-      } else {
-        try { document.execCommand("copy"); setCopied(true); } catch {/* */}
-      }
-    } catch { /* */ }
+  if (!open || !data || showIdx == null) {
+    return <Modal open={false} onClose={onClose}>{null}</Modal>;
   }
 
+  function saveImage() {
+    const c = canvasRef.current;
+    if (!c || !data) return;
+    const a = document.createElement("a");
+    a.download = [safeName(data.screen), safeName(data.movie),
+      safeName(data.time || data.ordinal), data.date].filter(Boolean).join("_") + ".png";
+    a.href = c.toDataURL("image/png");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus("Image saved ✓");
+  }
+
+  function copyImage() {
+    const c = canvasRef.current;
+    if (!c) return;
+    if (!c.toBlob || !navigator.clipboard || !("ClipboardItem" in window)) {
+      setStatus("Copy not supported here — use Save image");
+      return;
+    }
+    c.toBlob((blob) => {
+      if (!blob) { setStatus("Copy failed"); return; }
+      const CI = (window as Window & { ClipboardItem: typeof ClipboardItem }).ClipboardItem;
+      navigator.clipboard.write([new CI({ "image/png": blob })])
+        .then(() => setStatus("Image copied ✓"))
+        .catch(() => setStatus("Copy not supported here — use Save image"));
+    });
+  }
+
+  function copyText() {
+    if (!data) return;
+    const t = buildShowText(data);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(t)
+        .then(() => setStatus("Text copied ✓"))
+        .catch(() => {/* silent */});
+    }
+  }
+
+  function onOnlineChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (showIdx == null) return;
+    const v = e.target.value === "" ? 0 : Number(e.target.value) || 0;
+    onPatchShow(showIdx, { online: v });
+    // Canvas will redraw automatically when `data` recomputes from new entry.
+  }
+
+  const onlineVal = entry.shows?.[showIdx]?.online ?? "";
+
   return (
-    <Modal open={open} onClose={onClose} title="After-show message">
+    <Modal open={open} onClose={onClose} title="After-show message" maxWidth="max-w-[620px]">
       <div className="space-y-3">
-        <textarea
-          ref={taRef}
-          readOnly
-          value={text}
-          className="w-full h-72 font-mono text-sm whitespace-pre p-3 border border-line rounded-md bg-paper"
-        />
-        <div className="flex items-center gap-3">
-          <Button onClick={manualCopy}>Copy to clipboard</Button>
-          {copied ? (
-            <span className="text-sm text-ink-muted">Copied ✓</span>
-          ) : null}
+        <div>
+          <span className="block text-[11px] uppercase tracking-wider text-ink-muted mb-1">
+            Online ₹ (for this show)
+          </span>
+          <Input
+            type="number"
+            min={0}
+            value={onlineVal}
+            onChange={onOnlineChange}
+            className="w-44 tabular-nums"
+          />
+        </div>
+
+        <div className="bg-black/5 rounded-xl p-3 overflow-auto text-center">
+          <canvas
+            ref={canvasRef}
+            className="max-w-full h-auto rounded-lg shadow-md"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <Button onClick={saveImage}>Save image</Button>
+          <Button variant="secondary" size="sm" onClick={copyImage}>Copy image</Button>
+          <Button variant="secondary" size="sm" onClick={copyText}>Copy text</Button>
+          {status ? <span className="text-sm text-ink-muted">{status}</span> : null}
         </div>
       </div>
     </Modal>
