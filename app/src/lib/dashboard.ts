@@ -437,3 +437,27 @@ export function fmtPct(n: number | null | undefined, decimals = 1): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toFixed(decimals) + "%";
 }
+
+/**
+ * Compact INR for narrow tiles: ₹ 1.2L, ₹ 23.4K, ₹ 5.6Cr.
+ * Sub-1000 just returns the rounded rupee figure with the symbol.
+ */
+export function fmtINRCompact(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_00_00_000) return `${sign}₹ ${(abs / 1_00_00_000).toFixed(abs >= 1_00_00_00_000 ? 0 : 2)}Cr`;
+  if (abs >= 1_00_000)    return `${sign}₹ ${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 1 : 2)}L`;
+  if (abs >= 1_000)       return `${sign}₹ ${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
+  return `${sign}₹ ${Math.round(abs)}`;
+}
+
+/** Compact int: 1.2K, 23.4K, 1.2M. Falls through to the regular fmtInt below 1k. */
+export function fmtIntCompact(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
+  return `${sign}${Math.round(abs)}`;
+}

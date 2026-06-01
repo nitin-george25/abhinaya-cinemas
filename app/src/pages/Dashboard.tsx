@@ -59,17 +59,16 @@ export default function Dashboard() {
   const { period, dates, cur, prev, fbCur, fbPrev } = view;
   const combinedCur  = cur.totals.grossColl + fbCur.totals.net;
   const combinedPrev = prev.totals.grossColl + fbPrev.totals.net;
-  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days} day${period.days === 1 ? "" : "s"} · vs ${niceDate(period.prevFrom)} → ${niceDate(period.prevTo)}`;
+  // Two-line label on mobile (period · range / vs prior). Single line on desktop.
+  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days}d · vs ${niceDate(period.prevFrom)} → ${niceDate(period.prevTo)}`;
 
   return (
-    <div className="space-y-6 max-w-7xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-sm text-ink-muted mt-1">
-            Read-only snapshot of cloud data — box office + F&amp;B.
-          </p>
-        </div>
+    <div className="space-y-5 sm:space-y-6 max-w-7xl">
+      <div>
+        <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-sm text-ink-muted mt-1">
+          Read-only snapshot of cloud data — box office + F&amp;B.
+        </p>
       </div>
 
       <PeriodSelector
@@ -167,11 +166,11 @@ export default function Dashboard() {
           rows={cur.byMovie}
           limit={10}
           cols={[
-            { header: "Movie", render: (m) => <span className="font-medium">{m.movieName}</span> },
-            { header: "Days", align: "right", render: (m) => fmtInt(m.daysPlayed) },
-            { header: "Tickets", align: "right", render: (m) => fmtInt(m.audience) },
-            { header: "Gross", align: "right", render: (m) => fmtINR(m.grossColl) },
-            { header: "Net Share", align: "right", render: (m) => fmtINR(m.netShare) },
+            { header: "Movie",     render: (m) => <span className="font-medium">{m.movieName}</span> },
+            { header: "Days",      align: "right", hideBelow: "md", render: (m) => fmtInt(m.daysPlayed) },
+            { header: "Tickets",   align: "right", hideBelow: "sm", render: (m) => fmtInt(m.audience) },
+            { header: "Gross",     align: "right",                  render: (m) => fmtINR(m.grossColl) },
+            { header: "Net Share", align: "right", hideBelow: "md", render: (m) => fmtINR(m.netShare) },
           ]}
         />
         <RollupTable
@@ -179,11 +178,11 @@ export default function Dashboard() {
           subtitle={`${cur.byScreen.length} screen${cur.byScreen.length === 1 ? "" : "s"}`}
           rows={cur.byScreen}
           cols={[
-            { header: "Screen", render: (s) => <span className="font-medium">{s.screenName}</span> },
-            { header: "Shows", align: "right", render: (s) => fmtInt(s.showCount) },
-            { header: "Tickets", align: "right", render: (s) => fmtInt(s.audience) },
-            { header: "Gross", align: "right", render: (s) => fmtINR(s.grossColl) },
-            { header: "Occ%", align: "right", render: (s) => occPctCell(s.audience, s.seatsAvailable) },
+            { header: "Screen",  render: (s) => <span className="font-medium">{s.screenName}</span> },
+            { header: "Shows",   align: "right", hideBelow: "md", render: (s) => fmtInt(s.showCount) },
+            { header: "Tickets", align: "right", hideBelow: "sm", render: (s) => fmtInt(s.audience) },
+            { header: "Gross",   align: "right",                  render: (s) => fmtINR(s.grossColl) },
+            { header: "Occ%",    align: "right", hideBelow: "md", render: (s) => occPctCell(s.audience, s.seatsAvailable) },
           ]}
         />
       </div>

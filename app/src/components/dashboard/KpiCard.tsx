@@ -1,5 +1,8 @@
 import { Card, CardBody } from "../ui/Card";
-import { fmtINR, fmtInt, fmtPct, pctDelta } from "../../lib/dashboard";
+import {
+  fmtINR, fmtInt, fmtPct, pctDelta,
+  fmtINRCompact, fmtIntCompact,
+} from "../../lib/dashboard";
 
 type FormatKind = "inr" | "int" | "pct" | "inr2";
 
@@ -11,38 +14,54 @@ interface Props {
   sublabel?: string;
 }
 
-const formatters: Record<FormatKind, (v: number | null) => string> = {
+const fullFormatters: Record<FormatKind, (v: number | null) => string> = {
   inr:  (v) => fmtINR(v, 0),
   inr2: (v) => fmtINR(v, 2),
   int:  (v) => fmtInt(v),
   pct:  (v) => fmtPct(v, 1),
 };
 
+// Compact variants for narrow tiles (mobile 2-up). Pct and the small inr2
+// (ATP, SPH — typically 3-digit) stay full so precision shows.
+const compactFormatters: Record<FormatKind, (v: number | null) => string> = {
+  inr:  (v) => fmtINRCompact(v),
+  inr2: (v) => fmtINR(v, 2),
+  int:  (v) => fmtIntCompact(v),
+  pct:  (v) => fmtPct(v, 1),
+};
+
 /**
- * One KPI tile: tiny label, big number (tabular), small delta line.
- * Delta colour is intentionally desaturated — this is a numbers-heavy ops
- * screen, not a stock ticker; we want it legible, not loud.
+ * One KPI tile: tiny label, big number, small delta line. The value renders
+ * compact on phones (1.2L, 23K) and full on sm+ where the card is wider.
+ * Sublabel sits below the value on mobile so the label row never wraps.
  */
 export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
-  const fmt = formatters[format];
+  const full = fullFormatters[format];
+  const compact = compactFormatters[format];
   const delta = pctDelta(value, prevValue);
   const positive = delta != null && delta >= 0;
 
   return (
     <Card>
-      <CardBody className="space-y-1.5">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-[11px] font-semibold tracking-wider uppercase text-ink-muted">
-            {label}
-          </h3>
-          {sublabel ? (
-            <span className="text-[11px] text-ink-muted">{sublabel}</span>
-          ) : null}
+      <CardBody className="p-3 sm:p-5 space-y-1">
+        <h3 className="text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase text-ink-muted truncate">
+          {label}
+        </h3>
+
+        {/* Compact on phones, full on sm+. Two spans, one visible per breakpoint —
+            avoids JS detection and keeps the number tabular in both. */}
+        <div className="tracking-tight tabular-nums font-semibold">
+          <span className="sm:hidden text-xl">{compact(value)}</span>
+          <span className="hidden sm:inline text-2xl">{full(value)}</span>
         </div>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">
-          {fmt(value)}
-        </div>
-        <div className="text-xs text-ink-muted leading-snug min-h-[16px]">
+
+        {sublabel ? (
+          <div className="text-[10px] sm:text-[11px] text-ink-muted truncate">
+            {sublabel}
+          </div>
+        ) : null}
+
+        <div className="text-[11px] sm:text-xs text-ink-muted leading-snug min-h-[16px] truncate">
           {delta == null ? (
             <span>no prior period</span>
           ) : (
@@ -50,7 +69,8 @@ export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
               <span className={positive ? "text-green-700" : "text-red-700"}>
                 {positive ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
               </span>
-              <span className="ml-1.5">vs {fmt(prevValue)}</span>
+              {/* Hide the "vs ₹ X" tail on mobile — it eats the row. */}
+              <span className="ml-1.5 hidden sm:inline">vs {full(prevValue)}</span>
             </>
           )}
         </div>
