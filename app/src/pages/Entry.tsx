@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { todayIso } from "../lib/dates";
@@ -30,6 +29,7 @@ import { Badge } from "../components/ui/Badge";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
+import { DcrModal } from "../components/dcr/DcrModal";
 
 export default function EntryPage() {
   const { state, setAppState } = useSync();
@@ -236,7 +236,7 @@ function EntryActions({
     () => computeEntry(appState, entry),
     [appState, entry],
   );
-  const dcrPath = `/dcr/${entry.date}/${entry.movieId}/${entry.screenId}`;
+  const [dcrOpen, setDcrOpen] = useState(false);
 
   function dlPdf() {
     downloadDcrPdf(computed, { cinema: appState.cinema, tax: appState.tax });
@@ -257,14 +257,23 @@ function EntryActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Link to={dcrPath}>
-        <Button variant="secondary" size="sm">View DCR</Button>
-      </Link>
-      <Button variant="secondary" size="sm" onClick={dlCsv}>CSV</Button>
-      <Button variant="secondary" size="sm" onClick={dlTally}>Tally CSV</Button>
-      <Button size="sm" onClick={dlPdf}>Download PDF</Button>
-      <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
-    </div>
+    <>
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <Button variant="secondary" size="sm" onClick={() => setDcrOpen(true)}>
+          View DCR
+        </Button>
+        <Button variant="secondary" size="sm" onClick={dlCsv}>CSV</Button>
+        <Button variant="secondary" size="sm" onClick={dlTally}>Tally CSV</Button>
+        <Button size="sm" onClick={dlPdf}>Download PDF</Button>
+        <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
+      </div>
+
+      <DcrModal
+        open={dcrOpen}
+        onClose={() => setDcrOpen(false)}
+        computed={computed}
+        appState={appState}
+      />
+    </>
   );
 }
