@@ -156,10 +156,14 @@ export default function Dashboard() {
       </div>
 
       {/* Chart */}
-      <RevenueChart dates={dates} bo={cur} />
+      <div className="min-w-0">
+        <RevenueChart dates={dates} bo={cur} />
+      </div>
 
-      {/* Two-column rollups */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Two-column rollups. min-w-0 on the grid container + cells stops the
+          inner tables from forcing the grid track to their min-content
+          width, which otherwise pushes the cards off-screen on mobile. */}
+      <div className="grid gap-6 lg:grid-cols-2 min-w-0 [&>*]:min-w-0">
         <RollupTable
           title="Top movies"
           subtitle={`${cur.byMovie.length} in period`}
