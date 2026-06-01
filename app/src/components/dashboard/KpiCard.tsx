@@ -21,8 +21,8 @@ const fullFormatters: Record<FormatKind, (v: number | null) => string> = {
   pct:  (v) => fmtPct(v, 1),
 };
 
-// Compact variants for narrow tiles (mobile 2-up). Pct and the small inr2
-// (ATP, SPH — typically 3-digit) stay full so precision shows.
+// Compact variants for narrow tiles. Pct + inr2 (ATP, SPH — small 3-digit
+// money) stay full so the precision is visible.
 const compactFormatters: Record<FormatKind, (v: number | null) => string> = {
   inr:  (v) => fmtINRCompact(v),
   inr2: (v) => fmtINR(v, 2),
@@ -31,9 +31,15 @@ const compactFormatters: Record<FormatKind, (v: number | null) => string> = {
 };
 
 /**
- * One KPI tile: tiny label, big number, small delta line. The value renders
- * compact on phones (1.2L, 23K) and full on sm+ where the card is wider.
- * Sublabel sits below the value on mobile so the label row never wraps.
+ * KPI tile, value-led:
+ *
+ *   COMBINED REVENUE              ← small uppercase label
+ *   ₹ 5.4L              ▲ 12.3%   ← big value with delta chip on same baseline
+ *   BO + F&B · vs ₹ 4.8L           ← sublabel + prior on a muted footer row
+ *
+ * Compact number formatting kicks in below sm so 2-up tiles never overflow.
+ * The delta sits beside the value (instead of below) so the card has only
+ * three text rows instead of four, and the eye lands on the number first.
  */
 export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
   const full = fullFormatters[format];
@@ -41,39 +47,57 @@ export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
   const delta = pctDelta(value, prevValue);
   const positive = delta != null && delta >= 0;
 
+  // Compose the muted footer row: sublabel, optional "vs <prev>" (desktop
+  // only — it eats the row on mobile), or "no prior period" when there's
+  // nothing to compare against.
+  const footerLeft = sublabel ?? "";
+  const footerRight =
+    delta == null
+      ? "no prior period"
+      : prevValue != null
+        ? `vs ${full(prevValue)}`
+        : "";
+  const showFooter = !!(footerLeft || footerRight);
+
   return (
     <Card>
-      <CardBody className="p-3 sm:p-5 space-y-1">
+      <CardBody className="p-3 sm:p-5">
         <h3 className="text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase text-ink-muted truncate">
           {label}
         </h3>
 
-        {/* Compact on phones, full on sm+. Two spans, one visible per breakpoint —
-            avoids JS detection and keeps the number tabular in both. */}
-        <div className="tracking-tight tabular-nums font-semibold">
-          <span className="sm:hidden text-xl">{compact(value)}</span>
-          <span className="hidden sm:inline text-2xl">{full(value)}</span>
+        <div className="mt-1.5 flex items-baseline justify-between gap-2">
+          <div className="text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums leading-none truncate min-w-0">
+            <span className="sm:hidden">{compact(value)}</span>
+            <span className="hidden sm:inline">{full(value)}</span>
+          </div>
+          {delta != null ? (
+            <span
+              className={
+                "text-xs sm:text-sm font-medium tabular-nums shrink-0 " +
+                (positive ? "text-green-700" : "text-red-700")
+              }
+            >
+              {positive ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
+            </span>
+          ) : null}
         </div>
 
-        {sublabel ? (
-          <div className="text-[10px] sm:text-[11px] text-ink-muted truncate">
-            {sublabel}
+        {showFooter ? (
+          <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] sm:text-[11px] text-ink-muted">
+            <span className="truncate min-w-0">{footerLeft}</span>
+            {/* Hide the "vs ₹ X" tail on phones where it competes with
+                sublabel for space. "no prior period" still shows. */}
+            <span
+              className={
+                "shrink-0 " +
+                (footerRight === "no prior period" ? "" : "hidden sm:inline")
+              }
+            >
+              {footerRight}
+            </span>
           </div>
         ) : null}
-
-        <div className="text-[11px] sm:text-xs text-ink-muted leading-snug min-h-[16px] truncate">
-          {delta == null ? (
-            <span>no prior period</span>
-          ) : (
-            <>
-              <span className={positive ? "text-green-700" : "text-red-700"}>
-                {positive ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
-              </span>
-              {/* Hide the "vs ₹ X" tail on mobile — it eats the row. */}
-              <span className="ml-1.5 hidden sm:inline">vs {full(prevValue)}</span>
-            </>
-          )}
-        </div>
       </CardBody>
     </Card>
   );
