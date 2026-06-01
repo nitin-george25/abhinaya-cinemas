@@ -107,6 +107,8 @@ export interface Show {
   freePass?: number;
   priceCardId?: UUID;
   rows?: Record<UUID, ShowRow>;   // classId -> { tickets }
+  /** Marks the last show of the day — message generator appends day totals. */
+  lastShow?: boolean;
 }
 
 export interface Entry {

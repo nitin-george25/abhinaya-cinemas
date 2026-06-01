@@ -30,7 +30,9 @@ import { Badge } from "../components/ui/Badge";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
+import { MessageModal } from "../components/entry/MessageModal";
 import { DcrModal } from "../components/dcr/DcrModal";
+import { buildShowMessage } from "../lib/whatsappMessage";
 
 export default function EntryPage() {
   const { state, setAppState } = useSync();
@@ -192,6 +194,8 @@ function EntryBody({
     [appState, entry],
   );
 
+  const [messageText, setMessageText] = useState<string | null>(null);
+
   return (
     <div className="space-y-5">
       {(entry.shows ?? []).map((sh, i) => (
@@ -207,6 +211,9 @@ function EntryBody({
             persist(updateShowRow(entry, i, classId, { tickets }))
           }
           onRemove={() => persist(removeShow(entry, i))}
+          onGenerateMessage={() =>
+            setMessageText(buildShowMessage(appState, entry, i, computed))
+          }
         />
       ))}
 
@@ -215,6 +222,12 @@ function EntryBody({
       </Button>
 
       <EntryPreview computed={computed} />
+
+      <MessageModal
+        open={messageText !== null}
+        text={messageText ?? ""}
+        onClose={() => setMessageText(null)}
+      />
     </div>
   );
 }
