@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "../ui/Button";
-import { Input } from "../ui/Input";
+import { Input, Select } from "../ui/Input";
 import { Badge } from "../ui/Badge";
 import type { PresetId } from "../../lib/dashboard";
 import type { DateISO } from "../../lib/types";
@@ -27,7 +27,25 @@ export function PeriodSelector({ preset, custom, rangeLabel, onChange }: Props) 
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Mobile: single dropdown. Desktop: pill row. */}
+      <div className="sm:hidden flex items-center gap-2">
+        <Select
+          value={preset}
+          onChange={(e) => {
+            const id = e.target.value as PresetId;
+            if (id !== "custom") onChange({ preset: id });
+            else onChange({ preset: id, custom: { from: from || "", to: to || "" } });
+          }}
+          className="flex-1"
+        >
+          {PRESETS.map(([id, label]) => (
+            <option key={id} value={id}>{label}</option>
+          ))}
+        </Select>
+        <Badge tone="neutral" className="whitespace-nowrap">{rangeLabel}</Badge>
+      </div>
+
+      <div className="hidden sm:flex flex-wrap items-center gap-2">
         {PRESETS.map(([id, label]) => (
           <button
             key={id}

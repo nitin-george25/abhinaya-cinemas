@@ -4,39 +4,37 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { IconAlert, IconCheck, IconSignOut, IconSpinner } from "../icons";
 import { getEnv } from "../../lib/supabase";
+import { titleForPath } from "../../lib/nav";
 
-const ROUTE_TITLES: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/entry":     "Today's entry",
-  "/history":   "History",
-  "/fb":        "F&B sales",
-  "/activity":  "Activity log",
-  "/backup":    "Backup",
-  "/settings":  "Settings",
-};
+interface Props {
+  onMenuClick: () => void;
+}
 
-export function Header() {
+export function Header({ onMenuClick }: Props) {
   const { state, signOut } = useSync();
   const loc = useLocation();
-  // Match the longest known prefix — sub-routes keep the parent's title.
-  const title =
-    Object.entries(ROUTE_TITLES)
-      .filter(([p]) => loc.pathname.startsWith(p))
-      .sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? "Console";
+  const title = titleForPath(loc.pathname);
 
   const env = (() => { try { return getEnv().name; } catch { return null; } })();
 
   return (
     <header className="border-b border-line bg-paper-card">
-      <div className="px-6 h-14 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="px-4 md:px-6 h-14 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={onMenuClick}
+            aria-label="Open menu"
+            className="md:hidden -ml-2 p-2 rounded-md text-ink-muted hover:text-ink active:bg-line/40"
+          >
+            <HamburgerIcon />
+          </button>
           <h1 className="font-semibold tracking-tight text-base truncate">{title}</h1>
           {env === "staging" ? (
             <Badge tone="amber" className="shrink-0">TEST</Badge>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3 shrink-0">
           <SyncPill />
           <UserMenu
             label={state.fullName ?? state.username ?? state.email}
@@ -48,13 +46,28 @@ export function Header() {
   );
 }
 
+function HamburgerIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      className="w-5 h-5"
+    >
+      <path d="M3 6h14M3 10h14M3 14h14" />
+    </svg>
+  );
+}
+
 function SyncPill() {
   const { state } = useSync();
   if (state.saveState === "saving") {
     return (
       <Badge tone="amber" className="gap-1.5">
         <IconSpinner className="w-3 h-3" />
-        Saving…
+        <span className="hidden sm:inline">Saving…</span>
       </Badge>
     );
   }
@@ -62,14 +75,14 @@ function SyncPill() {
     return (
       <Badge tone="red" className="gap-1.5">
         <IconAlert className="w-3 h-3" />
-        Sync error
+        <span className="hidden sm:inline">Sync error</span>
       </Badge>
     );
   }
   return (
     <Badge tone="green" className="gap-1.5">
       <IconCheck className="w-3 h-3" />
-      Synced
+      <span className="hidden sm:inline">Synced</span>
     </Badge>
   );
 }

@@ -6,7 +6,8 @@
 // shown as a quick reference — clicking a row opens the edit modal.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useSync } from "../../lib/hooks/SyncContext";
 import { upsertFbEntry } from "../../lib/fb";
@@ -24,6 +25,19 @@ export default function FBEntryPage() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<FbEntry | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Handle ?action= from FAB / deep links: ?action=add or ?action=upload.
+  // Consume the param after wiring the modal so refreshes don't loop.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const a = params.get("action");
+    if (!a) return;
+    if (a === "add") setAdding(true);
+    if (a === "upload") setUploading(true);
+    const next = new URLSearchParams(params);
+    next.delete("action");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
 
   const recent = useMemo<FbEntry[]>(() => {
     if (!appState) return [];

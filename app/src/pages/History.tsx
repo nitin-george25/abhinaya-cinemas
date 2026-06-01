@@ -246,11 +246,11 @@ function HistoryTable({
               <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
                 <th className="text-left px-3 py-3 font-semibold whitespace-nowrap">Date</th>
                 <th className="text-left px-3 py-3 font-semibold">Movie</th>
-                <th className="text-left px-3 py-3 font-semibold">Screen</th>
-                <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Shows</th>
-                <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Tickets</th>
+                <th className="hidden md:table-cell text-left px-3 py-3 font-semibold">Screen</th>
+                <th className="hidden lg:table-cell text-right px-3 py-3 font-semibold whitespace-nowrap">Shows</th>
+                <th className="hidden lg:table-cell text-right px-3 py-3 font-semibold whitespace-nowrap">Tickets</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Gross</th>
-                <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Net Share</th>
+                <th className="hidden md:table-cell text-right px-3 py-3 font-semibold whitespace-nowrap">Net Share</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Actions</th>
               </tr>
             </thead>
@@ -310,34 +310,37 @@ function HistoryRow({
       onClick={() => onSelect(row)}
       className="border-b border-line last:border-b-0 hover:bg-paper cursor-pointer"
     >
-      <td className="px-3 py-2.5 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div>{niceDate(entry.date)}</div>
         <div className="text-xs text-ink-muted">{weekday(entry.date)}</div>
       </td>
-      <td className="px-3 py-2.5 font-medium">
-        {computed.movie?.name ?? entry.movieId}
+      <td className="px-3 py-3 font-medium">
+        <div>{computed.movie?.name ?? entry.movieId}</div>
+        <div className="md:hidden text-xs text-ink-muted">
+          {computed.screen?.name ?? entry.screenId}
+        </div>
       </td>
-      <td className="px-3 py-2.5">
+      <td className="hidden md:table-cell px-3 py-3">
         {computed.screen?.name ?? entry.screenId}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
+      <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums">
         {fmtInt((entry.shows ?? []).length)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
+      <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums">
         {fmtInt(computed.today.audience)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
+      <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap">
         {fmtINR(computed.today.grossColl)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
+      <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums whitespace-nowrap">
         {fmtINR(computed.today.netShare)}
       </td>
-      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+      <td className="px-3 py-3 text-right whitespace-nowrap">
         <div className="inline-flex items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={dlPdf} title="Download DCR PDF">
+          <Button size="sm" variant="ghost" onClick={dlPdf} title="Download DCR PDF" className="hidden sm:inline-flex">
             PDF
           </Button>
-          <Button size="sm" variant="ghost" onClick={dlTally} title="Download Tally CSV">
+          <Button size="sm" variant="ghost" onClick={dlTally} title="Download Tally CSV" className="hidden sm:inline-flex">
             Tally
           </Button>
           <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onSelect(row); }}>

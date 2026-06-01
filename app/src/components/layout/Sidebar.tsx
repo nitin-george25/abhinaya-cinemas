@@ -1,129 +1,18 @@
 // ============================================================================
-// Sidebar — dark, role-filtered nav with two-level groups.
-//
-// Top-level items are either leaves (with `to`) or groups (with `children`).
-// Groups expand/collapse on click and auto-expand when one of their child
-// routes is active. Active highlight on parent + child.
+// Sidebar — desktop-only dark nav (hidden on < md). Mobile uses MobileNav.tsx.
 // ============================================================================
 
 import { useMemo, useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../ui/cn";
-import {
-  IconDashboard,
-  IconEntry,
-  IconFB,
-  IconActivity,
-  IconBackup,
-  IconSettings,
-  IconChevronDown,
-} from "../icons";
+import { IconChevronDown } from "../icons";
+import { NAV, filterForRole, roleLabel, type NavGroup, type NavLeaf } from "../../lib/nav";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
-
-type IconCmp = typeof IconDashboard;
-
-interface NavLeaf {
-  kind: "leaf";
-  to: string;
-  label: string;
-  Icon?: IconCmp;
-  roles: Role[];
-}
-interface NavGroup {
-  kind: "group";
-  id: string;
-  label: string;
-  Icon: IconCmp;
-  roles: Role[];
-  children: NavLeaf[];
-}
-type NavItem = NavLeaf | NavGroup;
-
-const OWNER_MANAGER: Role[] = ["owner", "manager"];
-const OWNER_ONLY: Role[] = ["owner"];
-const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
-// Day-to-day data-entry roles: can write BO + F&B but nothing else.
-const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
-const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
-
-const NAV: NavItem[] = [
-  {
-    kind: "leaf",
-    to: "/dashboard",
-    label: "Dashboard",
-    Icon: IconDashboard,
-    roles: OWNER_MANAGER,
-  },
-  {
-    kind: "group",
-    id: "box-office",
-    label: "Box Office",
-    Icon: IconEntry,
-    roles: ALL,
-    children: [
-      { kind: "leaf", to: "/box-office/entry",   label: "Entry",   roles: ENTRY_ROLES },
-      { kind: "leaf", to: "/box-office/history", label: "History", roles: BO_HISTORY_ROLES },
-    ],
-  },
-  {
-    kind: "group",
-    id: "fb",
-    label: "F&B",
-    Icon: IconFB,
-    roles: ENTRY_ROLES,
-    children: [
-      { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: ENTRY_ROLES },
-      { kind: "leaf", to: "/fb/history",    label: "History",    roles: ENTRY_ROLES },
-      { kind: "leaf", to: "/fb/menu-items", label: "Menu Items", roles: OWNER_ONLY },
-    ],
-  },
-  {
-    kind: "group",
-    id: "settings",
-    label: "Settings",
-    Icon: IconSettings,
-    roles: OWNER_MANAGER,
-    children: [
-      { kind: "leaf", to: "/settings/movies",  label: "Movies",            roles: OWNER_MANAGER },
-      { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
-      { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
-      { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_ONLY },
-    ],
-  },
-  { kind: "leaf", to: "/activity", label: "Activity Log", Icon: IconActivity, roles: OWNER_MANAGER },
-  { kind: "leaf", to: "/backup",   label: "Backup",       Icon: IconBackup,   roles: OWNER_MANAGER },
-];
-
-function roleLabel(role: Role): string {
-  switch (role) {
-    case "owner":         return "owner";
-    case "manager":       return "manager";
-    case "daily_manager": return "daily manager";
-    case "accountant":    return "accountant";
-  }
-}
-
-function filterForRole(items: NavItem[], role: Role): NavItem[] {
-  const out: NavItem[] = [];
-  for (const item of items) {
-    if (!item.roles.includes(role)) continue;
-    if (item.kind === "group") {
-      const kids = item.children.filter((c) => c.roles.includes(role));
-      if (kids.length === 0) continue;
-      out.push({ ...item, children: kids });
-    } else {
-      out.push(item);
-    }
-  }
-  return out;
-}
 
 export function Sidebar({ role }: { role: Role }) {
   const visible = useMemo(() => filterForRole(NAV, role), [role]);
   const location = useLocation();
 
-  // Auto-expand the group whose child matches the current path. Manual
-  // toggles override until the route changes again.
   const activeGroupId = useMemo(() => {
     for (const item of visible) {
       if (item.kind === "group" && item.children.some((c) => location.pathname.startsWith(c.to))) {
@@ -140,7 +29,6 @@ export function Sidebar({ role }: { role: Role }) {
 
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
-      {/* Brand — fixed h-14 to match the header's height. */}
       <div className="h-14 px-5 flex items-center gap-3 border-b border-white/10 shrink-0">
         <img
           src="/admin/dcr/img/logomark-white.png"
@@ -153,7 +41,6 @@ export function Sidebar({ role }: { role: Role }) {
         </div>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3">
         {visible.map((item) =>
           item.kind === "leaf" ? (
@@ -169,7 +56,6 @@ export function Sidebar({ role }: { role: Role }) {
         )}
       </nav>
 
-      {/* Footer caption */}
       <div className="px-5 py-3 border-t border-white/10 text-[10px] uppercase tracking-wider text-white/30">
         v2 preview · {roleLabel(role)}
       </div>
@@ -217,9 +103,7 @@ function Group({
         onClick={onToggle}
         aria-expanded={open}
         className={cn(
-          "w-full flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm transition-colors",
-          // Wrapper button has its own width via mx-2 + w-full; offset.
-          "text-left",
+          "w-full flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm transition-colors text-left",
           isAnyChildActive
             ? "text-amber-300"
             : "text-white/70 hover:text-white hover:bg-white/5",
@@ -229,10 +113,7 @@ function Group({
         <group.Icon className="w-4 h-4 shrink-0" />
         <span className="flex-1">{group.label}</span>
         <IconChevronDown
-          className={cn(
-            "w-3.5 h-3.5 transition-transform",
-            open ? "rotate-0" : "-rotate-90",
-          )}
+          className={cn("w-3.5 h-3.5 transition-transform", open ? "rotate-0" : "-rotate-90")}
         />
       </button>
       {open ? (

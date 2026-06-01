@@ -19,6 +19,7 @@ import type { AppState } from "../lib/types";
 import { Card, CardBody, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { DesktopBetterBanner } from "../components/layout/DesktopBetterBanner";
 
 const LAST_EXPORT_KEY = "abhinaya_dcr_last_export";
 
@@ -126,6 +127,7 @@ export default function BackupPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      <DesktopBetterBanner />
       <div>
         <h2 className="font-display text-3xl font-bold tracking-tight">Backup</h2>
         <p className="text-sm text-ink-muted mt-1">

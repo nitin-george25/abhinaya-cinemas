@@ -1,10 +1,12 @@
 // Route page: /settings/screens — Screens, class assignments, and price cards.
 
 import { ScreensSection, PriceCardsSection } from "../Settings";
+import { DesktopBetterBanner } from "../../components/layout/DesktopBetterBanner";
 
 export default function SettingsScreensPage() {
   return (
     <div className="space-y-5 max-w-5xl">
+      <DesktopBetterBanner />
       <div>
         <h2 className="font-display text-3xl font-bold tracking-tight">
           Screens &amp; Classes

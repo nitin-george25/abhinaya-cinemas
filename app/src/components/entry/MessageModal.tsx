@@ -76,18 +76,60 @@ export function MessageModal({
     return <Modal open={false} onClose={onClose}>{null}</Modal>;
   }
 
+  function imageFilename(): string {
+    if (!data) return "show.png";
+    return [safeName(data.screen), safeName(data.movie),
+      safeName(data.time || data.ordinal), data.date].filter(Boolean).join("_") + ".png";
+  }
+
   function saveImage() {
     const c = canvasRef.current;
     if (!c || !data) return;
     const a = document.createElement("a");
-    a.download = [safeName(data.screen), safeName(data.movie),
-      safeName(data.time || data.ordinal), data.date].filter(Boolean).join("_") + ".png";
+    a.download = imageFilename();
     a.href = c.toDataURL("image/png");
     document.body.appendChild(a);
     a.click();
     a.remove();
     setStatus("Image saved ✓");
   }
+
+  /** Native share via navigator.share — mobile-friendly one-tap WhatsApp. */
+  function shareImage() {
+    const c = canvasRef.current;
+    if (!c || !data) return;
+    if (!c.toBlob || typeof navigator.share !== "function") {
+      setStatus("Share not supported — use Save image");
+      return;
+    }
+    c.toBlob((blob) => {
+      if (!blob) { setStatus("Share failed"); return; }
+      const file = new File([blob], imageFilename(), { type: "image/png" });
+      // Feature-detect file sharing; fall back to text-only if not supported.
+      const navAny = navigator as Navigator & {
+        canShare?: (data: { files?: File[] }) => boolean;
+      };
+      const shareData: ShareData & { files?: File[] } = {
+        files: [file],
+        title: `${data.screen} · ${data.movie}`,
+        text: `${data.screen} — ${data.movie}`,
+      };
+      if (navAny.canShare && !navAny.canShare({ files: [file] })) {
+        setStatus("Image share not supported — use Save image");
+        return;
+      }
+      navigator.share(shareData)
+        .then(() => setStatus("Shared ✓"))
+        .catch((err: unknown) => {
+          // User cancelled — silently ignore.
+          if (err instanceof Error && err.name === "AbortError") return;
+          setStatus("Share failed — use Save image");
+        });
+    });
+  }
+
+  const canShare =
+    typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   function copyImage() {
     const c = canvasRef.current;
@@ -148,10 +190,15 @@ export function MessageModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <Button onClick={saveImage}>Save image</Button>
+          {canShare ? (
+            <Button onClick={shareImage}>Share</Button>
+          ) : null}
+          <Button variant={canShare ? "secondary" : "primary"} onClick={saveImage}>
+            Save image
+          </Button>
           <Button variant="secondary" size="sm" onClick={copyImage}>Copy image</Button>
           <Button variant="secondary" size="sm" onClick={copyText}>Copy text</Button>
-          {status ? <span className="text-sm text-ink-muted">{status}</span> : null}
+          {status ? <span className="text-sm text-ink-muted w-full sm:w-auto">{status}</span> : null}
         </div>
       </div>
     </Modal>
