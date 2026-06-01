@@ -39,17 +39,15 @@ export function SignInScreen({ message }: Props) {
       />
 
       <div className="relative min-h-screen flex flex-col items-center justify-center px-4 py-10">
-        {/* Brand chrome — sits ABOVE the card */}
+        {/* Brand chrome — sits ABOVE the card. The cream logomark reads
+         *  cleanly on dark; the tagline is the only text up here. */}
         <div className="flex flex-col items-center text-center mb-6">
           <img
             src="/v2/img/logomark-white.png"
-            alt=""
-            className="h-14 w-auto mb-4"
+            alt="Abhinaya Cinemas"
+            className="h-16 w-auto mb-3"
           />
-          <h1 className="font-display text-3xl font-bold tracking-wide">
-            ABHINAYA CINEMAS
-          </h1>
-          <p className="text-sm text-white/55 mt-1.5 tracking-wide">
+          <p className="text-sm text-white/55 tracking-wide">
             Daily Collection Report Console
           </p>
         </div>
@@ -64,6 +62,12 @@ export function SignInScreen({ message }: Props) {
           </div>
 
           <div className="px-7 py-7 space-y-5">
+            {/* Full color wordmark inside the card — works on white */}
+            <img
+              src="/v2/img/logo-color.png"
+              alt="Abhinaya Cinemas"
+              className="h-10 w-auto mx-auto"
+            />
             <div className="text-center">
               <h2 className="font-display text-xl font-bold tracking-tight">
                 Sign in
