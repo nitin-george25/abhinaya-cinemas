@@ -25,7 +25,6 @@ import type {
   AppState,
   DateISO,
   Entry,
-  FbEntry,
   Movie,
   Screen,
   UUID,
