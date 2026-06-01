@@ -20,6 +20,7 @@ import { Field, Input } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { FbEntryForm } from "../components/fb/FbEntryForm";
+import { DsrUploadModal } from "../components/fb/DsrUploadModal";
 
 interface Filters {
   from: DateISO | "";
@@ -33,6 +34,7 @@ export default function FBPage() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [editing, setEditing] = useState<FbEntry | null>(null);
   const [adding, setAdding] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const rows = useMemo<FbEntry[]>(() => {
     if (!appState) return [];
@@ -83,6 +85,15 @@ export default function FBPage() {
     setAdding(false);
   }
 
+  // CSV import — DSR overwrites any existing row on the same date (the
+  // user is warned in the preview before they click Import).
+  function handleImport(entry: FbEntry) {
+    setAppState(upsertFbEntry(appState!, entry));
+    setUploading(false);
+  }
+
+  const existingDates = new Set(appState.fbEntries.map((e) => e.date));
+
   function handleDelete(date: DateISO) {
     setAppState(deleteFbEntry(appState!, date));
     setEditing(null);
@@ -104,7 +115,12 @@ export default function FBPage() {
           </p>
         </div>
         {canEdit ? (
-          <Button onClick={() => setAdding(true)}>+ Add F&amp;B day</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setUploading(true)}>
+              Upload daily CSV
+            </Button>
+            <Button onClick={() => setAdding(true)}>+ Add F&amp;B day</Button>
+          </div>
         ) : null}
       </div>
 
@@ -133,6 +149,12 @@ export default function FBPage() {
         onClose={() => setEditing(null)}
         onSave={handleSave}
         onDelete={() => editing && handleDelete(editing.date)}
+      />
+      <DsrUploadModal
+        open={uploading}
+        onClose={() => setUploading(false)}
+        onImport={handleImport}
+        existingDates={existingDates}
       />
     </div>
   );
