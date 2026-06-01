@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ───────────────────────── Brand fonts ─────────────────────────
+ *
+ *  Primary (display) : Pontiac
+ *      Used for large headers + the brand wordmark. The Fontspring DEMO
+ *      version we have is glyph-limited — it's missing some characters
+ *      (apostrophe, '4', etc). The CSS fallback chain handles this on a
+ *      per-glyph basis: any missing glyph silently falls through to the
+ *      next family.
+ *
+ *  Secondary (body) : Barlow Semi Condensed
+ *      Used for everything else. Carried over from the legacy app and
+ *      acts as the per-glyph fallback for Pontiac.
+ *
+ *  TODO: swap to Brother 1816 (see task #71) once webfont files arrive.
+ *
+ *  Paths are absolute under /admin/dcr/fonts/... because Vite serves
+ *  /public assets at the configured base ('/admin/dcr/').
+ * ─────────────────────────────────────────────────────────────── */
+
+/* ── Pontiac ──
+ *
+ * The Fontspring DEMO version overlays a "FREE DEMO" watermark on top of
+ * 29 specific glyphs (apostrophe, '4', '!', '#', '/', 'm' lowercase, etc.)
+ * to nudge buyers toward the full license. The cmap entry is present but
+ * the visual is unreadable.
+ *
+ * We use `unicode-range` to tell the browser Pontiac only renders the
+ * SAFE 66 ASCII codepoints. Any character outside that range falls
+ * through to the next family in the font stack (Barlow Semi Condensed)
+ * automatically — the standard CSS font-fallback mechanism.
+ *
+ * The watermarked set was identified by scanning all 4 weights for
+ * glyphs whose CharString program length is exactly 84 (the signature
+ * of the DEMO overlay shape).  When we get real Brother 1816 (task
+ * #71), this range can be removed.
+ * --------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/pontiac/Pontiac-Light.otf") format("opentype");
+  unicode-range: U+0020, U+002C, U+002E, U+0030-0033, U+0035-003B, U+003F, U+0041-005A, U+0061-006C, U+006E-007A;
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/pontiac/Pontiac-Regular.otf") format("opentype");
+  unicode-range: U+0020, U+002C, U+002E, U+0030-0033, U+0035-003B, U+003F, U+0041-005A, U+0061-006C, U+006E-007A;
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/pontiac/Pontiac-Bold.otf") format("opentype");
+  unicode-range: U+0020, U+002C, U+002E, U+0030-0033, U+0035-003B, U+003F, U+0041-005A, U+0061-006C, U+006E-007A;
+}
+@font-face {
+  font-family: "Pontiac";
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/pontiac/Pontiac-Black.otf") format("opentype");
+  unicode-range: U+0020, U+002C, U+002E, U+0030-0033, U+0035-003B, U+003F, U+0041-005A, U+0061-006C, U+006E-007A;
+}
+
+/* ── Barlow Semi Condensed ── */
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/barlow-semi-condensed/BarlowSemiCondensed-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/barlow-semi-condensed/BarlowSemiCondensed-Medium.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/barlow-semi-condensed/BarlowSemiCondensed-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Barlow Semi Condensed";
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  src: url("/admin/dcr/fonts/barlow-semi-condensed/BarlowSemiCondensed-ExtraBold.ttf") format("truetype");
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Tabular numerals on anything that prints money or counts. Useful
+ * default for an ops dashboard — kpi values line up across rows. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────── Print stylesheet ─────────────────────────
+ * Browser "Cmd-P → Save as PDF" is the BACKUP path; the primary PDF
+ * comes from jsPDF (lib/pdf.ts). These rules just make the backup look
+ * passable: hide the app shell, drop borders/shadows, fit to landscape.
+ * Add `print:hidden` to anything you want suppressed on print.
+ * --------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  /* Hide the app shell — sidebar / header / nav. The DCR view at
+   * #dcr-printable expands to fill the page. */
+  aside, header, footer, nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  #dcr-printable {
+    max-width: none !important;
+  }
+
+  /* Strip the on-screen card chrome so the document prints flat. */
+  .dcr-page {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+  }
+
+  /* Avoid breaking individual show blocks across pages where possible. */
+  section, table, tr {
+    page-break-inside: avoid;
+  }
+}
