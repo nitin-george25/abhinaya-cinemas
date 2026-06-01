@@ -35,19 +35,18 @@ export function Sidebar({ role }: { role: Role }) {
   const visible = NAV.filter((n) => n.roles.includes(role));
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
-      {/* Brand — uses the white logomark (just the 'a' mark + colour stripes,
-       *  no wordmark) so it reads cleanly on the dark sidebar. The full
-       *  wordmark is too wide for a 240px sidebar. /v2/img/ assets are
-       *  served by Vite from app/public/img/. */}
-      <div className="px-5 py-4 flex items-center gap-3 border-b border-white/10">
+      {/* Brand — fixed h-14 to match the header's height so the bottom edge
+       *  of this block and the bottom edge of the header sit on the same
+       *  baseline. Logo bumped to h-10 to fill the row with more presence. */}
+      <div className="h-14 px-5 flex items-center gap-3 border-b border-white/10 shrink-0">
         <img
-          src="/v2/img/logomark-white.png"
+          src="/admin/dcr/img/logomark-white.png"
           alt="Abhinaya Cinemas"
-          className="h-8 w-auto shrink-0"
+          className="h-10 w-auto shrink-0"
         />
-        <div className="leading-tight">
-          <div className="font-display text-[13px] font-bold tracking-wider">ABHINAYA</div>
-          <div className="text-[10px] text-white/50 tracking-wider">CINEMAS · CONSOLE</div>
+        <div className="leading-tight min-w-0">
+          <div className="font-display text-[13px] font-bold tracking-wider truncate">ABHINAYA</div>
+          <div className="text-[10px] text-white/50 tracking-wider truncate">CINEMAS · CONSOLE</div>
         </div>
       </div>
 

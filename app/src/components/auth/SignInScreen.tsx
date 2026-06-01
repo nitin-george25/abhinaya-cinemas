@@ -43,7 +43,7 @@ export function SignInScreen({ message }: Props) {
          *  cleanly on dark; the tagline is the only text up here. */}
         <div className="flex flex-col items-center text-center mb-6">
           <img
-            src="/v2/img/logomark-white.png"
+            src="/admin/dcr/img/logomark-white.png"
             alt="Abhinaya Cinemas"
             className="h-16 w-auto mb-3"
           />
@@ -64,7 +64,7 @@ export function SignInScreen({ message }: Props) {
           <div className="px-7 py-7 space-y-5">
             {/* Full color wordmark inside the card — works on white */}
             <img
-              src="/v2/img/logo-color.png"
+              src="/admin/dcr/img/logo-color.png"
               alt="Abhinaya Cinemas"
               className="h-10 w-auto mx-auto"
             />
@@ -148,8 +148,8 @@ function GoogleTab({ env }: { env: "prod" | "staging" | null }) {
     try {
       const redirectTo =
         env === "prod"
-          ? "https://www.abhinayacinemas.com/v2/"
-          : location.origin + "/v2/";
+          ? "https://www.abhinayacinemas.com/admin/dcr/"
+          : location.origin + "/admin/dcr/";
       await signIn(redirectTo);
     } finally {
       setBusy(false);

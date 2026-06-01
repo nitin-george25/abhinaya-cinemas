@@ -2,9 +2,10 @@
 # ============================================================================
 # Cloudflare Pages build script.
 #
-# Combines two apps into a single deploy:
-#   • Legacy vanilla console  → served at /admin/dcr/  (untouched during C0–C6)
-#   • New React rewrite        → served at /v2/         (built by Vite)
+# Phase C7 cutover layout:
+#   /admin/dcr/         → New React app  (primary console)
+#   /admin/dcr-legacy/  → Legacy vanilla console (fallback during the
+#                         confidence period; remove after ~2 weeks)
 #
 # Cloudflare Pages dashboard settings:
 #   Build command:           bash build.sh
@@ -30,30 +31,34 @@ echo "==> Staging unified Cloudflare output (dist/)"
 rm -rf dist
 mkdir -p dist
 
-# Legacy vanilla site → /admin/dcr/
-cp -R admin dist/admin
+# Legacy vanilla site → /admin/dcr-legacy/
+mkdir -p dist/admin
+cp -R admin/dcr dist/admin/dcr-legacy
 
-# React app → /v2/  (Vite base is '/v2/', so asset URLs inside its index.html
-# already point at /v2/assets/*. We just need to put the files at that path.)
-mkdir -p dist/v2
-cp -R app/dist/. dist/v2/
+# React app → /admin/dcr/  (Vite base is '/admin/dcr/', so the index.html
+# already references /admin/dcr/assets/*. We just need to put the files
+# at that path.)
+mkdir -p dist/admin/dcr
+cp -R app/dist/. dist/admin/dcr/
 
 # Cloudflare Pages headers — copy from repo root if present
 [ -f _headers ] && cp _headers dist/_headers
 
-# Cloudflare Pages redirects — we always rewrite this file from build.sh
-# because we need the SPA fallback for /v2/* to land on /v2/index.html so
-# React Router can handle client-side routes. (The repo-root _redirects is
-# kept empty / locked-by-iCloud on the author's machine; authoring it here
-# means the rule lives in code, not in a finicky dotfile.)
+# Cloudflare Pages redirects — written fresh by build.sh because we need:
+#   • SPA fallback for /admin/dcr/* → /admin/dcr/index.html (React Router)
+#   • 301 from old /v2/* URLs (pre-cutover bookmarks) → /admin/dcr/*
 cat > dist/_redirects <<'REDIRECTS'
-# SPA fallback for the React app at /v2/ — any /v2/* request that doesn't
-# match a real file is served the /v2/index.html shell with a 200 so React
-# Router can pick up the path client-side.
-/v2/*    /v2/index.html   200
+# Pre-cutover bookmarks — 301 redirect /v2/* into the new /admin/dcr/*.
+/v2/*    /admin/dcr/:splat   301
+
+# SPA fallback for the React app at /admin/dcr/ — any /admin/dcr/* request
+# that doesn't match a real file is served the index.html shell with 200
+# so React Router can pick up the path client-side. This MUST come after
+# the legacy block above so /admin/dcr-legacy/* keeps serving static.
+/admin/dcr/*    /admin/dcr/index.html   200
 REDIRECTS
 
-# Friendly landing at /  →  legacy console for now
+# Friendly landing at /  →  the new console
 cat > dist/index.html <<'HTML'
 <!doctype html>
 <html lang="en">

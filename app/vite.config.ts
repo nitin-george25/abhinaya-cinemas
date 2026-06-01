@@ -2,12 +2,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// During the C0–C7 migration we serve the new React app under /v2/ so the
-// existing vanilla app at /admin/dcr/ keeps running for daily ops. After
-// cutover (Phase C7) we'll change base back to '/'.
+// Phase C7: cutover. The React app is now the primary console served at
+// /admin/dcr/. The legacy vanilla app stays accessible at /admin/dcr-legacy/
+// for fallback during the confidence period (~2 weeks). Old /v2/* URLs are
+// 301-redirected by build.sh's _redirects file.
 export default defineConfig({
   plugins: [react()],
-  base: "/v2/",
+  base: "/admin/dcr/",
   build: {
     outDir: "dist",
     sourcemap: true,

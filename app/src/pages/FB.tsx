@@ -71,7 +71,7 @@ export default function FBPage() {
           <p className="text-sm text-ink-muted mt-1">
             Read-only view of every F&amp;B day in the cloud. POS upload + manual
             entry remain on{" "}
-            <a className="text-amber-600 underline" href="/admin/dcr/">
+            <a className="text-amber-600 underline" href="/admin/dcr-legacy/">
               the legacy console
             </a>{" "}
             for now.
