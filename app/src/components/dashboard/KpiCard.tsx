@@ -12,6 +12,9 @@ interface Props {
   prevValue: number | null;
   format: FormatKind;
   sublabel?: string;
+  /** Prior-period year — appears in the footer as "vs YYYY" so the user
+   *  knows the delta is year-over-year, not a rolling window. */
+  prevYear?: number;
 }
 
 const fullFormatters: Record<FormatKind, (v: number | null) => string> = {
@@ -31,33 +34,27 @@ const compactFormatters: Record<FormatKind, (v: number | null) => string> = {
 };
 
 /**
- * KPI tile, value-led:
+ * KPI tile, value-led with the delta tucked into the bottom-right:
  *
- *   COMBINED REVENUE              ← small uppercase label
- *   ₹ 5.4L              ▲ 12.3%   ← big value with delta chip on same baseline
- *   BO + F&B · vs ₹ 4.8L           ← sublabel + prior on a muted footer row
+ *   COMBINED REVENUE
+ *   ₹ 5.4L
+ *   BO + F&B · vs 2025         ▲ 12.3%   ← context bottom-left, delta bottom-right
  *
- * Compact number formatting kicks in below sm so 2-up tiles never overflow.
- * The delta sits beside the value (instead of below) so the card has only
- * three text rows instead of four, and the eye lands on the number first.
+ * Compact number formatting on phones so 2-up tiles never overflow.
  */
-export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
+export function KpiCard({ label, value, prevValue, format, sublabel, prevYear }: Props) {
   const full = fullFormatters[format];
   const compact = compactFormatters[format];
   const delta = pctDelta(value, prevValue);
   const positive = delta != null && delta >= 0;
 
-  // Compose the muted footer row: sublabel, optional "vs <prev>" (desktop
-  // only — it eats the row on mobile), or "no prior period" when there's
-  // nothing to compare against.
-  const footerLeft = sublabel ?? "";
-  const footerRight =
-    delta == null
-      ? "no prior period"
-      : prevValue != null
-        ? `vs ${full(prevValue)}`
-        : "";
-  const showFooter = !!(footerLeft || footerRight);
+  // Footer-left text composes sublabel + "vs YYYY" context. Footer-right
+  // is reserved for the delta chip. When there's no prior data, we use
+  // the right slot to say so.
+  const yearSuffix = prevYear != null
+    ? `vs ${prevYear}`
+    : "";
+  const footerLeft = [sublabel, yearSuffix].filter(Boolean).join(" · ");
 
   return (
     <Card>
@@ -66,11 +63,13 @@ export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
           {label}
         </h3>
 
-        <div className="mt-1.5 flex items-baseline justify-between gap-2">
-          <div className="text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums leading-none truncate min-w-0">
-            <span className="sm:hidden">{compact(value)}</span>
-            <span className="hidden sm:inline">{full(value)}</span>
-          </div>
+        <div className="mt-1.5 text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums leading-none truncate">
+          <span className="sm:hidden">{compact(value)}</span>
+          <span className="hidden sm:inline">{full(value)}</span>
+        </div>
+
+        <div className="mt-2 flex items-baseline justify-between gap-2 text-[10px] sm:text-[11px] text-ink-muted min-h-[14px]">
+          <span className="truncate min-w-0">{footerLeft}</span>
           {delta != null ? (
             <span
               className={
@@ -80,24 +79,10 @@ export function KpiCard({ label, value, prevValue, format, sublabel }: Props) {
             >
               {positive ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
             </span>
-          ) : null}
+          ) : (
+            <span className="shrink-0">no prior yr</span>
+          )}
         </div>
-
-        {showFooter ? (
-          <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] sm:text-[11px] text-ink-muted">
-            <span className="truncate min-w-0">{footerLeft}</span>
-            {/* Hide the "vs ₹ X" tail on phones where it competes with
-                sublabel for space. "no prior period" still shows. */}
-            <span
-              className={
-                "shrink-0 " +
-                (footerRight === "no prior period" ? "" : "hidden sm:inline")
-              }
-            >
-              {footerRight}
-            </span>
-          </div>
-        ) : null}
       </CardBody>
     </Card>
   );

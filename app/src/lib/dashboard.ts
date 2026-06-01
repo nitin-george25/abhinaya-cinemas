@@ -18,6 +18,7 @@ import {
   format,
   parseISO,
   startOfMonth,
+  subYears,
 } from "date-fns";
 
 import { computeEntry, screenClasses, screenById, N } from "./engine";
@@ -47,7 +48,8 @@ export interface Period {
   to: DateISO;
   /** Inclusive day count. */
   days: number;
-  /** Equal-length prior period (for delta comparison). */
+  /** Same window, exactly one year earlier (year-over-year comparison).
+   *  date-fns subYears clamps Feb 29 to Feb 28 in non-leap target years. */
   prevFrom: DateISO;
   prevTo: DateISO;
 }
@@ -109,8 +111,12 @@ export function resolvePeriod(
   }
 
   const days = differenceInCalendarDays(parseISO(to), parseISO(from)) + 1;
-  const prevTo = iso(addDays(parseISO(from), -1));
-  const prevFrom = iso(addDays(parseISO(from), -days));
+  // YoY comparison: shift both endpoints back by exactly one year.
+  // Cinema attendance is heavily seasonal (festivals, school holidays,
+  // monsoon), so same-week-last-year is a more meaningful baseline than
+  // the immediately prior equal-length window.
+  const prevFrom = iso(subYears(parseISO(from), 1));
+  const prevTo   = iso(subYears(parseISO(to), 1));
   return { from, to, days, prevFrom, prevTo };
 }
 

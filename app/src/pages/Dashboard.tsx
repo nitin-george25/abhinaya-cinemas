@@ -59,8 +59,11 @@ export default function Dashboard() {
   const { period, dates, cur, prev, fbCur, fbPrev } = view;
   const combinedCur  = cur.totals.grossColl + fbCur.totals.net;
   const combinedPrev = prev.totals.grossColl + fbPrev.totals.net;
-  // Two-line label on mobile (period · range / vs prior). Single line on desktop.
-  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days}d · vs ${niceDate(period.prevFrom)} → ${niceDate(period.prevTo)}`;
+  // YoY comparison — the prev window is the same calendar window one year
+  // earlier. Show "vs <prev year>" instead of the full range since the
+  // calendar window is by definition the same.
+  const prevYear = parseISO(period.prevFrom).getFullYear();
+  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days}d · vs same period ${prevYear}`;
 
   return (
     <div className="space-y-5 sm:space-y-6 max-w-7xl">
@@ -91,18 +94,21 @@ export default function Dashboard() {
             prevValue={combinedPrev}
             format="inr"
             sublabel="BO + F&B"
+            prevYear={prevYear}
           />
           <KpiCard
             label="Tickets sold"
             value={cur.totals.audience}
             prevValue={prev.totals.audience}
             format="int"
+            prevYear={prevYear}
           />
           <KpiCard
             label="BO Gross"
             value={cur.totals.grossColl}
             prevValue={prev.totals.grossColl}
             format="inr"
+            prevYear={prevYear}
           />
           <KpiCard
             label="ATP"
@@ -110,12 +116,14 @@ export default function Dashboard() {
             prevValue={prev.totals.atp}
             format="inr2"
             sublabel="₹ / ticket"
+            prevYear={prevYear}
           />
           <KpiCard
             label="Occupancy"
             value={cur.totals.occupancyPct}
             prevValue={prev.totals.occupancyPct}
             format="pct"
+            prevYear={prevYear}
           />
         </div>
         <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
@@ -125,12 +133,14 @@ export default function Dashboard() {
             prevValue={prev.totals.netShare}
             format="inr"
             sublabel="after taxes & fund"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Net"
             value={fbCur.totals.net}
             prevValue={fbPrev.totals.net}
             format="inr"
+            prevYear={prevYear}
           />
           <KpiCard
             label="SPH"
@@ -138,12 +148,14 @@ export default function Dashboard() {
             prevValue={fbPrev.totals.sph}
             format="inr2"
             sublabel="₹ / ticket"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Bills"
             value={fbCur.totals.bills}
             prevValue={fbPrev.totals.bills}
             format="int"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Tax"
@@ -151,6 +163,7 @@ export default function Dashboard() {
             prevValue={fbPrev.totals.tax}
             format="inr"
             sublabel="GST etc."
+            prevYear={prevYear}
           />
         </div>
       </div>
