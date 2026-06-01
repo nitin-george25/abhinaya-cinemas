@@ -30,6 +30,7 @@ import { Badge } from "../components/ui/Badge";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
+import { MessageModal } from "../components/entry/MessageModal";
 import { DcrModal } from "../components/dcr/DcrModal";
 
 export default function EntryPage() {
@@ -192,6 +193,8 @@ function EntryBody({
     [appState, entry],
   );
 
+  const [msgIdx, setMsgIdx] = useState<number | null>(null);
+
   return (
     <div className="space-y-5">
       {(entry.shows ?? []).map((sh, i) => (
@@ -207,6 +210,7 @@ function EntryBody({
             persist(updateShowRow(entry, i, classId, { tickets }))
           }
           onRemove={() => persist(removeShow(entry, i))}
+          onGenerateMessage={() => setMsgIdx(i)}
         />
       ))}
 
@@ -215,6 +219,16 @@ function EntryBody({
       </Button>
 
       <EntryPreview computed={computed} />
+
+      <MessageModal
+        open={msgIdx !== null}
+        state={appState}
+        entry={entry}
+        showIdx={msgIdx}
+        computed={computed}
+        onPatchShow={(i, patch) => persist(updateShow(entry, i, patch))}
+        onClose={() => setMsgIdx(null)}
+      />
     </div>
   );
 }

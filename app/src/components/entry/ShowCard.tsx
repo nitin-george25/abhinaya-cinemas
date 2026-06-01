@@ -21,6 +21,8 @@ interface Props {
   onChange: (patch: Partial<Show>) => void;
   onChangeRow: (classId: UUID, tickets: number) => void;
   onRemove: () => void;
+  /** Click → open the after-show WhatsApp message modal for this show. */
+  onGenerateMessage?: () => void;
 }
 
 /**
@@ -38,6 +40,7 @@ export function ShowCard({
   onChange,
   onChangeRow,
   onRemove,
+  onGenerateMessage,
 }: Props) {
   const screen = screenById(state, entry.screenId);
   const cls = screenClasses(state, screen);
@@ -91,7 +94,26 @@ export function ShowCard({
             />
           </div>
 
-          <div className="ml-auto">
+          <label className="flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap pb-2">
+            <input
+              type="checkbox"
+              checked={!!show.lastShow}
+              onChange={(e) => onChange({ lastShow: e.target.checked })}
+            />
+            Last show of day
+          </label>
+
+          <div className="ml-auto flex items-center gap-2">
+            {onGenerateMessage ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onGenerateMessage}
+                title="Generate WhatsApp message for this show"
+              >
+                Generate message
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="sm"

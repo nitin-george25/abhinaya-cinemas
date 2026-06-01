@@ -107,6 +107,10 @@ export interface Show {
   freePass?: number;
   priceCardId?: UUID;
   rows?: Record<UUID, ShowRow>;   // classId -> { tickets }
+  /** Marks the last show of the day — message generator appends day totals. */
+  lastShow?: boolean;
+  /** Optional online ticket sales (₹), used in the after-show message card. */
+  online?: number;
 }
 
 export interface Entry {
