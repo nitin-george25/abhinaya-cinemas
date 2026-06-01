@@ -129,10 +129,13 @@ export function fbEntryToRow(
   e: FbEntry,
   updatedBy: string,
 ): Omit<FbEntryRow, "id" | "updated_at"> & { updated_at: string } {
+  // FbItem / FbSummary are strictly-typed interfaces; the DB column types
+  // (FbEntryRow) widen them to Record<string, unknown>. TS won't bridge
+  // the two without an `unknown` intermediate.
   return {
     entry_date: e.date,
-    summary: e.summary as Record<string, unknown>,
-    items: e.items as Array<Record<string, unknown>>,
+    summary: e.summary as unknown as Record<string, unknown>,
+    items: e.items as unknown as Array<Record<string, unknown>>,
     notes: e.notes ?? null,
     updated_by: updatedBy,
     updated_at: new Date().toISOString(),
