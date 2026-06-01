@@ -680,10 +680,12 @@ function MoviesSection() {
   const [adding, setAdding] = useState(false);
 
   function save(next: Movie) {
+    if (!appState) return;
     const others = appState.movies.filter((m) => m.id !== next.id);
     setAppState({ ...appState, movies: [...others, next] });
   }
   function remove(id: UUID) {
+    if (!appState) return;
     const m = appState.movies.find((x) => x.id === id);
     if (!confirm(`Delete "${m?.name ?? id}"? Existing entries keep their movieId reference.`)) return;
     setAppState({ ...appState, movies: appState.movies.filter((x) => x.id !== id) });
@@ -845,7 +847,7 @@ function PriceCardsSection() {
   const screen = screens.find((s) => s.id === screenId);
 
   function mutate(next: PriceCard[]) {
-    if (!screen) return;
+    if (!appState || !screen) return;
     const updatedScreen: Screen = { ...screen, priceCards: next };
     setAppState({
       ...appState,
@@ -978,6 +980,7 @@ function ScreensSection() {
   if (!appState || !canEditCatalog(state.role)) return null;
 
   function update(next: Screen) {
+    if (!appState) return;
     setAppState({
       ...appState,
       screens: appState.screens.map((s) => s.id === next.id ? next : s),
@@ -985,6 +988,7 @@ function ScreensSection() {
   }
 
   function addScreen() {
+    if (!appState) return;
     const newScreen: Screen = {
       id: uid(),
       name: `Screen ${appState.screens.length + 1}`,
@@ -995,12 +999,14 @@ function ScreensSection() {
   }
 
   function removeScreen(id: UUID) {
+    if (!appState) return;
     const s = appState.screens.find((x) => x.id === id);
     if (!confirm(`Delete "${s?.name ?? id}"? Existing entries that reference it keep their screenId; you'll see "—" in their rows.`)) return;
     setAppState({ ...appState, screens: appState.screens.filter((x) => x.id !== id) });
   }
 
   function addClass() {
+    if (!appState) return;
     const name = prompt("New class name (e.g. Royale, Lounge, Prime):");
     if (!name) return;
     const cls: ClassDef = { id: uid(), name: name.trim(), gstPct: 18 };
@@ -1014,6 +1020,7 @@ function ScreensSection() {
   }
 
   function removeClass(id: UUID) {
+    if (!appState) return;
     const c = appState.classes.find((x) => x.id === id);
     if (!confirm(`Delete class "${c?.name ?? id}"? It's removed from every screen + price card.`)) return;
     const updatedScreens = appState.screens.map((s) => ({
@@ -1159,6 +1166,7 @@ function TaxSection() {
   const tax = appState.tax;
 
   function update(patch: Partial<TaxConfig>) {
+    if (!appState) return;
     setAppState({ ...appState, tax: { ...tax, ...patch } });
   }
   function updateAbove(patch: Partial<TaxConfig["above"]>) {
