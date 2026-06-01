@@ -9,6 +9,7 @@ import {
   IconBackup,
   IconSettings,
 } from "../icons";
+import { LOGO_DATA_URL } from "../../assets/logo";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
 
 interface NavItem {
@@ -35,15 +36,19 @@ export function Sidebar({ role }: { role: Role }) {
   const visible = NAV.filter((n) => n.roles.includes(role));
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
-      {/* Brand */}
-      <div className="px-5 py-5 flex items-center gap-2.5 border-b border-white/10">
-        <div className="flex gap-1">
-          <i className="inline-block w-1.5 h-5 rounded-sm bg-red-500" />
-          <i className="inline-block w-1.5 h-5 rounded-sm bg-amber-400" />
-          <i className="inline-block w-1.5 h-5 rounded-sm bg-blue-500" />
-        </div>
+      {/* Brand — we ship one logo asset (the dark-on-light version used in
+       *  the DCR PDF). For the dark sidebar we re-tint it white in CSS via
+       *  `brightness(0) invert(1)`. When a proper white logomark arrives
+       *  (Logo-White.png in iCloud is still a placeholder right now), drop
+       *  it into app/src/assets/ and swap this src. */}
+      <div className="px-5 py-5 flex items-center gap-3 border-b border-white/10">
+        <img
+          src={LOGO_DATA_URL}
+          alt="Abhinaya Cinemas"
+          className="h-9 w-auto shrink-0"
+          style={{ filter: "brightness(0) invert(1)" }}
+        />
         <div className="leading-tight">
-          <div className="font-display text-[15px] font-bold tracking-wider">ABHINAYA</div>
           <div className="text-[10px] text-white/50 tracking-wider">CINEMAS · CONSOLE</div>
         </div>
       </div>

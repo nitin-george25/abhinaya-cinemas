@@ -6,13 +6,20 @@
 // any past day without leaving this page.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { format, parseISO } from "date-fns";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { computeEntry } from "../lib/engine";
 import { weekday } from "../lib/format";
 import { fmtINR, fmtInt } from "../lib/dashboard";
+import { downloadDcrPdf } from "../lib/pdf";
+import {
+  downloadCsv,
+  tallyCsvFilename,
+  tallyCsvRows,
+} from "../lib/csv";
+import { LOGO_DATA_URL } from "../assets/logo";
 import type {
   AppState,
   ComputedEntry,
@@ -97,7 +104,7 @@ export default function HistoryPage() {
 
       <ResultsCount count={rows.length} total={total} />
 
-      <HistoryTable rows={rows} onSelect={setOpenRow} />
+      <HistoryTable rows={rows} onSelect={setOpenRow} appState={appState} />
 
       {openRow ? (
         <DcrModal
@@ -211,9 +218,11 @@ function ResultsCount({
 function HistoryTable({
   rows,
   onSelect,
+  appState,
 }: {
   rows: Row[];
   onSelect: (r: Row) => void;
+  appState: AppState;
 }) {
   if (rows.length === 0) {
     return (
@@ -242,48 +251,101 @@ function HistoryTable({
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Tickets</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Gross</th>
                 <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Net Share</th>
-                <th className="text-right px-3 py-3 font-semibold whitespace-nowrap"></th>
+                <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ entry, computed }) => (
-                <tr
-                  key={entry.id}
-                  onClick={() => onSelect({ entry, computed })}
-                  className="border-b border-line last:border-b-0 hover:bg-paper cursor-pointer"
-                >
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <div>{niceDate(entry.date)}</div>
-                    <div className="text-xs text-ink-muted">{weekday(entry.date)}</div>
-                  </td>
-                  <td className="px-3 py-2.5 font-medium">
-                    {computed.movie?.name ?? entry.movieId}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {computed.screen?.name ?? entry.screenId}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    {fmtInt((entry.shows ?? []).length)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    {fmtInt(computed.today.audience)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-                    {fmtINR(computed.today.grossColl)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-                    {fmtINR(computed.today.netShare)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                    <span className="text-amber-600 text-xs font-medium">View →</span>
-                  </td>
-                </tr>
+              {rows.map((row) => (
+                <HistoryRow
+                  key={row.entry.id}
+                  row={row}
+                  onSelect={onSelect}
+                  appState={appState}
+                />
               ))}
             </tbody>
           </table>
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+function HistoryRow({
+  row,
+  onSelect,
+  appState,
+}: {
+  row: Row;
+  onSelect: (r: Row) => void;
+  appState: AppState;
+}) {
+  const { entry, computed } = row;
+
+  // Stop row-click bubbling from triggering View when the user actually
+  // hits one of the per-row action buttons.
+  function dlPdf(e: MouseEvent) {
+    e.stopPropagation();
+    downloadDcrPdf(computed, {
+      cinema: appState.cinema,
+      tax: appState.tax,
+      logoDataUrl: LOGO_DATA_URL,
+    });
+  }
+  function dlTally(e: MouseEvent) {
+    e.stopPropagation();
+    const csv = tallyCsvRows(computed);
+    if (csv.length < 2) {
+      alert(
+        "No sold tickets with serials to export yet. Enter tickets and make " +
+          "sure a serial starting point exists.",
+      );
+      return;
+    }
+    downloadCsv(tallyCsvFilename(computed), csv);
+  }
+
+  return (
+    <tr
+      onClick={() => onSelect(row)}
+      className="border-b border-line last:border-b-0 hover:bg-paper cursor-pointer"
+    >
+      <td className="px-3 py-2.5 whitespace-nowrap">
+        <div>{niceDate(entry.date)}</div>
+        <div className="text-xs text-ink-muted">{weekday(entry.date)}</div>
+      </td>
+      <td className="px-3 py-2.5 font-medium">
+        {computed.movie?.name ?? entry.movieId}
+      </td>
+      <td className="px-3 py-2.5">
+        {computed.screen?.name ?? entry.screenId}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">
+        {fmtInt((entry.shows ?? []).length)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">
+        {fmtInt(computed.today.audience)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
+        {fmtINR(computed.today.grossColl)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
+        {fmtINR(computed.today.netShare)}
+      </td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+        <div className="inline-flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={dlPdf} title="Download DCR PDF">
+            PDF
+          </Button>
+          <Button size="sm" variant="ghost" onClick={dlTally} title="Download Tally CSV">
+            Tally
+          </Button>
+          <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onSelect(row); }}>
+            View
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
