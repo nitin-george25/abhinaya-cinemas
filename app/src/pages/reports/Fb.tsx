@@ -19,7 +19,6 @@ import type { DateISO, FbEntry, FbItem } from "../../lib/types";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Field, Input } from "../../components/ui/Input";
-import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 
 interface Filters {
