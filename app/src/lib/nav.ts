@@ -82,6 +82,7 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_ONLY },
+      { kind: "leaf", to: "/settings/whatsapp", label: "WhatsApp",          roles: OWNER_ONLY },
     ],
   },
   { kind: "leaf", to: "/activity", label: "Activity Log", Icon: IconActivity, roles: OWNER_MANAGER },

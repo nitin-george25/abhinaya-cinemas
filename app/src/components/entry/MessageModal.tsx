@@ -19,7 +19,8 @@ import {
   showMessageData,
   type ShowCardData,
 } from "../../lib/whatsappMessage";
-import type { AppState, ComputedEntry, Entry } from "../../lib/types";
+import { sendShowMessage } from "../../lib/whatsapp";
+import type { AppState, ComputedEntry, Entry, Show } from "../../lib/types";
 
 const LOGO_SRC = "/admin/dcr/img/logomark-white.png";
 
@@ -29,8 +30,8 @@ interface Props {
   entry: Entry;
   showIdx: number | null;
   computed: ComputedEntry;
-  /** Persist a patched show back to the entry (online value). */
-  onPatchShow: (showIdx: number, patch: { online?: number }) => void;
+  /** Persist a patched show back to the entry (online value, send stamp, …). */
+  onPatchShow: (showIdx: number, patch: Partial<Show>) => void;
   onClose: () => void;
 }
 
@@ -41,6 +42,7 @@ export function MessageModal({
   const logoRef = useRef<HTMLImageElement | null>(null);
   const [logoReady, setLogoReady] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [sending, setSending] = useState(false);
 
   // Load logo once.
   useEffect(() => {
@@ -131,6 +133,27 @@ export function MessageModal({
   const canShare =
     typeof navigator !== "undefined" && typeof navigator.share === "function";
 
+  const waConfigured = !!state.cinema?.whatsapp?.recipient;
+  async function sendViaWhatsApp() {
+    if (showIdx == null) return;
+    setSending(true);
+    setStatus("Sending…");
+    try {
+      const res = await sendShowMessage({ state, entry, showIdx, computed });
+      if (res.ok) {
+        setStatus("Sent via WhatsApp ✓");
+        // Stamp the show so the auto-send hook + the UI know it's been sent.
+        onPatchShow(showIdx, { whatsappSentAt: new Date().toISOString() });
+      } else {
+        setStatus(`Send failed — ${res.error ?? "unknown error"}`);
+      }
+    } catch (e) {
+      setStatus(`Send failed — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSending(false);
+    }
+  }
+
   function copyImage() {
     const c = canvasRef.current;
     if (!c) return;
@@ -190,10 +213,17 @@ export function MessageModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {canShare ? (
-            <Button onClick={shareImage}>Share</Button>
+          {waConfigured ? (
+            <Button onClick={() => void sendViaWhatsApp()} disabled={sending}>
+              {sending ? "Sending…" : "Send via WhatsApp"}
+            </Button>
           ) : null}
-          <Button variant={canShare ? "secondary" : "primary"} onClick={saveImage}>
+          {canShare ? (
+            <Button variant={waConfigured ? "secondary" : "primary"} onClick={shareImage}>
+              Share
+            </Button>
+          ) : null}
+          <Button variant={waConfigured || canShare ? "secondary" : "primary"} onClick={saveImage}>
             Save image
           </Button>
           <Button variant="secondary" size="sm" onClick={copyImage}>Copy image</Button>

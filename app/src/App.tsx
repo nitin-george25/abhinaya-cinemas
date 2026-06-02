@@ -17,6 +17,7 @@ import SettingsMoviesPage from "./pages/settings/Movies";
 import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
+import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import DcrPage from "./pages/Dcr";
 
 export default function App() {
@@ -138,6 +139,9 @@ function AppGate() {
                   <Route path="/settings/tax"     element={<SettingsTaxPage />} />
                   {role === "owner" ? (
                     <Route path="/settings/users" element={<SettingsUsersPage />} />
+                  ) : null}
+                  {role === "owner" ? (
+                    <Route path="/settings/whatsapp" element={<SettingsWhatsappPage />} />
                   ) : null}
                 </>
               ) : null}
