@@ -407,8 +407,13 @@ export async function pushCatalogDeltas(
   // ── deletes (id present in prevCache, missing in nextCache) ────────
   const droppedSingle = (prev: Set<string>, next: Set<string>) =>
     [...prev].filter((k) => !next.has(k));
-  const droppedCompound = (prev: Set<string>, next: Set<string>) =>
-    [...prev].filter((k) => !next.has(k)).map((k) => k.split("|"));
+  const droppedCompound = (prev: Set<string>, next: Set<string>): Array<[string, string]> =>
+    [...prev]
+      .filter((k) => !next.has(k))
+      .map((k) => {
+        const parts = k.split("|");
+        return [parts[0] ?? "", parts[1] ?? ""] as [string, string];
+      });
 
   const dClasses    = droppedSingle(prevCache.classes,    nextCache.classes);
   const dScreens    = droppedSingle(prevCache.screens,    nextCache.screens);
