@@ -15,7 +15,6 @@ import { Field, Input, Select } from "../../components/ui/Input";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { fmtINR } from "../../lib/dashboard";
-import { todayIso } from "../../lib/dates";
 import {
   approvePaymentRequest,
   createPaymentRequest,

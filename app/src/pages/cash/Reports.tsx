@@ -70,7 +70,8 @@ export default function CashReportsPage() {
   }, [closings, petty, reqs]);
 
   function exportCsv() {
-    const rows = [
+    type Line = { kind: string; date: string; ref: string; narration: string; amount: number };
+    const lines: Line[] = [
       ...closings.map((c) => ({
         kind: "closing",
         date: c.businessDate, ref: c.shift,
@@ -88,6 +89,10 @@ export default function CashReportsPage() {
         amount: -r.amount,
       })),
     ].sort((a, b) => a.date.localeCompare(b.date));
+    const rows: Array<Array<string | number | null | undefined>> = [
+      ["kind", "date", "ref", "narration", "amount"],
+      ...lines.map((l) => [l.kind, l.date, l.ref, l.narration, l.amount]),
+    ];
     downloadCsv(`cash-${month}.csv`, rows);
   }
 

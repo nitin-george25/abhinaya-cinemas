@@ -27,6 +27,18 @@ import type {
 } from "./db-types";
 import type { DateISO } from "./types";
 
+// Re-export the snake-case enum unions so consumers of this module don't
+// have to reach into db-types.
+export type {
+  ClosingShift,
+  ClosingStatus,
+  LedgerSourceKind,
+  PaymentFlowType,
+  PaymentRequestMode,
+  PaymentRequestStatus,
+  PettyExpenseStatus,
+} from "./db-types";
+
 // ── Domain types (camelCase) ────────────────────────────────────────────
 
 export interface OperatingUnit {
