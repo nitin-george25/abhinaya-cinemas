@@ -218,7 +218,8 @@ export function useSupabaseSync(): SyncApi {
     const s = localState.current;
     if (!s) return;
     const role = state.role;
-    if (role === "accountant") {
+    // Read-only / cash-only roles never push DCR state.
+    if (role === "accountant" || role === "cashier") {
       setState((p) => ({ ...p, saveState: "saved" }));
       return;
     }

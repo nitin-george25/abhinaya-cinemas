@@ -17,9 +17,18 @@ import SettingsMoviesPage from "./pages/settings/Movies";
 import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
+import SettingsCashPage from "./pages/settings/Cash";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
 import DcrPage from "./pages/Dcr";
+import CashTodayPage from "./pages/cash/Today";
+import CashClosingsPage from "./pages/cash/Closings";
+import CashClosingDetailPage from "./pages/cash/ClosingDetail";
+import CashPettyPage from "./pages/cash/Petty";
+import CashPettyMinePage from "./pages/cash/PettyMine";
+import CashPaymentsPage from "./pages/cash/Payments";
+import CashLedgerPage from "./pages/cash/Ledger";
+import CashReportsPage from "./pages/cash/Reports";
 
 export default function App() {
   return (
@@ -85,7 +94,11 @@ function AppGate() {
         const canDoFB    = canEnterBO; // same set: owner, manager, daily_manager
         const canSeeAdmin = role === "owner" || role === "manager"; // Dashboard, Activity, Backup, Settings
         const canSeeReports = role === "owner" || role === "manager" || role === "accountant";
+        const canCloseCash = canEnterBO; // owner, manager, daily_manager
+        const canApprovePayments = role === "owner" || role === "manager" || role === "accountant";
+        const isCashier = role === "cashier";
         const landing =
+          isCashier                 ? "/cash/petty/mine"   :
           role === "accountant"     ? "/box-office/history" :
           role === "daily_manager"  ? "/box-office/entry"   :
                                       "/dashboard";
@@ -149,8 +162,32 @@ function AppGate() {
                   <Route path="/settings/screens" element={<SettingsScreensPage />} />
                   <Route path="/settings/tax"     element={<SettingsTaxPage />} />
                   {role === "owner" ? (
-                    <Route path="/settings/users" element={<SettingsUsersPage />} />
+                    <>
+                      <Route path="/settings/users" element={<SettingsUsersPage />} />
+                      <Route path="/settings/cash"  element={<SettingsCashPage />} />
+                    </>
                   ) : null}
+                </>
+              ) : null}
+
+              {/* Cash management — see role gates below. */}
+              {isCashier ? (
+                <Route path="/cash/petty/mine" element={<CashPettyMinePage />} />
+              ) : null}
+              {canCloseCash ? (
+                <>
+                  <Route path="/cash"                element={<Navigate to="/cash/today" replace />} />
+                  <Route path="/cash/today"          element={<CashTodayPage />} />
+                  <Route path="/cash/closings"       element={<CashClosingsPage />} />
+                  <Route path="/cash/closings/:id"   element={<CashClosingDetailPage />} />
+                  <Route path="/cash/petty"          element={<CashPettyPage />} />
+                </>
+              ) : null}
+              {canApprovePayments ? (
+                <>
+                  <Route path="/cash/payments" element={<CashPaymentsPage />} />
+                  <Route path="/cash/ledger"   element={<CashLedgerPage />} />
+                  <Route path="/cash/reports"  element={<CashReportsPage />} />
                 </>
               ) : null}
 

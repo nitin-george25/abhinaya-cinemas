@@ -13,6 +13,7 @@ import {
   IconBackup,
   IconSettings,
   IconHistory,
+  IconCash,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -41,6 +42,13 @@ const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 const REPORT_ROLES: Role[] = ["owner", "manager", "accountant"];
 const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+
+// Cash management roles
+const CASH_CLOSING_ROLES: Role[] = ["owner", "manager", "daily_manager"];
+const CASH_LEDGER_ROLES: Role[] = ["owner", "manager", "accountant"];
+const CASH_PAYMENTS_ROLES: Role[] = ["owner", "manager", "accountant"];
+const PETTY_QUEUE_ROLES: Role[] = ["owner", "manager", "daily_manager"];
+const CASHIER_ONLY: Role[] = ["cashier"];
 
 export const NAV: NavItem[] = [
   {
@@ -86,6 +94,23 @@ export const NAV: NavItem[] = [
   },
   {
     kind: "group",
+    id: "cash",
+    label: "Cash",
+    Icon: IconCash,
+    roles: ["owner", "manager", "daily_manager", "accountant"],
+    children: [
+      { kind: "leaf", to: "/cash/today",    label: "Today",          roles: CASH_CLOSING_ROLES },
+      { kind: "leaf", to: "/cash/closings", label: "Closings",       roles: ["owner", "manager", "daily_manager", "accountant"] },
+      { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: PETTY_QUEUE_ROLES },
+      { kind: "leaf", to: "/cash/payments", label: "Payments",       roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/cash/ledger",   label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
+      { kind: "leaf", to: "/cash/reports",  label: "Cashflow",       roles: CASH_LEDGER_ROLES },
+    ],
+  },
+  // Cashier-only landing — single leaf, no group chrome.
+  { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses", Icon: IconCash, roles: CASHIER_ONLY },
+  {
+    kind: "group",
     id: "settings",
     label: "Settings",
     Icon: IconSettings,
@@ -94,6 +119,7 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/settings/movies",  label: "Movies",            roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
+      { kind: "leaf", to: "/settings/cash",    label: "Cash",              roles: OWNER_ONLY },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_ONLY },
     ],
   },
@@ -123,6 +149,7 @@ export function roleLabel(role: Role): string {
     case "manager":       return "manager";
     case "daily_manager": return "daily manager";
     case "accountant":    return "accountant";
+    case "cashier":       return "cashier";
   }
 }
 
