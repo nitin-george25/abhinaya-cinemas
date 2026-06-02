@@ -17,6 +17,8 @@ import SettingsMoviesPage from "./pages/settings/Movies";
 import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
+import ReportsBoPage from "./pages/reports/Bo";
+import ReportsFbPage from "./pages/reports/Fb";
 import DcrPage from "./pages/Dcr";
 
 export default function App() {
@@ -82,6 +84,7 @@ function AppGate() {
         const canEnterBO = role === "owner" || role === "manager" || role === "daily_manager";
         const canDoFB    = canEnterBO; // same set: owner, manager, daily_manager
         const canSeeAdmin = role === "owner" || role === "manager"; // Dashboard, Activity, Backup, Settings
+        const canSeeReports = role === "owner" || role === "manager" || role === "accountant";
         const landing =
           role === "accountant"     ? "/box-office/history" :
           role === "daily_manager"  ? "/box-office/entry"   :
@@ -125,6 +128,15 @@ function AppGate() {
               ) : null}
               {role === "owner" ? (
                 <Route path="/fb/menu-items" element={<FBMenuItemsPage />} />
+              ) : null}
+
+              {/* Reports — owner, manager, accountant */}
+              {canSeeReports ? (
+                <>
+                  <Route path="/reports"             element={<Navigate to="/reports/fb" replace />} />
+                  <Route path="/reports/box-office"  element={<ReportsBoPage />} />
+                  <Route path="/reports/fb"          element={<ReportsFbPage />} />
+                </>
               ) : null}
 
               {/* Admin-only: Dashboard, Activity, Backup, Settings */}

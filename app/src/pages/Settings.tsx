@@ -588,6 +588,7 @@ function AddProductForm({
   onCancel: () => void;
   onCreated: (id: UUID) => void;
 }) {
+  const { state } = useSync();
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [rate, setRate] = useState("");
@@ -599,6 +600,10 @@ function AddProductForm({
     e.preventDefault();
     setError(null);
     if (!name.trim()) { setError("Name required."); return; }
+    if (!state.cinemaId) {
+      setError("No cinema loaded yet — wait for sync to complete, then retry.");
+      return;
+    }
     setBusy(true);
     try {
       const id = await fbProductsApi.create({
@@ -606,7 +611,7 @@ function AddProductForm({
         category: category.trim(),
         defaultRate: Number(rate) || 0,
         defaultGstPct: Number(gst) || 0,
-      });
+      }, state.cinemaId);
       onCreated(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

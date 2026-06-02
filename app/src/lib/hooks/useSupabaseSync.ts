@@ -42,6 +42,13 @@ import {
   fbRowToEntry,
   rowToEntry,
 } from "../mappers";
+import {
+  catalogCacheFromAppState,
+  emptyCatalogSyncCache,
+  pushCatalogDeltas,
+  readCatalog,
+  type CatalogSyncCache,
+} from "../mappers/catalog";
 import type {
   AuthorizedUserRow,
   ConfigRow,
@@ -68,6 +75,9 @@ export interface SyncState {
   fullName: string | null;
   role: Role | null;
   appState: AppState | null;
+  /** Resolved at boot once the cinemas table is reachable. Required for
+   *  cinema-scoped writes (fb_products.create, future direct-table edits). */
+  cinemaId: string | null;
   error: string | null;
   /** UI hint — "saving" while a push is in flight, "saved" after it lands. */
   saveState: "idle" | "saving" | "saved" | "error";
@@ -102,6 +112,7 @@ export function useSupabaseSync(): SyncApi {
     fullName: null,
     role: null,
     appState: null,
+    cinemaId: null,
     error: null,
     saveState: "idle",
   });
@@ -112,10 +123,16 @@ export function useSupabaseSync(): SyncApi {
     cfg: string | null;
     ent: Record<string, string>;
     fb: Record<string, string>;
+    /** Cinema id resolved at boot — used for cinema-scoped writes (Phase 3). */
+    cinemaId: string | null;
+    /** Catalog sync cache for new-table delta detection. */
+    catalog: CatalogSyncCache;
   }>({
     cfg: null,
     ent: {},
     fb: {},
+    cinemaId: null,
+    catalog: emptyCatalogSyncCache(),
   });
 
   // Debounce timers
@@ -128,7 +145,14 @@ export function useSupabaseSync(): SyncApi {
 
   const pullAll = useCallback(async (): Promise<AppState | null> => {
     try {
-      const [cfgRes, entRes, fbRes, prodRes] = await Promise.all([
+      // Phase 3: pull catalog from the normalized tables. If that fails
+      // (empty tables, RLS, etc.) fall back to public.config.data so the
+      // app stays usable while the migration is in flight.
+      const [catalogRes, cfgRes, entRes, fbRes, prodRes] = await Promise.all([
+        readCatalog(sb).catch((err) => {
+          console.error("readCatalog failed; falling back to config.data", err);
+          return null;
+        }),
         sb.from("config").select("data").eq("id", 1).maybeSingle(),
         sb.from("entries").select("*"),
         sb.from("fb_entries").select("*"),
@@ -145,8 +169,8 @@ export function useSupabaseSync(): SyncApi {
       const prodRows = ((prodRes.data as FbProductRow[]) || []);
       const fbProducts: FbProduct[] = prodRows.map(fbProductRowToProduct);
 
-      // Build a fresh AppState. Catalog comes from cfg; entries from rows.
-      // Leave `draft` alone — it's not synced; the caller manages it locally.
+      // Build a fresh AppState. Catalog prefers the new tables; falls back
+      // to config.data when the normalized read returned nothing.
       const draft = localState.current?.draft ?? null;
       const base: AppState = {
         cinema: { name: "", gstin: "" },
@@ -161,10 +185,18 @@ export function useSupabaseSync(): SyncApi {
         fbProducts,
         draft,
       };
-      const next = applyConfigPayload(base, cfg);
+
+      // Phase 3: config.data is authoritative for reads. The catalog
+      // mirror in the new tables is for validation only — if it drifts
+      // (RLS hiccup, partial write, etc.) we don't want stale reads to
+      // erase a user's just-saved edit. catalogRes is queried only to
+      // resolve cinemaId for the dual-write path.
+      const next = applyConfigPayload(base, cfg) as AppState;
+      synced.current.cinemaId = catalogRes?.cinemaId ?? null;
+      synced.current.catalog  = catalogCacheFromAppState(next);
 
       // Refresh delta cache so pushDeltas only sends what's actually new.
-      synced.current.cfg = JSON.stringify(cfgPayload(next as AppState));
+      synced.current.cfg = JSON.stringify(cfgPayload(next));
       synced.current.ent = {};
       entries.forEach((e) => {
         synced.current.ent[entryKey(e)] = entrySignature(e);
@@ -174,8 +206,8 @@ export function useSupabaseSync(): SyncApi {
         synced.current.fb[fbEntryKey(e)] = fbEntrySignature(e);
       });
 
-      localState.current = next as AppState;
-      return next as AppState;
+      localState.current = next;
+      return next;
     } catch (err) {
       console.error("Cloud pull failed", err);
       return null;
@@ -193,8 +225,11 @@ export function useSupabaseSync(): SyncApi {
     const email = state.email ?? "";
     const ops: Array<PromiseLike<unknown>> = [];
 
-    // Config — owners only.
-    if (role === "owner") {
+    // Config + catalog mirror — owner OR manager. Daily managers and
+    // accountants don't touch the catalog. (Legacy gate was owner-only,
+    // which silently dropped manager-side catalog edits; 03b_relax_config_rls.sql
+    // brings the DB policy in line with this code gate.)
+    if (role === "owner" || role === "manager") {
       const cur = JSON.stringify(cfgPayload(s));
       if (cur !== synced.current.cfg) {
         ops.push(
@@ -208,6 +243,16 @@ export function useSupabaseSync(): SyncApi {
             else synced.current.cfg = cur;
           }),
         );
+        // Phase 3 dual-write: mirror to the new tables. Catalog-only.
+        // Errors are logged inside pushCatalogDeltas — they DON'T fail the
+        // sync, because config.data above is still the source of truth.
+        if (synced.current.cinemaId) {
+          ops.push(
+            pushCatalogDeltas(sb, s, synced.current.cinemaId, email, synced.current.catalog)
+              .then((nextCache) => { synced.current.catalog = nextCache; })
+              .catch((err) => console.error("pushCatalogDeltas failed:", err)),
+          );
+        }
       }
     }
 
@@ -219,7 +264,7 @@ export function useSupabaseSync(): SyncApi {
       curKeys[k] = true;
       if (synced.current.ent[k] !== sig) {
         ops.push(
-          sb.from("entries").upsert(entryToRow(e, email), {
+          sb.from("entries").upsert(entryToRow(e, email, synced.current.cinemaId), {
             onConflict: "entry_date,movie_id,screen_id",
           }).then((r) => {
             if (r.error) console.error(r.error);
@@ -249,8 +294,12 @@ export function useSupabaseSync(): SyncApi {
       curFb[k] = true;
       if (synced.current.fb[k] !== sig) {
         ops.push(
-          sb.from("fb_entries").upsert(fbEntryToRow(e, email), {
-            onConflict: "entry_date",
+          sb.from("fb_entries").upsert(fbEntryToRow(e, email, synced.current.cinemaId), {
+            // After migration 06, fb_entries unique is (cinema_id, entry_date).
+            // Sending both ensures the upsert resolves correctly on the new
+            // schema. Pre-migration, cinema_id is null but the upsert still
+            // matches on entry_date via the legacy unique.
+            onConflict: "cinema_id,entry_date",
           }).then((r) => {
             if (r.error) console.error(r.error);
             else synced.current.fb[k] = sig;
@@ -325,6 +374,7 @@ export function useSupabaseSync(): SyncApi {
         fullName: row.full_name,
         role: row.role,
         appState,
+        cinemaId: synced.current.cinemaId,
         saveState: "saved",
         error: appState ? null : "Could not reach the database.",
       }));
@@ -365,19 +415,25 @@ export function useSupabaseSync(): SyncApi {
   // Realtime subscription — only mount once we're signed in + ready.
   useEffect(() => {
     if (state.status !== "ready") return;
+    // realtime_version is a single-row sidecar that a Postgres trigger
+    // bumps on every catalog change. Subscribing here means one channel
+    // covers movies / screens / classes / etc. We still subscribe to the
+    // legacy `config` table during Phase 3 so a backup-restore that
+    // touches it triggers a refresh.
     const channel = sb
       .channel("dcr-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "entries" },     onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "config" },      onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" },  onRemote)
-      .on("postgres_changes", { event: "*", schema: "public", table: "fb_products" }, onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "entries" },          onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "config" },           onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" },       onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fb_products" },      onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "realtime_version" }, onRemote)
       .subscribe();
 
     function onRemote(): void {
       if (pullTimer.current) clearTimeout(pullTimer.current);
       pullTimer.current = setTimeout(async () => {
         const next = await pullAll();
-        if (next) setState((p) => ({ ...p, appState: next }));
+        if (next) setState((p) => ({ ...p, appState: next, cinemaId: synced.current.cinemaId }));
       }, PULL_DEBOUNCE_MS);
     }
 

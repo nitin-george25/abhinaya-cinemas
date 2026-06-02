@@ -12,6 +12,7 @@ import {
   IconActivity,
   IconBackup,
   IconSettings,
+  IconHistory,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -38,6 +39,7 @@ const OWNER_MANAGER: Role[] = ["owner", "manager"];
 const OWNER_ONLY: Role[] = ["owner"];
 const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+const REPORT_ROLES: Role[] = ["owner", "manager", "accountant"];
 const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 
 export const NAV: NavItem[] = [
@@ -69,6 +71,17 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/history",    label: "History",    roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/menu-items", label: "Menu Items", roles: OWNER_ONLY },
+    ],
+  },
+  {
+    kind: "group",
+    id: "reports",
+    label: "Reports",
+    Icon: IconHistory,
+    roles: REPORT_ROLES,
+    children: [
+      { kind: "leaf", to: "/reports/box-office", label: "Box Office", roles: REPORT_ROLES },
+      { kind: "leaf", to: "/reports/fb",         label: "F&B",        roles: REPORT_ROLES },
     ],
   },
   {

@@ -102,8 +102,30 @@ export interface ParsedDsrItem {
   totalAmount: number;
 }
 
-/** CSV parser that handles quoted fields containing commas + escaped "". */
-export function parseCsv(text: string): string[][] {
+/**
+ * Auto-detect delimiter — tab or comma. POS exporters vary: the older
+ * format uses comma, the newer one uses tab. Whichever character appears
+ * more often in the first 5 KB wins.
+ */
+function detectDelimiter(text: string): "," | "\t" {
+  const sample = text.slice(0, 5000);
+  let tabs = 0, commas = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample[i];
+    if (c === "\t") tabs++;
+    else if (c === ",") commas++;
+  }
+  return tabs > commas ? "\t" : ",";
+}
+
+/**
+ * Delimiter-aware parser. Handles quoted fields containing the delimiter
+ * + escaped "". When `delim` is omitted, autodetect.
+ */
+export function parseCsv(text: string, delim?: string): string[][] {
+  // Strip a leading UTF-8 BOM if present (some POS exporters add one).
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const d = delim ?? detectDelimiter(text);
   const rows: string[][] = [];
   let i = 0, cell = "", row: string[] = [], inQ = false;
   while (i < text.length) {
@@ -114,7 +136,7 @@ export function parseCsv(text: string): string[][] {
       cell += c; i++; continue;
     }
     if (c === '"')  { inQ = true; i++; continue; }
-    if (c === ",")  { row.push(cell); cell = ""; i++; continue; }
+    if (c === d)    { row.push(cell); cell = ""; i++; continue; }
     if (c === "\r") { i++; continue; }
     if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
     cell += c; i++;
@@ -162,7 +184,10 @@ export function parseDsr(text: string): ParsedDsr {
         }
       }
     }
-    if (headerIdx < 0 && (r[0] ?? "").toLowerCase().indexOf("sl. no") === 0) {
+    // Header detection — find any row that contains "Item Name". Works
+    // regardless of whether the first column is named "Sl. No.",
+    // "Serial Number", "S.No.", etc.
+    if (headerIdx < 0 && r.some((cell) => (cell ?? "").toLowerCase().includes("item name"))) {
       headerIdx = i;
       headerRow = r;
     }
@@ -172,23 +197,31 @@ export function parseDsr(text: string): ParsedDsr {
     throw new Error(`CSV covers a range (${fromDate} to ${toDate}). Please upload one day at a time.`);
   }
   if (headerIdx < 0 || !headerRow) {
-    throw new Error("Could not find the item table header (Sl. No., Super Category, ...).");
+    throw new Error("Could not find the item table header (a row containing \"Item Name\").");
   }
 
   const H = headerRow.map((h) => (h || "").trim().toLowerCase());
   const col = (name: string) => H.indexOf(name.toLowerCase());
-  const iSl   = col("sl. no.");
+  // Try each candidate column name in order; return the first that matches.
+  const colAny = (...names: string[]) => {
+    for (const n of names) {
+      const idx = col(n);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  const iSl   = colAny("sl. no.", "sl no.", "sl no", "serial number", "s.no.", "s. no.", "sr. no.", "sr no");
   const iSup  = col("super category");
   const iCat  = col("category");
   const iName = col("item name");
-  const iQty  = col("quantity");
+  const iQty  = colAny("quantity", "qty", "qty.");
   const iRate = col("rate");
   const iDisc = col("discount");
   const iComp = col("complimentary");
   const iProm = col("promotional");
-  const iNet  = col("net amount");
+  const iNet  = colAny("net amount", "netamt", "net amt", "net");
   const iTax  = col("tax");
-  const iTot  = col("total amount");
+  const iTot  = colAny("total amount", "total");
   if (iName < 0 || iQty < 0) {
     throw new Error("Items table is missing required columns (Item Name, Quantity).");
   }
@@ -293,11 +326,17 @@ export interface CreateProductPayload {
 }
 
 export const fbProducts = {
-  async create(p: CreateProductPayload): Promise<UUID> {
+  /**
+   * Insert a new menu item. cinemaId is required after migration 06
+   * (fb_products.cinema_id is NOT NULL). Caller obtains it from
+   * useSync().state — i.e., the currently-loaded cinema.
+   */
+  async create(p: CreateProductPayload, cinemaId: string): Promise<UUID> {
     const sb = getSupabase();
     const { data, error } = await sb
       .from("fb_products")
       .insert({
+        cinema_id: cinemaId,
         name: p.name,
         category: p.category,
         default_rate: p.defaultRate,
