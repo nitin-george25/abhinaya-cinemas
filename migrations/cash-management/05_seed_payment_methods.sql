@@ -70,7 +70,7 @@ insert into public.payment_methods (cinema_id, code, display_name, flow_type, di
 on conflict (cinema_id, code) do nothing;
 
 insert into public.payment_methods (cinema_id, code, display_name, flow_type, display_order)
-  select id, 'card_pos',    'Card on POS',   'online_settled',   60 from public.cinemas where brand_name = 'Abhinaya Cinemas'
+  select id, 'pinelabs',    'Pinelabs',      'online_settled',   60 from public.cinemas where brand_name = 'Abhinaya Cinemas'
 on conflict (cinema_id, code) do nothing;
 
 insert into public.payment_methods (cinema_id, code, display_name, flow_type, display_order)

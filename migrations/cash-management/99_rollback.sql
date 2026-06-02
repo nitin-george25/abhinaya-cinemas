@@ -16,6 +16,7 @@ drop function if exists public.fn_payment_to_ledger();
 drop function if exists public.fn_recompute_closing_petty();
 
 -- 2) Tables — order matters because of FKs.
+drop table if exists public.parties                       cascade;
 drop table if exists public.bank_ledger_entries           cascade;
 drop table if exists public.payment_requests              cascade;
 drop table if exists public.petty_expenses                cascade;

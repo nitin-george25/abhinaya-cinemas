@@ -21,14 +21,17 @@ import { todayIso } from "../../lib/dates";
 import {
   INR_DENOMINATIONS,
   cashTotalFromMethods,
+  cashierSignClosing,
   computeDiscrepancy,
   getClosing,
+  listCashierUsers,
   listClosings,
   listPettyExpenses,
   signClosing,
   totalFromDenominations,
   totalFromPaymentMethods,
   upsertClosing,
+  type AuthorizedUserSummary,
   type CashClosingPaymentMethod,
   type CashDenomination,
   type ClosingShift,
@@ -38,10 +41,16 @@ import {
 export default function CashTodayPage() {
   const { state }     = useSync();
   const refs          = useCashRefs();
+  const role          = state.role;
+  const isCashier     = role === "cashier";
+  const isManager     = role === "owner" || role === "manager" || role === "daily_manager";
+
   const [unitId, setUnitId]         = useState<string>("");
   const [businessDate, setDate]     = useState<string>(todayIso());
   const [shift, setShift]           = useState<ClosingShift>("all_day");
   const [existing, setExisting]     = useState<DailyCashClosing | null>(null);
+  const [cashiers, setCashiers]     = useState<AuthorizedUserSummary[]>([]);
+  const [cashierEmail, setCashier]  = useState<string>("");
 
   const [methods, setMethods] = useState<CashClosingPaymentMethod[]>([]);
   const [denoms, setDenoms]   = useState<CashDenomination[]>(
@@ -58,6 +67,13 @@ export default function CashTodayPage() {
       setUnitId(refs.units[0]?.id ?? "");
     }
   }, [refs.units, unitId]);
+
+  // Load cashier list once for the dropdown
+  useEffect(() => {
+    let alive = true;
+    void listCashierUsers().then((u) => alive && setCashiers(u));
+    return () => { alive = false; };
+  }, []);
 
   // Reset method rows whenever payment_methods change
   useEffect(() => {
@@ -90,6 +106,7 @@ export default function CashTodayPage() {
           );
         }
         setNotes(found.notes ?? "");
+        setCashier(found.cashierEmail ?? "");
       }
     });
     return () => { alive = false; };
@@ -139,6 +156,7 @@ export default function CashTodayPage() {
         operatingUnitId: unitId,
         businessDate,
         shift,
+        cashierEmail: cashierEmail || null,
         closedByEmail: state.email,
         posTotalSales: posTotal,
         posNonCashTotal: posNonCash,
@@ -148,7 +166,7 @@ export default function CashTodayPage() {
         denominations: denoms.filter((d) => d.count > 0),
         paymentMethods: methods.filter((m) => m.amount > 0),
       });
-      if (signAfter) await signClosing(id);
+      if (signAfter && isManager) await signClosing(id, state.email);
       const fresh = await getClosing(id);
       setExisting(fresh);
     } catch (e) {
@@ -172,7 +190,19 @@ export default function CashTodayPage() {
     );
   }
 
-  const isSigned = existing?.status === "signed";
+  const isSigned   = existing?.status === "signed";
+  const isCounted  = existing?.status === "counted";
+
+  async function handleCashierSign() {
+    if (!state.email || !existing) return;
+    setSaving(true); setErr(null);
+    try {
+      await cashierSignClosing(existing.id, state.email);
+      const fresh = await getClosing(existing.id);
+      setExisting(fresh);
+    } catch (e) { setErr((e as Error).message); }
+    finally    { setSaving(false); }
+  }
 
   return (
     <div className="space-y-6">
@@ -190,7 +220,7 @@ export default function CashTodayPage() {
             </span>
           ) : null}
         </CardHeader>
-        <CardBody className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <CardBody className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <Field label="Unit">
             <Select value={unitId} onChange={(e) => setUnitId(e.target.value)}>
               {refs.units.map((u) => (
@@ -206,6 +236,20 @@ export default function CashTodayPage() {
               <option value="all_day">All day</option>
               <option value="morning">Morning</option>
               <option value="evening">Evening</option>
+            </Select>
+          </Field>
+          <Field label="Cashier on till">
+            <Select
+              value={cashierEmail}
+              disabled={isSigned}
+              onChange={(e) => setCashier(e.target.value)}
+            >
+              <option value="">—</option>
+              {cashiers.map((c) => (
+                <option key={c.email} value={c.email}>
+                  {c.fullName ?? c.email}
+                </option>
+              ))}
             </Select>
           </Field>
         </CardBody>
@@ -276,7 +320,26 @@ export default function CashTodayPage() {
             <Input value={notes} disabled={isSigned} onChange={(e) => setNotes(e.target.value)} />
           </Field>
           {err ? <div className="text-sm text-red-600">{err}</div> : null}
-          <div className="flex gap-3 justify-end">
+
+          {/* Signoff trail */}
+          {existing ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-ink-muted">
+              <div>
+                <span className="font-medium text-ink">Cashier:</span>{" "}
+                {existing.cashierSignedAt
+                  ? `${existing.cashierSignedByEmail} · ${existing.cashierSignedAt.slice(0, 16).replace("T", " ")}`
+                  : "not signed"}
+              </div>
+              <div>
+                <span className="font-medium text-ink">Manager:</span>{" "}
+                {existing.signedAt
+                  ? `${existing.managerSignedByEmail ?? existing.closedByEmail} · ${existing.signedAt.slice(0, 16).replace("T", " ")}`
+                  : "not signed"}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex gap-3 justify-end flex-wrap">
             <Button
               variant="secondary"
               disabled={saving || isSigned}
@@ -284,12 +347,26 @@ export default function CashTodayPage() {
             >
               Save draft
             </Button>
-            <Button
-              disabled={saving || isSigned}
-              onClick={() => void handleSave(true)}
-            >
-              {isSigned ? "Signed" : "Sign & close"}
-            </Button>
+            {/* Cashier signoff — only the cashier themselves can press it. */}
+            {existing && isCashier && !existing.cashierSignedAt ? (
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() => void handleCashierSign()}
+              >
+                Cashier sign
+              </Button>
+            ) : null}
+            {/* Manager sign — locks the closing. Requires cashier sign first
+                unless the user is owner/manager and wants to override. */}
+            {isManager ? (
+              <Button
+                disabled={saving || isSigned}
+                onClick={() => void handleSave(true)}
+              >
+                {isSigned ? "Signed" : isCounted ? "Verify & sign" : "Sign & close"}
+              </Button>
+            ) : null}
           </div>
         </CardBody>
       </Card>

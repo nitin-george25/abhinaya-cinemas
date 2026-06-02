@@ -152,6 +152,13 @@ function AppGate() {
                 </>
               ) : null}
 
+              {/* Settings · Cash — owner + accountant (manages bank accounts,
+                  parties, etc.) Sits OUTSIDE the canSeeAdmin gate so
+                  accountants can reach it. */}
+              {role === "owner" || role === "accountant" ? (
+                <Route path="/settings/cash" element={<SettingsCashPage />} />
+              ) : null}
+
               {/* Admin-only: Dashboard, Activity, Backup, Settings */}
               {canSeeAdmin ? (
                 <>
@@ -162,10 +169,7 @@ function AppGate() {
                   <Route path="/settings/screens" element={<SettingsScreensPage />} />
                   <Route path="/settings/tax"     element={<SettingsTaxPage />} />
                   {role === "owner" ? (
-                    <>
-                      <Route path="/settings/users" element={<SettingsUsersPage />} />
-                      <Route path="/settings/cash"  element={<SettingsCashPage />} />
-                    </>
+                    <Route path="/settings/users" element={<SettingsUsersPage />} />
                   ) : null}
                 </>
               ) : null}

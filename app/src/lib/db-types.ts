@@ -263,33 +263,38 @@ export interface PaymentMethodRow {
 }
 
 export type ClosingShift  = "morning" | "evening" | "all_day";
-export type ClosingStatus = "draft" | "signed" | "disputed" | "resolved";
+export type ClosingStatus = "draft" | "counted" | "signed" | "disputed" | "resolved";
 
 export interface DailyCashClosingRow {
-  id:                   string;
-  operating_unit_id:    string;
-  business_date:        string;          // YYYY-MM-DD
-  shift:                ClosingShift;
-  cashier_email:        string | null;
-  closed_by_email:      string;
+  id:                       string;
+  operating_unit_id:        string;
+  business_date:            string;          // YYYY-MM-DD
+  shift:                    ClosingShift;
+  cashier_email:            string | null;
+  closed_by_email:          string;
 
-  pos_total_sales:      number;
-  pos_non_cash_total:   number;
-  pos_cash_expected:    number;          // generated
+  pos_total_sales:          number;
+  pos_non_cash_total:       number;
+  pos_cash_expected:        number;          // generated
 
-  cash_counted:         number;
-  petty_expenses_paid:  number;
-  cash_deposited:       number;
-  discrepancy:          number;          // generated
+  cash_counted:             number;
+  petty_expenses_paid:      number;
+  cash_deposited:           number;
+  discrepancy:              number;          // generated
 
-  notes:                string | null;
-  status:               ClosingStatus;
-  signed_at:            string | null;
-  resolved_at:          string | null;
-  resolved_by_email:    string | null;
+  notes:                    string | null;
+  status:                   ClosingStatus;
 
-  created_at:           string | null;
-  updated_at:           string | null;
+  // Phase 7 — dual signoff
+  cashier_signed_at:        string | null;
+  cashier_signed_by_email:  string | null;
+  manager_signed_by_email:  string | null;
+  signed_at:                string | null;    // manager sign timestamp
+  resolved_at:              string | null;
+  resolved_by_email:        string | null;
+
+  created_at:               string | null;
+  updated_at:               string | null;
 }
 
 export interface CashClosingDenominationRow {
@@ -333,6 +338,7 @@ export interface PaymentRequestRow {
   operating_unit_id:         string;
   needed_by:                 string | null;     // YYYY-MM-DD
   payee_name:                string;
+  party_id:                  string | null;
   payee_account_last4:       string | null;
   payee_ifsc:                string | null;
   amount:                    number;
@@ -357,7 +363,9 @@ export type LedgerSourceKind =
   | "payment_request"
   | "inter_unit_transfer"
   | "pos_settlement"
-  | "manual";
+  | "manual"
+  | "manual_income"
+  | "manual_expense";
 
 export interface BankLedgerEntryRow {
   id:              string;
@@ -371,6 +379,28 @@ export interface BankLedgerEntryRow {
   bank_reference:  string | null;
   reconciled_at:   string | null;
   notes:           string | null;
+  party_id:        string | null;
   created_at:      string | null;
   created_by:      string | null;
+}
+
+export type PartyType = "vendor" | "customer" | "employee" | "other";
+
+export interface PartyRow {
+  id:             string;
+  cinema_id:      string;
+  name:           string;
+  party_type:     PartyType;
+  category:       string | null;
+  contact_name:   string | null;
+  phone:          string | null;
+  email:          string | null;
+  gstin:          string | null;
+  pan:            string | null;
+  account_last4:  string | null;
+  ifsc:           string | null;
+  notes:          string | null;
+  archived_at:    string | null;
+  created_at:     string | null;
+  updated_at:     string | null;
 }

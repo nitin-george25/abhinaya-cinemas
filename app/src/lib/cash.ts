@@ -17,6 +17,8 @@ import type {
   DailyCashClosingRow,
   LedgerSourceKind,
   OperatingUnitRow,
+  PartyRow,
+  PartyType,
   PaymentFlowType,
   PaymentMethodRow,
   PaymentRequestMode,
@@ -33,6 +35,7 @@ export type {
   ClosingShift,
   ClosingStatus,
   LedgerSourceKind,
+  PartyType,
   PaymentFlowType,
   PaymentRequestMode,
   PaymentRequestStatus,
@@ -85,28 +88,48 @@ export interface CashClosingPaymentMethod {
 }
 
 export interface DailyCashClosing {
-  id:                  string;
-  operatingUnitId:     string;
-  businessDate:        DateISO;
-  shift:               ClosingShift;
-  cashierEmail:        string | null;
-  closedByEmail:       string;
+  id:                      string;
+  operatingUnitId:         string;
+  businessDate:            DateISO;
+  shift:                   ClosingShift;
+  cashierEmail:            string | null;
+  closedByEmail:           string;
 
-  posTotalSales:       number;
-  posNonCashTotal:     number;
-  posCashExpected:     number;
+  posTotalSales:           number;
+  posNonCashTotal:         number;
+  posCashExpected:         number;
 
-  cashCounted:         number;
-  pettyExpensesPaid:   number;
-  cashDeposited:       number;
-  discrepancy:         number;
+  cashCounted:             number;
+  pettyExpensesPaid:       number;
+  cashDeposited:           number;
+  discrepancy:             number;
 
-  notes:               string | null;
-  status:              ClosingStatus;
-  signedAt:            string | null;
+  notes:                   string | null;
+  status:                  ClosingStatus;
+  cashierSignedAt:         string | null;
+  cashierSignedByEmail:    string | null;
+  managerSignedByEmail:    string | null;
+  signedAt:                string | null;
 
-  denominations:       CashDenomination[];
-  paymentMethods:      CashClosingPaymentMethod[];
+  denominations:           CashDenomination[];
+  paymentMethods:          CashClosingPaymentMethod[];
+}
+
+export interface Party {
+  id:           string;
+  cinemaId:     string;
+  name:         string;
+  partyType:    PartyType;
+  category:     string | null;
+  contactName:  string | null;
+  phone:        string | null;
+  email:        string | null;
+  gstin:        string | null;
+  pan:          string | null;
+  accountLast4: string | null;
+  ifsc:         string | null;
+  notes:        string | null;
+  archivedAt:   string | null;
 }
 
 export interface PettyExpense {
@@ -161,6 +184,7 @@ export interface BankLedgerEntry {
   bankReference:   string | null;
   reconciledAt:    string | null;
   notes:           string | null;
+  partyId:         string | null;
 }
 
 // ── Row → domain mappers ────────────────────────────────────────────────
@@ -225,6 +249,9 @@ export function mapClosing(
     discrepancy: Number(r.discrepancy ?? 0),
     notes: r.notes,
     status: r.status,
+    cashierSignedAt: r.cashier_signed_at,
+    cashierSignedByEmail: r.cashier_signed_by_email,
+    managerSignedByEmail: r.manager_signed_by_email,
     signedAt: r.signed_at,
     denominations: denoms
       .filter((d) => d.closing_id === r.id)
@@ -232,6 +259,25 @@ export function mapClosing(
     paymentMethods: pms
       .filter((p) => p.closing_id === r.id)
       .map((p) => ({ paymentMethodId: p.payment_method_id, amount: Number(p.amount) })),
+  };
+}
+
+export function mapParty(r: PartyRow): Party {
+  return {
+    id: r.id,
+    cinemaId: r.cinema_id,
+    name: r.name,
+    partyType: r.party_type,
+    category: r.category,
+    contactName: r.contact_name,
+    phone: r.phone,
+    email: r.email,
+    gstin: r.gstin,
+    pan: r.pan,
+    accountLast4: r.account_last4,
+    ifsc: r.ifsc,
+    notes: r.notes,
+    archivedAt: r.archived_at,
   };
 }
 
@@ -292,6 +338,7 @@ export function mapLedgerEntry(r: BankLedgerEntryRow): BankLedgerEntry {
     bankReference: r.bank_reference,
     reconciledAt: r.reconciled_at,
     notes: r.notes,
+    partyId: r.party_id,
   };
 }
 
@@ -548,13 +595,38 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
   return id;
 }
 
-export async function signClosing(id: string): Promise<void> {
+/**
+ * Cashier sign — marks the cash count as cashier-verified. Status moves
+ * draft → counted. Manager still needs to sign before status reaches signed.
+ */
+export async function cashierSignClosing(id: string, cashierEmail: string): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
   const { error } = await sb
     .from("daily_cash_closings")
-    .update({ status: "signed", signed_at: new Date().toISOString() })
+    .update({
+      status: "counted",
+      cashier_signed_at: new Date().toISOString(),
+      cashier_signed_by_email: cashierEmail,
+      cashier_email: cashierEmail,
+    })
     .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Manager sign — final lock. Status moves counted → signed. Trigger
+ * fn_closing_to_ledger fires on this transition.
+ */
+export async function signClosing(id: string, managerEmail?: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const patch: Record<string, unknown> = {
+    status: "signed",
+    signed_at: new Date().toISOString(),
+  };
+  if (managerEmail) patch.manager_signed_by_email = managerEmail;
+  const { error } = await sb.from("daily_cash_closings").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -762,6 +834,120 @@ export async function createInterUnitTransfer(d: InterUnitTransferDraft): Promis
   ];
   const { error } = await sb.from("bank_ledger_entries").insert(rows);
   if (error) throw new Error(error.message);
+}
+
+// ── Parties (vendors / customers) ───────────────────────────────────────
+
+export async function listParties(cinemaId: string): Promise<Party[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("parties")
+    .select("*")
+    .eq("cinema_id", cinemaId)
+    .is("archived_at", null)
+    .order("name");
+  if (error) {
+    console.warn("[cash] listParties", error.message);
+    return [];
+  }
+  return (data as PartyRow[] | null ?? []).map(mapParty);
+}
+
+export interface PartyDraft {
+  cinemaId:      string;
+  name:          string;
+  partyType:     PartyType;
+  category?:     string | null;
+  contactName?:  string | null;
+  phone?:        string | null;
+  email?:        string | null;
+  gstin?:        string | null;
+  pan?:          string | null;
+  accountLast4?: string | null;
+  ifsc?:         string | null;
+  notes?:        string | null;
+}
+
+export async function createParty(d: PartyDraft, updatedBy: string): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("parties")
+    .insert({
+      cinema_id:     d.cinemaId,
+      name:          d.name,
+      party_type:    d.partyType,
+      category:      d.category ?? null,
+      contact_name:  d.contactName ?? null,
+      phone:         d.phone ?? null,
+      email:         d.email ?? null,
+      gstin:         d.gstin ?? null,
+      pan:           d.pan ?? null,
+      account_last4: d.accountLast4 ?? null,
+      ifsc:          d.ifsc ?? null,
+      notes:         d.notes ?? null,
+      updated_by:    updatedBy,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "createParty failed");
+  return (data as { id: string }).id;
+}
+
+// ── Manual ledger entries ───────────────────────────────────────────────
+
+export interface ManualLedgerEntryDraft {
+  bankAccountId:  string;
+  entryDate:      DateISO;
+  narration:      string;
+  amount:         number;             // positive = receipt; negative = payment
+  partyId?:       string | null;
+  bankReference?: string | null;
+  createdBy:      string;
+}
+
+export async function createManualLedgerEntry(d: ManualLedgerEntryDraft): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const isReceipt = d.amount >= 0;
+  const { error } = await sb.from("bank_ledger_entries").insert({
+    bank_account_id: d.bankAccountId,
+    entry_date:      d.entryDate,
+    narration:       d.narration,
+    receipt_amount:  isReceipt ?  d.amount : 0,
+    payment_amount:  isReceipt ? 0 : -d.amount,
+    source_kind:     isReceipt ? "manual_income" : "manual_expense",
+    party_id:        d.partyId ?? null,
+    bank_reference:  d.bankReference ?? null,
+    created_by:      d.createdBy,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── Authorized users — cashier dropdown ─────────────────────────────────
+
+export interface AuthorizedUserSummary {
+  email:    string;
+  fullName: string | null;
+}
+
+export async function listCashierUsers(): Promise<AuthorizedUserSummary[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("authorized_users")
+    .select("email, full_name")
+    .eq("role", "cashier")
+    .order("full_name");
+  if (error) {
+    console.warn("[cash] listCashierUsers", error.message);
+    return [];
+  }
+  return (data as Array<{ email: string; full_name: string | null }> | null ?? []).map((r) => ({
+    email: r.email,
+    fullName: r.full_name,
+  }));
 }
 
 // ── Pure helpers ────────────────────────────────────────────────────────
