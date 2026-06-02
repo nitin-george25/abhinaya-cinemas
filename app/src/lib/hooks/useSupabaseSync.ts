@@ -75,6 +75,9 @@ export interface SyncState {
   fullName: string | null;
   role: Role | null;
   appState: AppState | null;
+  /** Resolved at boot once the cinemas table is reachable. Required for
+   *  cinema-scoped writes (fb_products.create, future direct-table edits). */
+  cinemaId: string | null;
   error: string | null;
   /** UI hint — "saving" while a push is in flight, "saved" after it lands. */
   saveState: "idle" | "saving" | "saved" | "error";
@@ -109,6 +112,7 @@ export function useSupabaseSync(): SyncApi {
     fullName: null,
     role: null,
     appState: null,
+    cinemaId: null,
     error: null,
     saveState: "idle",
   });
@@ -260,7 +264,7 @@ export function useSupabaseSync(): SyncApi {
       curKeys[k] = true;
       if (synced.current.ent[k] !== sig) {
         ops.push(
-          sb.from("entries").upsert(entryToRow(e, email), {
+          sb.from("entries").upsert(entryToRow(e, email, synced.current.cinemaId), {
             onConflict: "entry_date,movie_id,screen_id",
           }).then((r) => {
             if (r.error) console.error(r.error);
@@ -290,8 +294,12 @@ export function useSupabaseSync(): SyncApi {
       curFb[k] = true;
       if (synced.current.fb[k] !== sig) {
         ops.push(
-          sb.from("fb_entries").upsert(fbEntryToRow(e, email), {
-            onConflict: "entry_date",
+          sb.from("fb_entries").upsert(fbEntryToRow(e, email, synced.current.cinemaId), {
+            // After migration 06, fb_entries unique is (cinema_id, entry_date).
+            // Sending both ensures the upsert resolves correctly on the new
+            // schema. Pre-migration, cinema_id is null but the upsert still
+            // matches on entry_date via the legacy unique.
+            onConflict: "cinema_id,entry_date",
           }).then((r) => {
             if (r.error) console.error(r.error);
             else synced.current.fb[k] = sig;
@@ -366,6 +374,7 @@ export function useSupabaseSync(): SyncApi {
         fullName: row.full_name,
         role: row.role,
         appState,
+        cinemaId: synced.current.cinemaId,
         saveState: "saved",
         error: appState ? null : "Could not reach the database.",
       }));
@@ -424,7 +433,7 @@ export function useSupabaseSync(): SyncApi {
       if (pullTimer.current) clearTimeout(pullTimer.current);
       pullTimer.current = setTimeout(async () => {
         const next = await pullAll();
-        if (next) setState((p) => ({ ...p, appState: next }));
+        if (next) setState((p) => ({ ...p, appState: next, cinemaId: synced.current.cinemaId }));
       }, PULL_DEBOUNCE_MS);
     }
 

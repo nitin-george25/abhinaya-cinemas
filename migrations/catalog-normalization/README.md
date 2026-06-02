@@ -21,6 +21,7 @@ wrapped in a transaction so a mid-file failure rolls back cleanly.
 | 03 | `03_rls_policies.sql` | RLS on all new + altered tables, scoped to `cinema_access()`. | Yes (drop policies) |
 | 04 | `04_audit_and_realtime.sql` | Generic audit trigger function + attachments. `realtime_version` triggers. | Yes |
 | 05 | `05_backfill.sql` | Read `public.config.data` JSONB and populate new tables. Set `cinema_id` on existing `entries`, `fb_entries`, `fb_products`. Set `cinema_ids` on `authorized_users`. | Yes (data only, drop & re-run) |
+| 05b | `05b_orphan_stubs.sql` | Insert `archived_at` stub rows for any orphan movie/screen IDs referenced by historical `entries` but missing from the live catalog. The legacy app rendered these as "—"; the FK in 06 forbids them, so we materialise stubs that satisfy the constraint while staying hidden from the UI. | Yes (rows tagged `updated_by = 'orphan-stub'` — delete to undo) |
 | 06 | `06_post_backfill_constraints.sql` | After data is in place: `cinema_id NOT NULL`, FK constraints on `entries.movie_id` / `entries.screen_id`, `EXCLUDE` on `tax_configs`, unique constraint changes on `fb_entries`. | Yes (drop constraints) |
 | 07 | `07_verify.sql` | Count parity + integrity checks. No writes, only `select`. | n/a |
 | 99 | `99_rollback.sql` | Tear down everything. Drops new tables, removes added columns, drops helper functions. Returns DB to its pre-migration state. | n/a |

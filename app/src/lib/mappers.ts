@@ -35,15 +35,20 @@ export function rowToEntry(r: EntryRow): Entry {
   };
 }
 
-/** Engine `Entry` → DB `entries` row payload for insert/upsert. */
+/** Engine `Entry` → DB `entries` row payload for insert/upsert.
+ *  cinemaId is required after migration 06 (NOT NULL). Pass null only
+ *  on pre-migration databases — callers should skip the write in that
+ *  case rather than send null and violate the constraint. */
 export function entryToRow(
   e: Entry,
   updatedBy: string,
-): Omit<EntryRow, "updated_at"> & { updated_at: string } {
+  cinemaId: string | null,
+): Omit<EntryRow, "updated_at"> & { updated_at: string; cinema_id: string | null } {
   return {
     entry_date: e.date ?? "",
     movie_id: e.movieId,
     screen_id: e.screenId,
+    cinema_id: cinemaId,
     share: e.share === undefined || (e.share as unknown) === "" ? null : e.share,
     shows: e.shows ?? [],
     updated_by: updatedBy,
@@ -124,16 +129,19 @@ export function fbRowToEntry(r: FbEntryRow): FbEntry {
   };
 }
 
-/** Engine `FbEntry` → DB `fb_entries` row payload for insert/upsert. */
+/** Engine `FbEntry` → DB `fb_entries` row payload for insert/upsert.
+ *  cinemaId is required after migration 06 (NOT NULL). */
 export function fbEntryToRow(
   e: FbEntry,
   updatedBy: string,
-): Omit<FbEntryRow, "id" | "updated_at"> & { updated_at: string } {
+  cinemaId: string | null,
+): Omit<FbEntryRow, "id" | "updated_at"> & { updated_at: string; cinema_id: string | null } {
   // FbItem / FbSummary are strictly-typed interfaces; the DB column types
   // (FbEntryRow) widen them to Record<string, unknown>. TS won't bridge
   // the two without an `unknown` intermediate.
   return {
     entry_date: e.date,
+    cinema_id: cinemaId,
     summary: e.summary as unknown as Record<string, unknown>,
     items: e.items as unknown as Array<Record<string, unknown>>,
     notes: e.notes ?? null,

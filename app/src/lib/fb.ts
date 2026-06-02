@@ -326,11 +326,17 @@ export interface CreateProductPayload {
 }
 
 export const fbProducts = {
-  async create(p: CreateProductPayload): Promise<UUID> {
+  /**
+   * Insert a new menu item. cinemaId is required after migration 06
+   * (fb_products.cinema_id is NOT NULL). Caller obtains it from
+   * useSync().state — i.e., the currently-loaded cinema.
+   */
+  async create(p: CreateProductPayload, cinemaId: string): Promise<UUID> {
     const sb = getSupabase();
     const { data, error } = await sb
       .from("fb_products")
       .insert({
+        cinema_id: cinemaId,
         name: p.name,
         category: p.category,
         default_rate: p.defaultRate,
