@@ -182,16 +182,14 @@ export function useSupabaseSync(): SyncApi {
         draft,
       };
 
-      let next: AppState;
-      if (catalogRes) {
-        next = { ...base, ...catalogRes.catalog };
-        synced.current.cinemaId = catalogRes.cinemaId;
-        synced.current.catalog  = catalogCacheFromAppState(next);
-      } else {
-        next = applyConfigPayload(base, cfg) as AppState;
-        synced.current.cinemaId = null;
-        synced.current.catalog  = catalogCacheFromAppState(next);
-      }
+      // Phase 3: config.data is authoritative for reads. The catalog
+      // mirror in the new tables is for validation only — if it drifts
+      // (RLS hiccup, partial write, etc.) we don't want stale reads to
+      // erase a user's just-saved edit. catalogRes is queried only to
+      // resolve cinemaId for the dual-write path.
+      const next = applyConfigPayload(base, cfg) as AppState;
+      synced.current.cinemaId = catalogRes?.cinemaId ?? null;
+      synced.current.catalog  = catalogCacheFromAppState(next);
 
       // Refresh delta cache so pushDeltas only sends what's actually new.
       synced.current.cfg = JSON.stringify(cfgPayload(next));
@@ -223,8 +221,11 @@ export function useSupabaseSync(): SyncApi {
     const email = state.email ?? "";
     const ops: Array<PromiseLike<unknown>> = [];
 
-    // Config — owners only. Dual-write Phase 3: still authoritative.
-    if (role === "owner") {
+    // Config + catalog mirror — owner OR manager. Daily managers and
+    // accountants don't touch the catalog. (Legacy gate was owner-only,
+    // which silently dropped manager-side catalog edits; 03b_relax_config_rls.sql
+    // brings the DB policy in line with this code gate.)
+    if (role === "owner" || role === "manager") {
       const cur = JSON.stringify(cfgPayload(s));
       if (cur !== synced.current.cfg) {
         ops.push(
