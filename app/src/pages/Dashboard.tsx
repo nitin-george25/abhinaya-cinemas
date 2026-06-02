@@ -59,17 +59,19 @@ export default function Dashboard() {
   const { period, dates, cur, prev, fbCur, fbPrev } = view;
   const combinedCur  = cur.totals.grossColl + fbCur.totals.net;
   const combinedPrev = prev.totals.grossColl + fbPrev.totals.net;
-  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days} day${period.days === 1 ? "" : "s"} · vs ${niceDate(period.prevFrom)} → ${niceDate(period.prevTo)}`;
+  // YoY comparison — the prev window is the same calendar window one year
+  // earlier. Show "vs <prev year>" instead of the full range since the
+  // calendar window is by definition the same.
+  const prevYear = parseISO(period.prevFrom).getFullYear();
+  const rangeLabel = `${niceDate(period.from)} → ${niceDate(period.to)} · ${period.days}d · vs same period ${prevYear}`;
 
   return (
-    <div className="space-y-6 max-w-7xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-sm text-ink-muted mt-1">
-            Read-only snapshot of cloud data — box office + F&amp;B.
-          </p>
-        </div>
+    <div className="space-y-5 sm:space-y-6 max-w-7xl">
+      <div>
+        <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-sm text-ink-muted mt-1">
+          Read-only snapshot of cloud data — box office + F&amp;B.
+        </p>
       </div>
 
       <PeriodSelector
@@ -92,18 +94,21 @@ export default function Dashboard() {
             prevValue={combinedPrev}
             format="inr"
             sublabel="BO + F&B"
+            prevYear={prevYear}
           />
           <KpiCard
             label="Tickets sold"
             value={cur.totals.audience}
             prevValue={prev.totals.audience}
             format="int"
+            prevYear={prevYear}
           />
           <KpiCard
             label="BO Gross"
             value={cur.totals.grossColl}
             prevValue={prev.totals.grossColl}
             format="inr"
+            prevYear={prevYear}
           />
           <KpiCard
             label="ATP"
@@ -111,12 +116,14 @@ export default function Dashboard() {
             prevValue={prev.totals.atp}
             format="inr2"
             sublabel="₹ / ticket"
+            prevYear={prevYear}
           />
           <KpiCard
             label="Occupancy"
             value={cur.totals.occupancyPct}
             prevValue={prev.totals.occupancyPct}
             format="pct"
+            prevYear={prevYear}
           />
         </div>
         <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
@@ -126,12 +133,14 @@ export default function Dashboard() {
             prevValue={prev.totals.netShare}
             format="inr"
             sublabel="after taxes & fund"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Net"
             value={fbCur.totals.net}
             prevValue={fbPrev.totals.net}
             format="inr"
+            prevYear={prevYear}
           />
           <KpiCard
             label="SPH"
@@ -139,12 +148,14 @@ export default function Dashboard() {
             prevValue={fbPrev.totals.sph}
             format="inr2"
             sublabel="₹ / ticket"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Bills"
             value={fbCur.totals.bills}
             prevValue={fbPrev.totals.bills}
             format="int"
+            prevYear={prevYear}
           />
           <KpiCard
             label="F&B Tax"
@@ -152,26 +163,31 @@ export default function Dashboard() {
             prevValue={fbPrev.totals.tax}
             format="inr"
             sublabel="GST etc."
+            prevYear={prevYear}
           />
         </div>
       </div>
 
       {/* Chart */}
-      <RevenueChart dates={dates} bo={cur} />
+      <div className="min-w-0">
+        <RevenueChart dates={dates} bo={cur} />
+      </div>
 
-      {/* Two-column rollups */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Two-column rollups. min-w-0 on the grid container + cells stops the
+          inner tables from forcing the grid track to their min-content
+          width, which otherwise pushes the cards off-screen on mobile. */}
+      <div className="grid gap-6 lg:grid-cols-2 min-w-0 [&>*]:min-w-0">
         <RollupTable
           title="Top movies"
           subtitle={`${cur.byMovie.length} in period`}
           rows={cur.byMovie}
           limit={10}
           cols={[
-            { header: "Movie", render: (m) => <span className="font-medium">{m.movieName}</span> },
-            { header: "Days", align: "right", render: (m) => fmtInt(m.daysPlayed) },
-            { header: "Tickets", align: "right", render: (m) => fmtInt(m.audience) },
-            { header: "Gross", align: "right", render: (m) => fmtINR(m.grossColl) },
-            { header: "Net Share", align: "right", render: (m) => fmtINR(m.netShare) },
+            { header: "Movie",     render: (m) => <span className="font-medium">{m.movieName}</span> },
+            { header: "Days",      align: "right", hideBelow: "md", render: (m) => fmtInt(m.daysPlayed) },
+            { header: "Tickets",   align: "right", hideBelow: "sm", render: (m) => fmtInt(m.audience) },
+            { header: "Gross",     align: "right",                  render: (m) => fmtINR(m.grossColl) },
+            { header: "Net Share", align: "right", hideBelow: "md", render: (m) => fmtINR(m.netShare) },
           ]}
         />
         <RollupTable
@@ -179,11 +195,11 @@ export default function Dashboard() {
           subtitle={`${cur.byScreen.length} screen${cur.byScreen.length === 1 ? "" : "s"}`}
           rows={cur.byScreen}
           cols={[
-            { header: "Screen", render: (s) => <span className="font-medium">{s.screenName}</span> },
-            { header: "Shows", align: "right", render: (s) => fmtInt(s.showCount) },
-            { header: "Tickets", align: "right", render: (s) => fmtInt(s.audience) },
-            { header: "Gross", align: "right", render: (s) => fmtINR(s.grossColl) },
-            { header: "Occ%", align: "right", render: (s) => occPctCell(s.audience, s.seatsAvailable) },
+            { header: "Screen",  render: (s) => <span className="font-medium">{s.screenName}</span> },
+            { header: "Shows",   align: "right", hideBelow: "md", render: (s) => fmtInt(s.showCount) },
+            { header: "Tickets", align: "right", hideBelow: "sm", render: (s) => fmtInt(s.audience) },
+            { header: "Gross",   align: "right",                  render: (s) => fmtINR(s.grossColl) },
+            { header: "Occ%",    align: "right", hideBelow: "md", render: (s) => occPctCell(s.audience, s.seatsAvailable) },
           ]}
         />
       </div>

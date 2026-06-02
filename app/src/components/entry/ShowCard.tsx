@@ -27,8 +27,8 @@ interface Props {
 
 /**
  * One show inside the entry. Compact card with:
- *   • showtime + price card + free-pass row at the top
- *   • per-class ticket inputs in a grid
+ *   • showtime + price card + free-pass fields at the top
+ *   • per-class ticket inputs as a list on mobile, table on sm+
  *   • per-row computed serial range + per-row gross from computeEntry
  */
 export function ShowCard({
@@ -51,7 +51,7 @@ export function ShowCard({
     <Card>
       <CardBody className="space-y-4">
         {/* Header row — meta + remove */}
-        <div className="flex items-end gap-3 flex-wrap">
+        <div className="grid grid-cols-2 sm:flex sm:items-end gap-3 sm:flex-wrap">
           <div className="space-y-1">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Show {showIdx + 1}
@@ -60,17 +60,18 @@ export function ShowCard({
               type="time"
               value={show.showtime ?? ""}
               onChange={(e) => onChange({ showtime: e.target.value })}
-              className="w-32"
+              className="w-full sm:w-32"
             />
           </div>
 
-          <div className="space-y-1 flex-1 min-w-[180px]">
+          <div className="space-y-1 col-span-2 sm:flex-1 sm:min-w-[180px]">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Price card
             </span>
             <Select
               value={show.priceCardId ?? ""}
               onChange={(e) => onChange({ priceCardId: e.target.value as UUID })}
+              className="w-full"
             >
               <option value="">— pick —</option>
               {cards.map((c) => (
@@ -90,11 +91,13 @@ export function ShowCard({
               min={0}
               value={show.freePass ?? 0}
               onChange={(e) => onChange({ freePass: Number(e.target.value) || 0 })}
-              className="w-24 tabular-nums"
+              className="w-full sm:w-24 tabular-nums"
             />
           </div>
+        </div>
 
-          <label className="flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap pb-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap">
             <input
               type="checkbox"
               checked={!!show.lastShow}
@@ -102,7 +105,6 @@ export function ShowCard({
             />
             Last show of day
           </label>
-
           <div className="ml-auto flex items-center gap-2">
             {onGenerateMessage ? (
               <Button
@@ -111,7 +113,7 @@ export function ShowCard({
                 onClick={onGenerateMessage}
                 title="Generate WhatsApp message for this show"
               >
-                Generate message
+                Message
               </Button>
             ) : null}
             <Button
@@ -125,8 +127,8 @@ export function ShowCard({
           </div>
         </div>
 
-        {/* Class rows */}
-        <div className="overflow-x-auto">
+        {/* Class rows — table on sm+, card list on mobile */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
@@ -173,7 +175,6 @@ export function ShowCard({
                 );
               })}
             </tbody>
-            {/* Show total */}
             {computed ? (
               <tfoot>
                 <tr className="border-t-2 border-line">
@@ -193,6 +194,60 @@ export function ShowCard({
               </tfoot>
             ) : null}
           </table>
+        </div>
+
+        {/* Mobile card list */}
+        <div className="sm:hidden space-y-2">
+          {cls.map((cl) => {
+            const price = N(selectedCard?.prices?.[cl.classId]);
+            const tickets = N(show.rows?.[cl.classId]?.tickets);
+            const cRow = computed?.rows.find((r) => r.cls === cl.name);
+            const gross = cRow?.grossColl ?? price * tickets;
+            return (
+              <div key={cl.classId} className="rounded-xl border border-line p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">{cl.name}</div>
+                  <div className="text-[11px] text-ink-muted tabular-nums">
+                    {fmtInt(cl.seats)} seats · {price > 0 ? fmtINR(price) : "—"}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={cl.seats || undefined}
+                    value={tickets}
+                    onChange={(e) =>
+                      onChangeRow(cl.classId, Math.max(0, Number(e.target.value) || 0))
+                    }
+                    className="w-28 tabular-nums text-base"
+                    aria-label={`Tickets for ${cl.name}`}
+                  />
+                  <div className="flex-1 text-right tabular-nums">
+                    <div className="text-sm font-medium">{fmtINR(gross)}</div>
+                    <div className="text-[11px] text-ink-muted">
+                      {formatSerials(cRow?.from, cRow?.to)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {computed ? (
+            <div className="flex items-center justify-between rounded-xl bg-paper border border-line px-3 py-2.5">
+              <span className="text-[11px] uppercase tracking-wider text-ink-muted font-semibold">
+                Show total
+              </span>
+              <div className="text-right tabular-nums">
+                <div className="font-semibold">{fmtINR(computed.totals.grossColl)}</div>
+                <div className="text-[11px] text-ink-muted">
+                  {fmtInt(computed.totals.tickets)} tickets
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </CardBody>
     </Card>

@@ -1,10 +1,12 @@
 // Route page: /settings/tax — Tax slabs and Rep Batta tiers.
 
 import { TaxSection } from "../Settings";
+import { DesktopBetterBanner } from "../../components/layout/DesktopBetterBanner";
 
 export default function SettingsTaxPage() {
   return (
     <div className="space-y-5 max-w-5xl">
+      <DesktopBetterBanner />
       <div>
         <h2 className="font-display text-3xl font-bold tracking-tight">
           Tax &amp; Rep Batta

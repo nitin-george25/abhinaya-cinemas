@@ -8,7 +8,18 @@ interface Col<T> {
   align?: Align;
   /** Width as Tailwind class (e.g. "w-32") or auto. */
   width?: string;
+  /** Hide the column below the named Tailwind breakpoint. */
+  hideBelow?: "sm" | "md" | "lg";
   render: (row: T) => ReactNode;
+}
+
+function hideClass(hide: Col<unknown>["hideBelow"]): string {
+  switch (hide) {
+    case "sm": return "hidden sm:table-cell";
+    case "md": return "hidden md:table-cell";
+    case "lg": return "hidden lg:table-cell";
+    default:   return "";
+  }
 }
 
 interface Props<T> {
@@ -55,7 +66,8 @@ export function RollupTable<T>({
                       className={
                         "px-3 py-3 font-semibold whitespace-nowrap " +
                         (c.align === "right" ? "text-right" : "text-left") +
-                        (c.width ? " " + c.width : "")
+                        (c.width ? " " + c.width : "") +
+                        " " + hideClass(c.hideBelow)
                       }
                     >
                       {c.header}
@@ -80,7 +92,8 @@ export function RollupTable<T>({
                           "px-3 py-3 " +
                           (c.align === "right"
                             ? "text-right tabular-nums whitespace-nowrap"
-                            : "")
+                            : "") +
+                          " " + hideClass(c.hideBelow)
                         }
                       >
                         {c.render(row)}

@@ -6,8 +6,10 @@ import type {
 } from "react";
 import { cn } from "./cn";
 
+// Mobile minimum touch target: 44px (h-11). Tightens to 40px on sm+ so the
+// desktop layout doesn't get taller than it needs to.
 const fieldBase =
-  "block w-full h-10 rounded-lg border border-line bg-white px-3 text-sm " +
+  "block w-full h-11 sm:h-10 rounded-lg border border-line bg-white px-3 text-base sm:text-sm " +
   "placeholder:text-ink-muted text-ink tabular-nums " +
   "focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400 " +
   "disabled:bg-paper disabled:text-ink-muted disabled:cursor-not-allowed";

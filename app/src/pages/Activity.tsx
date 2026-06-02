@@ -27,6 +27,7 @@ import { Field, Input, Select } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { IconSpinner } from "../components/icons";
+import { DesktopBetterBanner } from "../components/layout/DesktopBetterBanner";
 
 const EMPTY_FILTERS: ActivityFilters = {
   user: "",
@@ -75,6 +76,7 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-5 max-w-7xl">
+      <DesktopBetterBanner />
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="font-display text-3xl font-bold tracking-tight">Activity log</h2>
