@@ -83,3 +83,135 @@ export interface DailySummaryRow extends CumulativeRow {
   movie_id: string;
   screen_id: string;
 }
+
+// ── Normalized catalog tables (Phase 3) ──────────────────────────────────
+//
+// Mirror the columns defined in migrations/catalog-normalization/*.sql.
+// IDs on catalog tables are TEXT (not UUID) so legacy ids like "cls_royale"
+// from the JSONB blob round-trip cleanly.
+
+export interface BrandRow {
+  id:        string;
+  name:      string;
+  logo_url:  string | null;
+  created_at: string | null;
+}
+
+export interface CinemaRow {
+  id:             string;
+  brand_id:       string | null;
+  brand_name:     string;
+  location:       string;
+  gstin:          string | null;
+  pan:            string | null;
+  address_line1:  string | null;
+  address_line2:  string | null;
+  city:           string | null;
+  state:          string | null;
+  pincode:        string | null;
+  country:        string;
+  currency_code:  string;
+  timezone:       string;
+  phone:          string | null;
+  email:          string | null;
+  archived_at:    string | null;
+  created_at:     string | null;
+  updated_at:     string | null;
+  updated_by:     string | null;
+}
+
+export interface TaxConfigRow {
+  id:              string;
+  cinema_id:       string;
+  valid_from:      string;          // YYYY-MM-DD
+  valid_to:        string | null;
+  threshold:       number;
+  above_etax_pct:  number;
+  above_gst_pct:   number;
+  below_etax_pct:  number;
+  below_gst_pct:   number;
+  tmc:             number;
+  cess:            number;
+  rep_day:         number;
+  rep_night:       number;
+  rep_1:           number;
+  rep_2:           number;
+  rep_5:           number;
+}
+
+export interface ClassRow {
+  id:             string;
+  cinema_id:      string;
+  name:           string;
+  gst_pct:        number;
+  display_order:  number;
+  archived_at:    string | null;
+}
+
+export interface ScreenRow {
+  id:             string;
+  cinema_id:      string;
+  name:           string;
+  display_order:  number;
+  archived_at:    string | null;
+}
+
+export interface ScreenClassRow {
+  screen_id:  string;
+  class_id:   string;
+  seats:      number;
+}
+
+export interface PriceCardRow {
+  id:             string;
+  screen_id:      string;
+  name:           string;
+  display_order:  number;
+  archived_at:    string | null;
+}
+
+export interface PriceCardPriceRow {
+  price_card_id:  string;
+  class_id:       string;
+  price:          number;
+}
+
+export interface MovieRow {
+  id:             string;
+  cinema_id:      string;
+  name:           string;
+  distributor:    string | null;
+  release_date:   string | null;       // YYYY-MM-DD
+  share_pct:      number;
+  language:       string | null;
+  genre:          string | null;
+  certification:  string | null;
+  archived_at:    string | null;
+}
+
+export interface SerialStartRow {
+  id:          string;
+  screen_id:   string;
+  start_date:  string;                  // YYYY-MM-DD
+}
+
+export interface SerialStartClassRow {
+  serial_start_id:  string;
+  class_id:         string;
+  starting_number:  number;
+}
+
+export interface OpeningRow {
+  id:         string;
+  movie_id:   string;
+  screen_id:  string;
+  open_date:  string;                   // YYYY-MM-DD
+  vals:       Record<string, unknown>;
+}
+
+/** A row of public.realtime_version — one per logical layer. */
+export interface RealtimeVersionRow {
+  layer:      "catalog" | "operational";
+  version:    number;
+  updated_at: string | null;
+}

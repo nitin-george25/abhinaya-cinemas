@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Abhinaya Cinemas — DB Schema (ER Diagram)</title>
+  <style>
+    :root {
+      --bg: #FAFAF8;
+      --paper: #FFFFFF;
+      --ink: #0F1115;
+      --muted: #5C6470;
+      --line: #E6E4DE;
+      --amber: #F7B61F;
+      --red: #DC2626;
+      --blue: #1D4ED8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 64px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0 0 4px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 24px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend .chip {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .chip-catalog { background: #FDE68A; border: 1px solid #B45309; }
+    .chip-trans  { background: #BFDBFE; border: 1px solid #1D4ED8; }
+    .chip-join   { background: #E5E7EB; border: 1px solid #6B7280; }
+    .line-cascade { display:inline-block; width:24px; border-top: 2px solid var(--red); vertical-align: middle; margin-right: 6px; }
+    .line-restrict { display:inline-block; width:24px; border-top: 2px dashed #1F2937; vertical-align: middle; margin-right: 6px; }
+    .canvas {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 24px;
+      overflow: auto;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    }
+    .footnote {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 14px;
+      line-height: 1.6;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .controls button {
+      font: inherit;
+      padding: 6px 12px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .controls button:hover { background: #F4F2EE; }
+    .mermaid { font-size: 13px; }
+    h2.section { font-size: 16px; margin: 28px 0 8px; }
+    code { background: #F4F2EE; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Abhinaya Cinemas — proposed DB schema</h1>
+    <p class="sub">Entity-relationship diagram for the catalog normalization. 11 new catalog tables + 2 existing transactional tables.</p>
+
+    <div class="legend">
+      <span><span class="chip chip-catalog"></span>Catalog (low write)</span>
+      <span><span class="chip chip-trans"></span>Transactional (high write)</span>
+      <span><span class="chip chip-join"></span>M:N join table</span>
+      <span><b>C</b> on edge = CASCADE delete</span>
+      <span><b>R</b> on edge = RESTRICT delete</span>
+    </div>
+
+    <div class="controls">
+      <button onclick="zoom(1.15)">Zoom in</button>
+      <button onclick="zoom(1/1.15)">Zoom out</button>
+      <button onclick="zoomReset()">Reset</button>
+    </div>
+
+    <div class="canvas" id="canvas">
+      <div class="mermaid" id="erd">
+erDiagram
+    cinemas {
+        uuid id PK
+        text brand
+        text location
+        text gstin
+        text address_line1
+        text address_line2
+        text city
+        text state
+        text pincode
+        text phone
+        text email
+    }
+    tax_configs {
+        uuid cinema_id PK
+        numeric threshold
+        numeric above_etax_pct
+        numeric above_gst_pct
+        numeric below_etax_pct
+        numeric below_gst_pct
+        numeric tmc
+        numeric cess
+        numeric rep_day_night
+        numeric rep_1_2_5
+    }
+    classes {
+        uuid id PK
+        uuid cinema_id FK
+        text name
+        numeric gst_pct
+        boolean is_active
+    }
+    screens {
+        uuid id PK
+        uuid cinema_id FK
+        text name
+        int display_order
+        boolean is_active
+    }
+    screen_classes {
+        uuid screen_id PK
+        uuid class_id PK
+        int seats
+    }
+    price_cards {
+        uuid id PK
+        uuid screen_id FK
+        text name
+        boolean is_active
+    }
+    price_card_prices {
+        uuid price_card_id PK
+        uuid class_id PK
+        numeric price
+    }
+    movies {
+        uuid id PK
+        uuid cinema_id FK
+        text name
+        text distributor
+        date release_date
+        numeric share_pct
+        boolean is_active
+    }
+    serial_starts {
+        uuid id PK
+        uuid screen_id FK
+        date start_date
+    }
+    serial_start_classes {
+        uuid serial_start_id PK
+        uuid class_id PK
+        int starting_number
+    }
+    openings {
+        uuid id PK
+        uuid movie_id FK
+        uuid screen_id FK
+        date open_date
+        jsonb vals
+    }
+    entries {
+        uuid id PK
+        date entry_date
+        uuid movie_id FK
+        uuid screen_id FK
+        numeric share
+        jsonb shows
+    }
+    fb_entries {
+        uuid id PK
+        date entry_date UK
+        jsonb summary
+        jsonb items
+    }
+
+    cinemas ||--|| tax_configs : C
+    cinemas ||--o{ classes : C
+    cinemas ||--o{ screens : C
+    cinemas ||--o{ movies : R
+
+    screens ||--o{ screen_classes : C
+    classes ||--o{ screen_classes : R
+
+    screens ||--o{ price_cards : C
+    price_cards ||--o{ price_card_prices : C
+    classes ||--o{ price_card_prices : R
+
+    screens ||--o{ serial_starts : C
+    serial_starts ||--o{ serial_start_classes : C
+    classes ||--o{ serial_start_classes : R
+
+    movies ||--o{ openings : R
+    screens ||--o{ openings : R
+
+    movies ||--o{ entries : R
+    screens ||--o{ entries : R
+      </div>
+    </div>
+
+    <p class="footnote">
+      Crow's foot = many side, single bar = one side. <code>fb_entries</code> sits intentionally apart — F&amp;B is date-keyed and doesn't reference movies or screens.
+    </p>
+
+    <h2 class="section">Three decisions worth questioning before locking in</h2>
+    <ol>
+      <li><b><code>fb_entries</code> floating disconnected.</b> Per-day aggregation with no FK to movies or screens. Matches the legacy POS shape but means we can never SQL-join "what movie was playing when F&amp;B was strong". If we want that correlation, add an optional <code>screen_id</code> FK.</li>
+      <li><b><code>movies.cinema_id</code> as a hard FK.</b> A movie belongs to one cinema. If you play the same film at multiple locations, you'd have one row per cinema (because share % is negotiated per-location). Alternative: shared <code>movies</code> + <code>movie_screenings</code> join. The per-cinema row is correct for Abhinaya.</li>
+      <li><b>Three M:N joins all hang off <code>classes</code>.</b> Deleting a class means detaching from screens + every price card + every serial start. RESTRICT FKs force that. The UI needs a clear "detach first" error path. <code>is_active</code> soft-retire is the day-to-day path; hard delete is for typos only.</li>
+    </ol>
+
+    <h2 class="section">Smaller gut-checks</h2>
+    <ul>
+      <li><code>openings.vals</code> is JSONB (<code>Partial&lt;CumulativeRow&gt;</code>) — short term fine, long term could normalize.</li>
+      <li><code>serial_starts</code> + <code>serial_start_classes</code> could collapse into a single denormalized table. Three tables → one. Current shape matches the in-memory AppState; either works.</li>
+      <li><code>entries.shows</code> stays JSONB. Class IDs inside <code>shows[].rows</code> are loose references (validated in app code).</li>
+    </ul>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#FDE68A',
+        primaryTextColor: '#1F2937',
+        primaryBorderColor: '#B45309',
+        lineColor: '#374151',
+        tertiaryColor: '#FFF7ED',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        fontSize: '13px',
+      },
+      er: {
+        useMaxWidth: true,
+        diagramPadding: 20,
+        layoutDirection: 'TB',
+        minEntityWidth: 150,
+        entityPadding: 14,
+      },
+    });
+
+    let scale = 1;
+    function applyScale() {
+      const svg = document.querySelector('#erd svg');
+      if (!svg) return;
+      svg.style.transformOrigin = '0 0';
+      svg.style.transform = `scale(${scale})`;
+    }
+    function zoom(factor) {
+      scale = Math.max(0.4, Math.min(2.5, scale * factor));
+      applyScale();
+    }
+    function zoomReset() {
+      scale = 1;
+      applyScale();
+    }
+  </script>
+</body>
+</html>
