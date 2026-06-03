@@ -60,11 +60,46 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   children: ReactNode;
 }
 
-export function Select({ className, children, ...rest }: SelectProps) {
+/**
+ * Native <select> wrapped with a chevron overlay so it looks like a
+ * proper dropdown instead of an unmarked input. We keep the underlying
+ * <select> on purpose: the native picker is accessible, keyboard-
+ * friendly, and on mobile uses the OS-provided wheel — a custom popover
+ * would lose all three for no real gain at this scale.
+ *
+ * The wrapping <div> is `relative`; the chevron is `pointer-events-none`
+ * so clicks pass through to the select.
+ */
+export function Select({ className, children, disabled, ...rest }: SelectProps) {
   return (
-    <select {...rest} className={cn(fieldBase, "appearance-none pr-9", className)}>
-      {children}
-    </select>
+    <div className={cn("relative", disabled && "opacity-60")}>
+      <select
+        {...rest}
+        disabled={disabled}
+        className={cn(
+          fieldBase,
+          "appearance-none pr-9 cursor-pointer",
+          // Subtle hover affordance on desktop. Mobile ignores hover.
+          "hover:border-ink-muted",
+          className,
+        )}
+      >
+        {children}
+      </select>
+      {/* Chevron — purely decorative, never intercepts clicks. */}
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted"
+      >
+        <path d="M5 8l5 5 5-5" />
+      </svg>
+    </div>
   );
 }
 

@@ -35,6 +35,7 @@ import {
   listCashDeposits,
   listCashierUsers,
   listClosings,
+  listPaymentMethodsForUnit,
   listPettyExpenses,
   markCashDepositCompleted,
   signClosing,
@@ -48,6 +49,7 @@ import {
   type CashDeposit,
   type ClosingShift,
   type DailyCashClosing,
+  type PaymentMethod,
 } from "../../lib/cash";
 
 interface Props {
@@ -134,6 +136,9 @@ function DialogBody({
   const [cashierEmail, setCashier]  = useState<string>("");
 
   const [methods, setMethods] = useState<CashClosingPaymentMethod[]>([]);
+  /** Payment methods that apply to the selected operating unit. Falls
+   *  back to all cinema methods when the unit has no mapping yet. */
+  const [unitMethods, setUnitMethods] = useState<PaymentMethod[]>([]);
   const [denoms, setDenoms]   = useState<CashDenomination[]>(
     INR_DENOMINATIONS.map((d) => ({ denomination: d, count: 0 })),
   );
@@ -174,10 +179,27 @@ function DialogBody({
     return () => { alive = false; };
   }, []);
 
-  // Reset method rows whenever payment_methods change.
+  // Load the payment methods scoped to the selected unit. Falls back to
+  // the cinema-level list if the unit has no mapping rows. Refetches
+  // whenever the unit selector changes — the closing dialog's payment-
+  // method grid then re-renders against the right subset.
   useEffect(() => {
-    setMethods(refs.paymentMethods.map((m) => ({ paymentMethodId: m.id, amount: 0 })));
-  }, [refs.paymentMethods]);
+    if (!refs.cinemaId || !unitId) {
+      setUnitMethods([]);
+      return;
+    }
+    let alive = true;
+    void listPaymentMethodsForUnit(refs.cinemaId, unitId).then((ms) => {
+      if (!alive) return;
+      setUnitMethods(ms);
+    });
+    return () => { alive = false; };
+  }, [refs.cinemaId, unitId]);
+
+  // Reset method rows whenever the unit-scoped method list changes.
+  useEffect(() => {
+    setMethods(unitMethods.map((m) => ({ paymentMethodId: m.id, amount: 0 })));
+  }, [unitMethods]);
 
   // Hydrate from existingId when the parent passed one.
   useEffect(() => {
@@ -192,8 +214,12 @@ function DialogBody({
       setCashier(found.cashierEmail ?? "");
       setNotes(found.notes ?? "");
       setEdcSlipUrl(found.edcSlipUrl ?? null);
+      // Use the unit-scoped methods list when populated; falls back to
+      // the cinema-level list for the brief window before the unit
+      // mapping resolves on a fresh hydrate.
+      const methodList = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
       setMethods(
-        refs.paymentMethods.map((m) => ({
+        methodList.map((m) => ({
           paymentMethodId: m.id,
           amount: found.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
         })),
@@ -208,7 +234,7 @@ function DialogBody({
       }
     });
     return () => { alive = false; };
-  }, [existingId, refs.paymentMethods]);
+  }, [existingId, unitMethods, refs.paymentMethods]);
 
   // Hydrate any existing deposit record tied to this closing.
   useEffect(() => {
@@ -275,8 +301,9 @@ function DialogBody({
     setExisting(conflict);
     setCashier(conflict.cashierEmail ?? "");
     setNotes(conflict.notes ?? "");
+    const methodList = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
     setMethods(
-      refs.paymentMethods.map((m) => ({
+      methodList.map((m) => ({
         paymentMethodId: m.id,
         amount: conflict.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
       })),
@@ -312,8 +339,8 @@ function DialogBody({
   const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
   const posTotal      = useMemo(() => totalFromPaymentMethods(methods), [methods]);
   const cashInMethods = useMemo(
-    () => cashTotalFromMethods(methods, refs.paymentMethods),
-    [methods, refs.paymentMethods],
+    () => cashTotalFromMethods(methods, unitMethods.length > 0 ? unitMethods : refs.paymentMethods),
+    [methods, unitMethods, refs.paymentMethods],
   );
   const posNonCash    = useMemo(() => posTotal - cashInMethods, [posTotal, cashInMethods]);
   const posCashExp    = posTotal - posNonCash;
@@ -538,13 +565,15 @@ function DialogBody({
         </Field>
       </div>
 
-      {/* Payment methods grid */}
+      {/* Payment methods grid — scoped to the selected operating unit so
+          BO only shows Cash/UPI and F&B only shows Cash/Pinelabs etc.
+          Mapping is managed in Settings → Cash. */}
       <div>
         <div className="text-xs uppercase tracking-wide text-ink-muted mb-2">
           Payment methods (from POS report)
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {refs.paymentMethods.map((m) => {
+          {(unitMethods.length > 0 ? unitMethods : refs.paymentMethods).map((m) => {
             const row = methods.find((x) => x.paymentMethodId === m.id);
             return (
               <Field key={m.id} label={`${m.displayName}${m.flowType === "cash" ? " (cash)" : ""}`}>
