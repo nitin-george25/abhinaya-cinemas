@@ -490,6 +490,92 @@ export async function listPaymentMethods(cinemaId: string): Promise<PaymentMetho
   return (data as PaymentMethodRow[] | null ?? []).map(mapPaymentMethod);
 }
 
+/**
+ * Payment methods scoped to one operating unit.
+ *
+ * Reads the operating_unit_payment_methods join (added in migration 11).
+ * If the unit has no mappings yet (legacy data), falls back to ALL
+ * cinema-level methods so the closing form never goes empty.
+ */
+export async function listPaymentMethodsForUnit(
+  cinemaId: string,
+  operatingUnitId: string,
+): Promise<PaymentMethod[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("operating_unit_payment_methods")
+    .select("payment_method_id, display_order")
+    .eq("operating_unit_id", operatingUnitId)
+    .order("display_order");
+  if (error) {
+    console.warn("[cash] listPaymentMethodsForUnit", error.message);
+    // Fall back to full cinema list on RLS / network errors so the form
+    // is still usable. The mapping is an opt-in scoping mechanism, not a
+    // hard requirement.
+    return listPaymentMethods(cinemaId);
+  }
+  const ids = (data as Array<{ payment_method_id: string; display_order: number }> | null ?? [])
+    .map((r) => r.payment_method_id);
+  if (ids.length === 0) {
+    // No mapping → fall back so legacy / unconfigured units stay usable.
+    return listPaymentMethods(cinemaId);
+  }
+  const all = await listPaymentMethods(cinemaId);
+  // Preserve the mapping's display order, not the global one.
+  const orderById = new Map(
+    (data as Array<{ payment_method_id: string; display_order: number }>).map(
+      (r) => [r.payment_method_id, r.display_order] as const,
+    ),
+  );
+  return all
+    .filter((m) => orderById.has(m.id))
+    .sort((a, b) => (orderById.get(a.id) ?? 0) - (orderById.get(b.id) ?? 0));
+}
+
+/**
+ * Assign / unassign a payment method to an operating unit.
+ * Owner-only per migration 11 RLS.
+ */
+export async function setOperatingUnitMethods(
+  operatingUnitId: string,
+  methodIds: string[],
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  // Read-then-diff. Simpler than an upsert + delete for a small list.
+  const { data, error: e1 } = await sb
+    .from("operating_unit_payment_methods")
+    .select("payment_method_id")
+    .eq("operating_unit_id", operatingUnitId);
+  if (e1) throw new Error(e1.message);
+  const current = new Set(
+    (data as Array<{ payment_method_id: string }> | null ?? []).map((r) => r.payment_method_id),
+  );
+  const next = new Set(methodIds);
+  const toAdd = methodIds.filter((id) => !current.has(id));
+  const toRemove = Array.from(current).filter((id) => !next.has(id));
+
+  if (toAdd.length > 0) {
+    const { error } = await sb
+      .from("operating_unit_payment_methods")
+      .insert(toAdd.map((id, i) => ({
+        operating_unit_id: operatingUnitId,
+        payment_method_id: id,
+        display_order: (i + 1) * 10,
+      })));
+    if (error) throw new Error(error.message);
+  }
+  if (toRemove.length > 0) {
+    const { error } = await sb
+      .from("operating_unit_payment_methods")
+      .delete()
+      .eq("operating_unit_id", operatingUnitId)
+      .in("payment_method_id", toRemove);
+    if (error) throw new Error(error.message);
+  }
+}
+
 export interface ClosingListFilter {
   operatingUnitId?: string;
   from?: DateISO;

@@ -13,6 +13,8 @@ import { useSync } from "../../lib/hooks/SyncContext";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { getSupabase } from "../../lib/supabase";
 import {
+  listPaymentMethodsForUnit,
+  setOperatingUnitMethods,
   updateOperatingUnitFloat,
   updatePaymentMethodBank,
   type BankAccount,
@@ -231,6 +233,113 @@ export default function SettingsCashPage() {
           </div>
         </CardBody>
       </Card>
+
+      {/* Methods accepted per operating unit — closing form filters by this. */}
+      <Card>
+        <CardHeader><CardTitle>Methods accepted per unit</CardTitle></CardHeader>
+        <CardBody className="space-y-4">
+          <p className="text-xs text-ink-muted">
+            Tick the payment methods relevant to each unit. The closing form
+            only shows ticked methods. Leaving everything unticked falls back
+            to showing all methods for that unit.
+          </p>
+          {refs.units.map((u) => (
+            <UnitMethodsEditor
+              key={u.id}
+              unit={u}
+              cinemaId={refs.cinemaId}
+              allMethods={refs.paymentMethods}
+              onError={setErr}
+            />
+          ))}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Per-operating-unit checkbox grid for the payment-method mapping
+ * (operating_unit_payment_methods table). Saves on every toggle so the
+ * owner doesn't have to chase a Save button.
+ */
+function UnitMethodsEditor({
+  unit,
+  cinemaId,
+  allMethods,
+  onError,
+}: {
+  unit: OperatingUnit;
+  cinemaId: string | null;
+  allMethods: PaymentMethod[];
+  onError: (m: string) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded]     = useState(false);
+  const [saving, setSaving]     = useState(false);
+
+  useEffect(() => {
+    if (!cinemaId) return;
+    let alive = true;
+    void listPaymentMethodsForUnit(cinemaId, unit.id).then((ms) => {
+      if (!alive) return;
+      // listPaymentMethodsForUnit falls back to all-methods when the unit
+      // has no mapping yet. We only want to pre-tick ACTUAL mapped rows,
+      // so re-query the join table directly via a count: if the unit has
+      // fewer mapped methods than all-cinema methods, treat the returned
+      // list as the canonical selection. Otherwise: empty (no mapping).
+      const ids = new Set(ms.map((m) => m.id));
+      const allIds = new Set(allMethods.map((m) => m.id));
+      // If the returned set equals the all-cinema set, the fallback
+      // kicked in — leave selection empty so the owner sees the "no
+      // mapping yet" state, which is what triggers the fallback.
+      const isFallback =
+        ids.size === allIds.size &&
+        Array.from(ids).every((i) => allIds.has(i));
+      setSelected(isFallback ? new Set() : ids);
+      setLoaded(true);
+    });
+    return () => { alive = false; };
+  }, [cinemaId, unit.id, allMethods]);
+
+  async function toggle(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+    setSaving(true);
+    try {
+      await setOperatingUnitMethods(unit.id, Array.from(next));
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-medium">{unit.name}</div>
+        <span className="text-xs text-ink-muted">
+          {!loaded ? "loading…" : saving ? "saving…" : `${selected.size} selected`}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {allMethods.map((m) => (
+          <label
+            key={m.id}
+            className="flex items-center gap-2 text-sm cursor-pointer rounded px-2 py-1 hover:bg-paper"
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(m.id)}
+              disabled={!loaded || saving}
+              onChange={() => void toggle(m.id)}
+            />
+            <span className="truncate">{m.displayName}</span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }
