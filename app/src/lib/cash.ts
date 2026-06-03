@@ -646,6 +646,18 @@ export async function cashierSignClosing(id: string, cashierEmail: string): Prom
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Owner-only delete. RLS lets only owner DELETE; the BEFORE-DELETE trigger
+ * `fn_closing_delete_cleanup` removes the matching bank_ledger_entries
+ * row so the bank balance stays correct. Children cascade.
+ */
+export async function deleteClosing(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.from("daily_cash_closings").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 export async function disputeClosing(id: string, notes: string): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
@@ -994,6 +1006,28 @@ export async function listCashierUsers(): Promise<AuthorizedUserSummary[]> {
     .order("full_name");
   if (error) {
     console.warn("[cash] listCashierUsers", error.message);
+    return [];
+  }
+  return (data as Array<{ email: string; full_name: string | null }> | null ?? []).map((r) => ({
+    email: r.email,
+    fullName: r.full_name,
+  }));
+}
+
+/**
+ * Lookup table for all authorized users in the cinema. Used to render
+ * signoff names ("Manager: Nitin George") instead of raw emails in the
+ * closings list. RLS lets every role read this table.
+ */
+export async function listAuthorizedUsers(): Promise<AuthorizedUserSummary[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("authorized_users")
+    .select("email, full_name")
+    .order("full_name");
+  if (error) {
+    console.warn("[cash] listAuthorizedUsers", error.message);
     return [];
   }
   return (data as Array<{ email: string; full_name: string | null }> | null ?? []).map((r) => ({

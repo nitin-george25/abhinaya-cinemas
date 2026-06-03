@@ -186,8 +186,13 @@ function DialogBody({
     return () => { alive = false; };
   }, [existingId, refs.paymentMethods]);
 
-  // For new-closing flow, look up an existing row at (unit,date,shift) so we
-  // don't accidentally create a duplicate alongside a previously-started draft.
+  // For new-closing flow, surface a non-blocking conflict notice when the
+  // current (unit, date, shift) tuple already has a closing — but do NOT
+  // auto-hydrate the form from it. The previous version pre-loaded the
+  // existing row, which made "+ New cash closing" look like it was always
+  // re-opening today's draft. The user picks a different shift/date or
+  // explicitly clicks "Open existing" from the banner.
+  const [conflict, setConflict] = useState<DailyCashClosing | null>(null);
   useEffect(() => {
     if (existingId) return;
     if (!unitId) return;
@@ -199,28 +204,33 @@ function DialogBody({
     }).then((rows) => {
       if (!alive) return;
       const found = rows.find((r) => r.shift === shift) ?? null;
-      setExisting(found);
-      if (found) {
-        setCashier(found.cashierEmail ?? "");
-        setNotes(found.notes ?? "");
-        setMethods(
-          refs.paymentMethods.map((m) => ({
-            paymentMethodId: m.id,
-            amount: found.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
-          })),
-        );
-        if (found.denominations.length > 0) {
-          setDenoms(
-            INR_DENOMINATIONS.map((d) => ({
-              denomination: d,
-              count: found.denominations.find((x) => x.denomination === d)?.count ?? 0,
-            })),
-          );
-        }
-      }
+      setConflict(found);
     });
     return () => { alive = false; };
-  }, [existingId, unitId, businessDate, shift, refs.paymentMethods]);
+  }, [existingId, unitId, businessDate, shift]);
+
+  /** Switch the dialog into edit mode for the conflicting closing. */
+  function openConflict() {
+    if (!conflict) return;
+    setExisting(conflict);
+    setCashier(conflict.cashierEmail ?? "");
+    setNotes(conflict.notes ?? "");
+    setMethods(
+      refs.paymentMethods.map((m) => ({
+        paymentMethodId: m.id,
+        amount: conflict.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
+      })),
+    );
+    if (conflict.denominations.length > 0) {
+      setDenoms(
+        INR_DENOMINATIONS.map((d) => ({
+          denomination: d,
+          count: conflict.denominations.find((x) => x.denomination === d)?.count ?? 0,
+        })),
+      );
+    }
+    setConflict(null);
+  }
 
   // Pull approved petty totals (used to validate the cash count).
   useEffect(() => {
@@ -258,6 +268,16 @@ function DialogBody({
 
   async function handleSave(signAfter = false) {
     if (!unitId || !state.email) return;
+    // If a conflicting closing exists and the user hasn't opened it, block
+    // the save and ask them what to do. Without this guard upsertClosing
+    // would silently overwrite the existing row.
+    if (!existing && conflict) {
+      setErr(
+        "A closing already exists for this date and shift. Open it from " +
+          "the banner above or pick a different date/shift.",
+      );
+      return;
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -341,6 +361,21 @@ function DialogBody({
           ✕
         </button>
       </div>
+
+      {/* Conflict notice — there's already a closing for the picked
+          (unit, date, shift). Doesn't block the form; the user can pick a
+          different shift/date or open the existing one. */}
+      {!existing && conflict ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
+          <span>
+            A closing already exists for {conflict.businessDate} · {conflict.shift}
+            {" "}(<span className="font-medium">{conflict.status === "counted" ? "awaiting cashier" : conflict.status}</span>).
+          </span>
+          <Button size="sm" variant="secondary" onClick={openConflict}>
+            Open existing
+          </Button>
+        </div>
+      ) : null}
 
       {/* Header — unit / date / shift / cashier selectors */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">

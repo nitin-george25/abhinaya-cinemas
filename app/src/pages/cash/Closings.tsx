@@ -1,26 +1,21 @@
 // ============================================================================
 // /cash/closings — unified "Cash Closing" tab.
 //
-// Replaces the previous Today + Closings split. The page is the single home
-// for everything closing-related:
+// Replaces the previous Today + Closings split. Single home for everything
+// closing-related:
 //
-//   • Banner at top — closings awaiting the current user's signature
-//     (cashier sees "Confirm" prompts, manager sees their own drafts).
+//   • Awaiting-signature banner — closings that need *this* user's signature
+//     (cashier sees confirm prompts, manager sees their own drafts).
 //   • CTA — "+ New cash closing" opens ClosingFormDialog in create mode.
-//   • Table — every closing for the active unit, newest first, with inline
-//     signoff status and an action button (Open / Confirm / View).
+//   • Table (desktop) / card list (mobile) — every closing for the active
+//     unit, newest first, with sales, cash counted, other-mode totals,
+//     discrepancy, and inline signoff names.
 //
 // Multi-closing: the natural key on daily_cash_closings is
 // (operating_unit_id, business_date, shift). Different units / shifts / dates
 // can coexist, so the dialog opens fresh by default and resolves the unique
-// key on save. Operators can run several closings in a day without leaving
-// this tab.
-//
-// Communication between manager and cashier is implicit but visible:
-// when a manager saves and signs, the row moves into "awaiting cashier" and
-// shows up in the cashier's banner the moment they navigate here. No email
-// notification — this console runs on a small team and the operator is
-// always at the same site.
+// key on save. The dialog now shows a conflict banner instead of silently
+// pre-loading an existing row.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
@@ -34,7 +29,12 @@ import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { fmtINR } from "../../lib/dashboard";
 import { weekday } from "../../lib/format";
-import { listClosings, type DailyCashClosing } from "../../lib/cash";
+import {
+  listAuthorizedUsers,
+  listClosings,
+  type AuthorizedUserSummary,
+  type DailyCashClosing,
+} from "../../lib/cash";
 
 export default function CashClosingsPage() {
   const { state }             = useSync();
@@ -50,6 +50,25 @@ export default function CashClosingsPage() {
   // hydrated from an existing closing's id.
   const [dialogOpen, setDialogOpen]       = useState(false);
   const [editingId, setEditingId]         = useState<string | undefined>(undefined);
+
+  // Email → name lookup so we can render "Manager: Nitin" in the signoff
+  // column instead of full email addresses. Loaded once per mount.
+  const [users, setUsers] = useState<AuthorizedUserSummary[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listAuthorizedUsers().then((u) => alive && setUsers(u));
+    return () => { alive = false; };
+  }, []);
+  const nameOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users) {
+      if (u.email) map.set(u.email.toLowerCase(), u.fullName ?? u.email);
+    }
+    return (email?: string | null) => {
+      if (!email) return null;
+      return map.get(email.toLowerCase()) ?? email;
+    };
+  }, [users]);
 
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
@@ -101,13 +120,13 @@ export default function CashClosingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* ── Header: unit picker + primary CTA ───────────────────────── */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-wrap gap-2">
           <CardTitle>Cash closing</CardTitle>
           {isManager ? (
-            <Button onClick={openNew}>+ New cash closing</Button>
+            <Button onClick={openNew} className="whitespace-nowrap">+ New cash closing</Button>
           ) : null}
         </CardHeader>
         {isManager ? (
@@ -134,17 +153,26 @@ export default function CashClosingsPage() {
           <CardBody className="p-0">
             <ul className="divide-y divide-line">
               {pendingForMe.map((r) => (
-                <li key={r.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <li
+                  key={r.id}
+                  className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                >
                   <div className="min-w-0">
                     <div className="text-sm font-medium">
                       {r.businessDate} · {r.shift}
                     </div>
-                    <div className="text-xs text-ink-muted truncate">
-                      Cash counted {fmtINR(r.cashCounted)} · POS {fmtINR(r.posTotalSales)} ·
-                      {" "}signed by {r.managerSignedByEmail ?? r.closedByEmail}
+                    <div className="text-xs text-ink-muted">
+                      Cash counted {fmtINR(r.cashCounted)} · POS {fmtINR(r.posTotalSales)}
+                      {r.managerSignedByEmail
+                        ? ` · signed by ${nameOf(r.managerSignedByEmail)}`
+                        : ""}
                     </div>
                   </div>
-                  <Button size="sm" onClick={() => openExisting(r.id)}>
+                  <Button
+                    size="sm"
+                    onClick={() => openExisting(r.id)}
+                    className="self-end sm:self-auto"
+                  >
                     {isCashier ? "Confirm" : "Open"}
                   </Button>
                 </li>
@@ -154,31 +182,34 @@ export default function CashClosingsPage() {
         </Card>
       ) : null}
 
-      {/* ── Closings table ─────────────────────────────────────────── */}
+      {/* ── Closings list ─────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>
             {isCashier ? "My closings" : "All closings"}
           </CardTitle>
         </CardHeader>
-        <CardBody className="p-0 overflow-x-auto">
+
+        {/* Desktop: full table */}
+        <CardBody className="p-0 hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left">Date</th>
                 <th className="px-3 py-2 text-left">Shift</th>
                 <th className="px-3 py-2 text-right">Sales</th>
-                <th className="px-3 py-2 text-right">Cash counted</th>
+                <th className="px-3 py-2 text-right">Cash</th>
+                <th className="px-3 py-2 text-right">Other modes</th>
                 <th className="px-3 py-2 text-right">Discrepancy</th>
-                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Signoffs</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-muted">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-ink-muted">No closings yet.</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted">No closings yet.</td></tr>
               ) : rows.map((r) => (
                 <tr key={r.id} className="border-t border-line">
                   <td className="px-3 py-2">
@@ -188,13 +219,14 @@ export default function CashClosingsPage() {
                   <td className="px-3 py-2">{r.shift}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.posTotalSales)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.cashCounted)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.posNonCashTotal)}</td>
                   <td className={
                     "px-3 py-2 text-right tabular-nums " +
                     (r.discrepancy === 0 ? "" :
                      r.discrepancy > 0 ? "text-emerald-600" : "text-red-600")
                   }>{fmtINR(r.discrepancy)}</td>
                   <td className="px-3 py-2">
-                    <StatusPill status={r.status} />
+                    <SignoffSummary closing={r} nameOf={nameOf} />
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {r.status === "draft" || r.status === "counted" ? (
@@ -212,6 +244,56 @@ export default function CashClosingsPage() {
             </tbody>
           </table>
         </CardBody>
+
+        {/* Mobile: card list */}
+        <CardBody className="p-0 md:hidden">
+          {loading ? (
+            <div className="px-4 py-6 text-center text-ink-muted text-sm">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="px-4 py-6 text-center text-ink-muted text-sm">No closings yet.</div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {rows.map((r) => (
+                <li key={r.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">
+                        {r.businessDate} · {r.shift}
+                      </div>
+                      <div className="text-xs text-ink-muted">{weekday(r.businessDate)}</div>
+                    </div>
+                    {r.status === "draft" || r.status === "counted" ? (
+                      <Button size="sm" variant="secondary" onClick={() => openExisting(r.id)}>
+                        Open
+                      </Button>
+                    ) : (
+                      <Link className="text-amber-600 text-sm underline" to={`/cash/closings/${r.id}`}>
+                        View
+                      </Link>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                    <span className="text-ink-muted">Sales</span>
+                    <span className="text-right tabular-nums">{fmtINR(r.posTotalSales)}</span>
+                    <span className="text-ink-muted">Cash</span>
+                    <span className="text-right tabular-nums">{fmtINR(r.cashCounted)}</span>
+                    <span className="text-ink-muted">Other modes</span>
+                    <span className="text-right tabular-nums">{fmtINR(r.posNonCashTotal)}</span>
+                    <span className="text-ink-muted">Discrepancy</span>
+                    <span className={
+                      "text-right tabular-nums " +
+                      (r.discrepancy === 0 ? "" :
+                       r.discrepancy > 0 ? "text-emerald-600" : "text-red-600")
+                    }>{fmtINR(r.discrepancy)}</span>
+                  </div>
+                  <div className="text-xs text-ink-muted">
+                    <SignoffSummary closing={r} nameOf={nameOf} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardBody>
       </Card>
 
       <ClosingFormDialog
@@ -226,21 +308,35 @@ export default function CashClosingsPage() {
 }
 
 /**
- * Status badge using the dual-signoff vocabulary surfaced everywhere else
- * in the page. The DB still stores `counted` because that's the schema's
- * label — we re-label it in the UI for clarity.
+ * Two-line signoff status. Replaces the old single status pill with
+ * the actual names from the manager + cashier sign columns. Pending
+ * sigs say "pending" in italic muted text.
  */
-function StatusPill({ status }: { status: DailyCashClosing["status"] }) {
-  const [label, cls] = (() => {
-    switch (status) {
-      case "draft":    return ["draft",            "bg-amber-100 text-amber-700"];
-      case "counted":  return ["awaiting cashier", "bg-blue-100 text-blue-700"];
-      case "signed":   return ["signed",           "bg-emerald-100 text-emerald-700"];
-      case "disputed": return ["disputed",         "bg-red-100 text-red-700"];
-      case "resolved": return ["resolved",         "bg-paper text-ink-muted"];
-    }
-  })();
+function SignoffSummary({
+  closing,
+  nameOf,
+}: {
+  closing: DailyCashClosing;
+  nameOf: (email?: string | null) => string | null;
+}) {
+  const manager = closing.managerSignedByEmail ?? (closing.signedAt ? closing.closedByEmail : null);
+  const cashier = closing.cashierSignedByEmail;
   return (
-    <span className={`inline-block text-xs px-2 py-0.5 rounded ${cls}`}>{label}</span>
+    <div className="text-xs leading-snug space-y-0.5">
+      <div>
+        <span className="text-ink-muted">Manager:</span>{" "}
+        {manager
+          ? <span className="text-ink">{nameOf(manager)}</span>
+          : <span className="text-amber-600 italic">pending</span>}
+      </div>
+      <div>
+        <span className="text-ink-muted">Cashier:</span>{" "}
+        {cashier
+          ? <span className="text-ink">{nameOf(cashier)}</span>
+          : <span className={closing.status === "counted" ? "text-amber-600 italic" : "text-ink-muted italic"}>
+              {closing.status === "counted" ? "awaiting" : "—"}
+            </span>}
+      </div>
+    </div>
   );
 }

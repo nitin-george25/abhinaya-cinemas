@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -12,6 +12,7 @@ import { useSync } from "../../lib/hooks/SyncContext";
 import { fmtINR } from "../../lib/dashboard";
 import {
   cashierSignClosing,
+  deleteClosing,
   disputeClosing,
   getClosing,
   signClosing,
@@ -25,9 +26,11 @@ export default function CashClosingDetailPage() {
   const [closing, setClosing] = useState<DailyCashClosing | null>(null);
   const [err, setErr]         = useState<string | null>(null);
   const [busy, setBusy]       = useState(false);
+  const navigate              = useNavigate();
   const role                  = state.role;
   const isCashier             = role === "cashier";
   const isManager             = role === "owner" || role === "manager" || role === "daily_manager";
+  const isOwner               = role === "owner";
 
   useEffect(() => {
     if (!id) return;
@@ -154,7 +157,7 @@ export default function CashClosingDetailPage() {
         </CardBody>
       </Card>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-2">
         {/* Manager sign-now from detail view (parallel to the dialog).
             Draft → counted; cashier still must confirm. */}
         {isManager && closing.status === "draft" && state.email ? (
@@ -187,6 +190,23 @@ export default function CashClosingDetailPage() {
             catch (e) { setErr((e as Error).message); }
             finally  { setBusy(false); }
           }}>Dispute</Button>
+        ) : null}
+        {/* Owner-only delete. Strong confirmation prompt — this also tears
+            down the auto-inserted cash_deposit ledger row via trigger. */}
+        {isOwner ? (
+          <Button variant="danger" disabled={busy} onClick={async () => {
+            const ok = window.confirm(
+              `Delete the closing for ${closing.businessDate} (${closing.shift})?\n\n` +
+              `This removes the closing, its denominations and payment-method rows, ` +
+              `and the matching bank-ledger entry. The action cannot be undone.`,
+            );
+            if (!ok) return;
+            setBusy(true); setErr(null);
+            try {
+              await deleteClosing(closing.id);
+              navigate("/cash/closings");
+            } catch (e) { setErr((e as Error).message); setBusy(false); }
+          }}>Delete</Button>
         ) : null}
       </div>
     </div>
