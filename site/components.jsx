@@ -4,6 +4,19 @@ const { useState, useEffect, useRef } = React;
 
 /* ---------- Logo (official PNGs) ---------- */
 const LOGO_BASE = '/site/assets/';
+/* ---------- BookMyShow link ---------- */
+/* The BMS cinema-specific URL; date suffix is YYYYMMDD for "today". */
+const BMS_BASE = 'https://in.bookmyshow.com/cinemas/CNSY/abhinaya-cinemas-4k-dolby-712-changanassery/buytickets/ABCN/';
+function bmsUrl(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return BMS_BASE + `${y}${m}${d}`;
+}
+function openBms() {
+  window.open(bmsUrl(), '_blank', 'noopener,noreferrer');
+}
+
 function LogoMark({ size = 34, tone = 'cream', style }) {
   const src = LOGO_BASE + (tone === 'dark' ? 'logo-symbol-dark.png' : 'logo-symbol-cream.png');
   return <img src={src} alt="Abhinaya Cinemas" style={{ height: size * 1.18, width: 'auto', display: 'block', ...style }} />;
@@ -118,4 +131,4 @@ function Beam({ width = 90, skew = -18, style }) {
   );
 }
 
-Object.assign(window, { LogoMark, LogoLockup, Icon, Button, Badge, Pill, ImgSlot, LensRings, Beam, useState, useEffect, useRef });
+Object.assign(window, { LogoMark, LogoLockup, Icon, Button, Badge, Pill, ImgSlot, LensRings, Beam, useState, useEffect, useRef, bmsUrl, openBms });

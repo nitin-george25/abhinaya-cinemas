@@ -19,7 +19,7 @@ function Footer({ onNav }) {
           <div>
             <div className="eyebrow" style={{ marginBottom: 16 }}>Visit</div>
             <div style={{ fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 14, color: 'var(--fg-muted)', lineHeight: 1.8 }}>
-              MC Road, Kottayam<br />Kerala 686001<br />+91 481 000 0000
+              Abhinaya Cinemas, M C Road<br />Perunna, Changanacherry<br />Kottayam, Kerala — 686101
             </div>
           </div>
           <div>
