@@ -27,6 +27,11 @@ export default function CashPettyPage() {
   const [pending, setPending] = useState<PettyExpense[]>([]);
   const [recent,  setRecent]  = useState<PettyExpense[]>([]);
   const [err, setErr]         = useState<string | null>(null);
+  // Accountants get read-only access for reconciliation — no approve/reject.
+  const canApprove =
+    state.role === "owner"
+    || state.role === "manager"
+    || state.role === "daily_manager";
 
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
@@ -78,7 +83,7 @@ export default function CashPettyPage() {
           <span className="text-xs text-ink-muted">{pending.length} pending</span>
         </CardHeader>
         <CardBody className="p-0 overflow-x-auto">
-          <PettyTable rows={pending} actions onDecide={decide} />
+          <PettyTable rows={pending} actions={canApprove} onDecide={decide} />
         </CardBody>
       </Card>
 

@@ -186,6 +186,8 @@ export interface MovieRow {
   language:       string | null;
   genre:          string | null;
   certification:  string | null;
+  /** Public URL in the `movie-posters` bucket. Migration 13. */
+  poster_url:     string | null;
   archived_at:    string | null;
 }
 

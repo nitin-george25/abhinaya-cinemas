@@ -194,7 +194,10 @@ function AppGate() {
               <Route path="/cash/today"        element={<Navigate to="/cash/closings" replace />} />
               <Route path="/cash/closings"     element={<CashClosingsPage />} />
               <Route path="/cash/closings/:id" element={<CashClosingDetailPage />} />
-              {canCloseCash ? (
+              {/* Petty queue — owner/manager/daily_manager can approve; the
+                  page itself adapts to read-only when an accountant opens
+                  it (for reconciliation reporting). */}
+              {(canCloseCash || role === "accountant") ? (
                 <Route path="/cash/petty"      element={<CashPettyPage />} />
               ) : null}
               {canApprovePayments ? (

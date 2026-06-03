@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { useSync } from "../lib/hooks/SyncContext";
+import { getSupabase } from "../lib/supabase";
 import {
   adminUsers,
   isInternalEmail,
@@ -713,6 +714,26 @@ function canEditCatalog(role: Role | null): boolean {
   return role === "owner" || role === "manager";
 }
 
+/**
+ * Upload a movie poster to the `movie-posters` Storage bucket and return
+ * the public URL. Stored at `<uploaderEmail>/<timestamp>.<ext>`.
+ *
+ * Caller writes the returned URL to `movie.posterUrl`. The catalog
+ * dual-write picks it up and persists to `public.movies.poster_url`.
+ */
+async function uploadMoviePoster(file: File, uploaderEmail: string): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `${uploaderEmail}/${Date.now()}.${ext}`;
+  const { error } = await sb.storage
+    .from("movie-posters")
+    .upload(path, file, { upsert: false, contentType: file.type || undefined });
+  if (error) throw new Error(error.message);
+  const { data } = sb.storage.from("movie-posters").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ── Movies ─────────────────────────────────────────────────────────────
 
 export function MoviesSection() {
@@ -762,11 +783,12 @@ export function MoviesSection() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
+                  <th className="text-left px-5 py-3 font-semibold w-16">Poster</th>
                   <th className="text-left px-5 py-3 font-semibold">Name</th>
                   <th className="text-left px-5 py-3 font-semibold w-48">Distributor</th>
                   <th className="text-left px-5 py-3 font-semibold w-32">Release</th>
                   <th className="text-right px-5 py-3 font-semibold w-24">Share %</th>
-                  <th className="text-right px-5 py-3 font-semibold w-32"></th>
+                  <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
               </thead>
               <tbody>
@@ -791,11 +813,29 @@ function MovieRow({
   onSave: (m: Movie) => void;
   onRemove: (id: UUID) => void;
 }) {
+  const { state } = useSync();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(movie.name);
   const [dist, setDist] = useState(movie.distributor ?? "");
   const [release, setRelease] = useState(movie.release ?? "");
   const [share, setShare] = useState(String(movie.share ?? 0));
+  const [posterUrl, setPosterUrl] = useState<string | undefined>(movie.posterUrl);
+  const [uploading, setUploading] = useState(false);
+  const [posterErr, setPosterErr] = useState<string | null>(null);
+
+  async function uploadAndReplace(file: File) {
+    if (!state.email) return;
+    setPosterErr(null);
+    setUploading(true);
+    try {
+      const url = await uploadMoviePoster(file, state.email);
+      setPosterUrl(url);
+    } catch (e) {
+      setPosterErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function save() {
     onSave({
@@ -804,6 +844,7 @@ function MovieRow({
       distributor: dist.trim() || undefined,
       release: release || undefined,
       share: Number(share) || 0,
+      posterUrl: posterUrl,
     });
     setEditing(false);
   }
@@ -811,6 +852,26 @@ function MovieRow({
   if (editing) {
     return (
       <tr className="border-b border-line bg-amber-50/40">
+        <td className="px-5 py-2">
+          {posterUrl ? (
+            <img src={posterUrl} alt="" className="h-12 w-9 object-cover rounded border border-line" />
+          ) : (
+            <div className="h-12 w-9 rounded border border-dashed border-line bg-paper" />
+          )}
+          <label className="block mt-1 text-[10px] cursor-pointer text-amber-700 underline">
+            {uploading ? "Uploading…" : "Replace"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadAndReplace(f);
+              }}
+            />
+          </label>
+          {posterErr ? <div className="text-[10px] text-red-700 mt-1">{posterErr}</div> : null}
+        </td>
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={dist} onChange={(e) => setDist(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} className="h-8" /></td>
@@ -822,14 +883,32 @@ function MovieRow({
           />
         </td>
         <td className="px-5 py-2 text-right whitespace-nowrap">
-          <Button size="sm" onClick={save}>Save</Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={uploading}>Save</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={uploading}>Cancel</Button>
         </td>
       </tr>
     );
   }
   return (
     <tr className="border-b border-line hover:bg-paper/60">
+      <td className="px-5 py-2">
+        {movie.posterUrl ? (
+          <a href={movie.posterUrl} target="_blank" rel="noreferrer">
+            <img
+              src={movie.posterUrl}
+              alt={movie.name}
+              className="h-12 w-9 object-cover rounded border border-line"
+            />
+          </a>
+        ) : (
+          <div
+            className="h-12 w-9 rounded border border-dashed border-line bg-paper grid place-items-center text-[10px] text-ink-muted"
+            title="No poster set"
+          >
+            —
+          </div>
+        )}
+      </td>
       <td className="px-5 py-2 font-medium">{movie.name}</td>
       <td className="px-5 py-2 text-ink-muted">{movie.distributor ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{movie.release ?? "—"}</td>
@@ -843,35 +922,81 @@ function MovieRow({
 }
 
 function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Movie) => void }) {
+  const { state } = useSync();
   const [name, setName] = useState("");
   const [dist, setDist] = useState("");
   const [release, setRelease] = useState("");
   const [share, setShare] = useState("60");
+  const [posterUrl, setPosterUrl] = useState<string | undefined>(undefined);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function pickPoster(file: File) {
+    if (!state.email) {
+      setError("Sign-in required to upload posters.");
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      const url = await uploadMoviePoster(file, state.email);
+      setPosterUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function go(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError("Name required."); return; }
+    // Poster is mandatory at create time (per phase 13). Existing rows
+    // without a poster can still live with `posterUrl` unset since the
+    // DB column is nullable; the UI prompts to add one on edit.
+    if (!posterUrl) { setError("Poster image required."); return; }
     onSave({
       id: uid(),
       name: name.trim(),
       distributor: dist.trim() || undefined,
       release: release || undefined,
       share: Number(share) || 0,
+      posterUrl,
     });
   }
 
   return (
-    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Empuraan" /></Field>
       <Field label="Distributor"><Input value={dist} onChange={(e) => setDist(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
       <Field label="Release date"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} /></Field>
       <Field label="Share %">
         <Input type="number" min={0} max={100} step={0.01} value={share} onChange={(e) => setShare(e.target.value)} className="text-right" />
       </Field>
+      <Field label="Poster (required)">
+        <div className="flex items-center gap-2">
+          {posterUrl ? (
+            <img src={posterUrl} alt="" className="h-12 w-9 object-cover rounded border border-line" />
+          ) : (
+            <div className="h-12 w-9 rounded border border-dashed border-line bg-paper" />
+          )}
+          <label className="text-xs cursor-pointer text-amber-700 underline">
+            {uploading ? "Uploading…" : posterUrl ? "Replace" : "Upload"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void pickPoster(f);
+              }}
+            />
+          </label>
+        </div>
+      </Field>
       <div className="flex items-center gap-2">
-        <Button type="submit" className="flex-1">Add</Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" className="flex-1" disabled={uploading}>Add</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={uploading}>Cancel</Button>
       </div>
       {error ? <p className="col-span-full text-sm text-red-700">{error}</p> : null}
     </form>

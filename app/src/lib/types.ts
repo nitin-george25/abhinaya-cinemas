@@ -77,6 +77,10 @@ export interface Movie {
   distributor?: string;
   release?: DateISO;
   share: number;                  // distributor share %, e.g. 60
+  /** Public URL to the movie poster in the `movie-posters` bucket. The
+   *  create form makes this mandatory client-side; pre-existing rows
+   *  may have it undefined (column is nullable per migration 13). */
+  posterUrl?: string;
 }
 
 export interface SerialStart {

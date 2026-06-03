@@ -100,7 +100,7 @@ export const NAV: NavItem[] = [
       // Cashier sees this so they can find closings awaiting their signature
       // and raise petty expenses in the same surface as everyone else.
       { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
-      { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: PETTY_QUEUE_ROLES },
+      { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: [...PETTY_QUEUE_ROLES, "accountant"] },
       { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
       { kind: "leaf", to: "/cash/payments",    label: "Payments",       roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/settlements", label: "Settlements",    roles: CASH_PAYMENTS_ROLES },
