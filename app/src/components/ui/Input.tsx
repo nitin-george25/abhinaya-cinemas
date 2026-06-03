@@ -1,4 +1,5 @@
 import type {
+  FocusEvent,
   InputHTMLAttributes,
   SelectHTMLAttributes,
   ReactNode,
@@ -31,7 +32,7 @@ const numberOverrides =
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
-export function Input({ className, onWheel, type, ...rest }: InputProps) {
+export function Input({ className, onWheel, onFocus, type, ...rest }: InputProps) {
   const isNumber = type === "number";
 
   // For number inputs: blur on wheel so the page scrolls normally instead of
@@ -46,11 +47,31 @@ export function Input({ className, onWheel, type, ...rest }: InputProps) {
       }
     : onWheel;
 
+  // For number inputs: select the current value on focus so a "0" placeholder
+  // doesn't trap the user — typing replaces it instead of appending. Caller's
+  // own onFocus still runs first.
+  //
+  // Using requestAnimationFrame is important: on iOS Safari, calling
+  // select() inside the focus handler synchronously is unreliable because
+  // the browser hasn't placed the cursor yet. Deferring by one frame works
+  // on every browser we target.
+  const handleFocus = isNumber
+    ? (e: FocusEvent<HTMLInputElement>) => {
+        onFocus?.(e);
+        if (e.defaultPrevented) return;
+        const target = e.currentTarget;
+        requestAnimationFrame(() => {
+          try { target.select(); } catch { /* detached node — ignore */ }
+        });
+      }
+    : onFocus;
+
   return (
     <input
       {...rest}
       type={type}
       onWheel={handleWheel}
+      onFocus={handleFocus}
       className={cn(fieldBase, isNumber && numberOverrides, className)}
     />
   );

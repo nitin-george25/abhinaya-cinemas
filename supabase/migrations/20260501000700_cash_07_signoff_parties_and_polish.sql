@@ -131,9 +131,11 @@ alter table public.bank_ledger_entries
 --    accountant can insert new accounts and update bookkeeping fields.
 -- ----------------------------------------------------------------------------
 
-drop policy if exists bank_accounts_write           on public.bank_accounts;
-drop policy if exists bank_accounts_write_owner     on public.bank_accounts;
-drop policy if exists bank_accounts_write_accountant on public.bank_accounts;
+drop policy if exists bank_accounts_write              on public.bank_accounts;
+drop policy if exists bank_accounts_write_owner        on public.bank_accounts;
+drop policy if exists bank_accounts_write_accountant   on public.bank_accounts;
+drop policy if exists bank_accounts_insert_accountant  on public.bank_accounts;
+drop policy if exists bank_accounts_update_accountant  on public.bank_accounts;
 
 create policy bank_accounts_write_owner on public.bank_accounts
   for all using (public.cinema_access(cinema_id) and public.is_owner())

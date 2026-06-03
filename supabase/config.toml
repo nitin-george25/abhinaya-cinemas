@@ -1,34 +1,36 @@
 # ============================================================================
 # Supabase CLI config for the Abhinaya Cinemas project.
 #
-# This file lets `supabase` CLI commands know which schema, migrations folder,
-# and Postgres version to target. The actual project (staging vs prod) is
-# selected at runtime with `supabase link --project-ref <ref>`.
+# This file is intentionally tiny. The CLI uses sensible defaults for
+# everything we care about — migrations live in supabase/migrations/ and
+# Edge Functions live in supabase/functions/<name>/ without us having to
+# spell those out.
 #
-# Project refs:
+# Project refs (passed to `supabase link --project-ref ...`):
 #   staging  →  lctkvmpzijaspaytunkm
 #   prod     →  xkmjygegtpmmwwnyoufn
 #
-# Anon keys + service-role keys are NOT in this file. Use
-# `supabase secrets set` for Edge Functions, and your .env.local for local
-# scripts. Service role key lives only in Supabase secrets, never in git.
+# Anon keys + service-role keys are NOT in this file. Set Edge Function
+# secrets with `supabase secrets set --project-ref ...`.
 # ============================================================================
 
-# `project_id` is used by `supabase start` for the local Docker stack. We
-# don't run locally yet, but the CLI requires the field to be present.
+# Used by `supabase start` for the local Docker stack. We don't run locally
+# yet, but the CLI requires this field to parse the config.
 project_id = "abhinaya-cinemas"
 
 [db]
-# Match the Postgres major version of your Supabase project. As of mid-2026
-# Supabase provisions Postgres 15; bump this if you upgrade.
+# Match the Postgres major version of your Supabase project. Supabase
+# Cloud currently provisions Postgres 15; bump this if you upgrade.
 major_version = 15
 
-[db.migrations]
-# Where migration files live. CLI scans this folder when running
-# `supabase db push` / `supabase db reset`.
-schema_paths = ["./migrations"]
+# Per-function options. Add a block per Edge Function as the list grows.
+# `verify_jwt` defaults to true, so we'd only set it explicitly for
+# functions that need to be publicly callable.
+[functions.admin-users]
+verify_jwt = true
 
-[functions]
-# Edge Functions live under supabase/functions/<name>/index.ts. The CLI
-# deploys them with `supabase functions deploy <name>`.
+[functions.daily-digest]
+verify_jwt = true
+
+[functions.weekly-digest]
 verify_jwt = true
