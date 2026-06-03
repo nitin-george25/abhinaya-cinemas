@@ -32,8 +32,8 @@ import {
   computeDiscrepancy,
   createCashDeposit,
   getClosing,
+  listAuthorizedUsers,
   listCashDeposits,
-  listCashierUsers,
   listClosings,
   listPaymentMethodsForUnit,
   listPettyExpenses,
@@ -124,7 +124,6 @@ function DialogBody({
   const { state } = useSync();
   const refs      = useCashRefs();
   const role      = state.role;
-  const isCashier = role === "cashier";
   const isManager =
     role === "owner" || role === "manager" || role === "daily_manager";
 
@@ -172,10 +171,13 @@ function DialogBody({
     }
   }, [refs.units, unitId]);
 
-  // Cashier dropdown.
+  // "Cashier on till" dropdown. We list every authorized user, not just
+  // role='cashier' — at this scale the owner / manager often physically
+  // runs the till, so the field is "who is sitting at the till today",
+  // not "who has the cashier role".
   useEffect(() => {
     let alive = true;
-    void listCashierUsers().then((u) => alive && setCashiers(u));
+    void listAuthorizedUsers().then((u) => alive && setCashiers(u));
     return () => { alive = false; };
   }, []);
 
@@ -480,12 +482,16 @@ function DialogBody({
   })();
 
   const lockedForManager = !!existing && existing.status !== "draft";
+  // Anyone whose email is recorded as the cashier on this closing can
+  // confirm — not just users with role='cashier'. The field is
+  // "who ran the till today"; in a small operation that's often the
+  // owner. RLS still gates writes via the manager-tier (write_owner
+  // -or-manager) policy or the cashier-only policy in migration 08.
   const canCashierConfirm =
-    isCashier
-    && !!existing
+    !!existing
     && existing.status === "counted"
-    && (!existing.cashierEmail
-        || existing.cashierEmail.toLowerCase() === (state.email ?? "").toLowerCase());
+    && !!existing.cashierEmail
+    && existing.cashierEmail.toLowerCase() === (state.email ?? "").toLowerCase();
 
   return (
     <div className="space-y-5">
