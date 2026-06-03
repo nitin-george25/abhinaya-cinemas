@@ -10,7 +10,8 @@ export default function SettingsUsersPage() {
       <div>
         <h2 className="font-display text-3xl font-bold tracking-tight">Users</h2>
         <p className="text-sm text-ink-muted mt-1">
-          Owner only. Add users, reset PINs, change roles.
+          Owner manages any role; manager manages cashier and daily-manager
+          users only. Add users, reset PINs, change roles.
         </p>
       </div>
       <UsersSection />

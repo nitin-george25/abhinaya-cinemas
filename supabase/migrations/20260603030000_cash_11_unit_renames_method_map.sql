@@ -78,54 +78,29 @@ create policy oupm_write on public.operating_unit_payment_methods
 
 
 -- ----------------------------------------------------------------------------
--- 3) Seed defaults — only when the mapping is currently empty for a unit.
---    Avoids stomping on owner customisations on re-run.
+-- 3) Seed defaults.
+--
+--    We rely on the (operating_unit_id, payment_method_id) primary key +
+--    `on conflict do nothing` for idempotency. Earlier versions used a
+--    `not exists` guard at the WHERE level, but that guard saw rows
+--    inserted by previous statements in the SAME migration — so only the
+--    first method got seeded per unit. The PK + on-conflict is the
+--    correct re-run guard.
 -- ----------------------------------------------------------------------------
 
--- Box Office: cash + paytm + phonepe
+with seed(unit_name, code, ord) as (values
+  ('Box Office', 'cash',     10),
+  ('Box Office', 'paytm',    20),
+  ('Box Office', 'phonepe',  30),
+  ('F&B',        'cash',     10),
+  ('F&B',        'pinelabs', 20)
+)
 insert into public.operating_unit_payment_methods (operating_unit_id, payment_method_id, display_order)
-  select u.id, m.id, 10
-    from public.operating_units u
-    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = 'cash'
-   where u.name = 'Box Office'
-     and not exists (
-       select 1 from public.operating_unit_payment_methods x
-        where x.operating_unit_id = u.id
-     )
-on conflict do nothing;
-
-insert into public.operating_unit_payment_methods (operating_unit_id, payment_method_id, display_order)
-  select u.id, m.id, 20
-    from public.operating_units u
-    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = 'paytm'
-   where u.name = 'Box Office'
-on conflict do nothing;
-
-insert into public.operating_unit_payment_methods (operating_unit_id, payment_method_id, display_order)
-  select u.id, m.id, 30
-    from public.operating_units u
-    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = 'phonepe'
-   where u.name = 'Box Office'
-on conflict do nothing;
-
--- F&B: cash + pinelabs
-insert into public.operating_unit_payment_methods (operating_unit_id, payment_method_id, display_order)
-  select u.id, m.id, 10
-    from public.operating_units u
-    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = 'cash'
-   where u.name = 'F&B'
-     and not exists (
-       select 1 from public.operating_unit_payment_methods x
-        where x.operating_unit_id = u.id
-     )
-on conflict do nothing;
-
-insert into public.operating_unit_payment_methods (operating_unit_id, payment_method_id, display_order)
-  select u.id, m.id, 20
-    from public.operating_units u
-    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = 'pinelabs'
-   where u.name = 'F&B'
-on conflict do nothing;
+  select u.id, m.id, s.ord
+    from seed s
+    join public.operating_units u on u.name = s.unit_name
+    join public.payment_methods m on m.cinema_id = u.cinema_id and m.code = s.code
+on conflict (operating_unit_id, payment_method_id) do nothing;
 
 
 -- ----------------------------------------------------------------------------

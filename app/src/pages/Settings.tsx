@@ -42,6 +42,11 @@ import { IconSpinner } from "../components/icons";
 
 const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
 
+/** Roles a manager (non-owner) can create / edit / remove. Mirrors the
+ *  MANAGER_MANAGEABLE_ROLES set in the admin-users Edge Function so the
+ *  UI shows what the server will actually accept. */
+const MANAGER_ASSIGNABLE_ROLES: Role[] = ["daily_manager", "cashier"];
+
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   manager: "Manager",
@@ -73,15 +78,20 @@ export function UsersSection() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (state.role !== "owner") {
+  // Owner = full access; manager = limited to cashier + daily_manager
+  // (server enforces the same scope, see admin-users Edge Function).
+  const isOwner   = state.role === "owner";
+  const isManager = state.role === "manager";
+  if (!isOwner && !isManager) {
     return (
       <Card>
         <CardBody className="text-sm text-ink-muted">
-          User management is owner-only.
+          User management is restricted to owner and manager roles.
         </CardBody>
       </Card>
     );
   }
+  const assignableRoles = isOwner ? ROLES : MANAGER_ASSIGNABLE_ROLES;
 
   return (
     <div className="space-y-4">
@@ -106,6 +116,7 @@ export function UsersSection() {
         {adding ? (
           <CardBody className="border-b border-line bg-paper">
             <AddUserForm
+              assignableRoles={assignableRoles}
               onCancel={() => setAdding(false)}
               onCreated={() => { setAdding(false); void load(); }}
             />
@@ -120,7 +131,12 @@ export function UsersSection() {
           ) : users.length === 0 ? (
             <p className="px-5 py-5 text-sm text-ink-muted">No users yet.</p>
           ) : (
-            <UsersTable users={users} onChanged={load} />
+            <UsersTable
+              users={users}
+              onChanged={load}
+              assignableRoles={assignableRoles}
+              isOwner={isOwner}
+            />
           )}
         </CardBody>
       </Card>
@@ -128,8 +144,9 @@ export function UsersSection() {
       <p className="text-xs text-ink-muted">
         Username login uses the email{" "}
         <code>&lt;username&gt;@local.abhinayacinemas.com</code> internally — no real
-        email is ever sent there. PINs are 6 digits. Owner role required for any
-        change on this page; the server enforces it too.
+        email is ever sent there. PINs are 6 digits. Owner can manage any role;
+        manager can manage cashier and daily-manager users only. The server
+        enforces the same scope.
       </p>
     </div>
   );
@@ -140,9 +157,13 @@ export function UsersSection() {
 function UsersTable({
   users,
   onChanged,
+  assignableRoles,
+  isOwner,
 }: {
   users: ListedUser[];
   onChanged: () => void;
+  assignableRoles: Role[];
+  isOwner: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -157,7 +178,13 @@ function UsersTable({
         </thead>
         <tbody>
           {users.map((u) => (
-            <UserRow key={u.email} user={u} onChanged={onChanged} />
+            <UserRow
+              key={u.email}
+              user={u}
+              onChanged={onChanged}
+              assignableRoles={assignableRoles}
+              isOwner={isOwner}
+            />
           ))}
         </tbody>
       </table>
@@ -168,12 +195,18 @@ function UsersTable({
 function UserRow({
   user,
   onChanged,
+  assignableRoles,
+  isOwner,
 }: {
   user: ListedUser;
   onChanged: () => void;
+  assignableRoles: Role[];
+  isOwner: boolean;
 }) {
   const isUsernameUser = isInternalEmail(user.email);
   const [busy, setBusy] = useState<string | null>(null);
+  // For managers: rows holding a role outside their scope are read-only.
+  const canManageThisRow = isOwner || assignableRoles.includes(user.role);
 
   async function withBusy(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -246,20 +279,27 @@ function UserRow({
         )}
       </td>
       <td className="px-5 py-3">
-        <Select
-          value={user.role}
-          onChange={(e) => void changeRole(e.target.value as Role)}
-          disabled={!isUsernameUser || !!busy}
-          className="w-36 h-8 text-sm"
-        >
-          {ROLES.map((r) => (
-            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-          ))}
-        </Select>
+        {canManageThisRow ? (
+          <Select
+            value={user.role}
+            onChange={(e) => void changeRole(e.target.value as Role)}
+            disabled={!isUsernameUser || !!busy}
+            className="w-36 h-8 text-sm"
+          >
+            {/* Always include the user's current role so the picker isn't
+                blank even if the manager can't change to a wider set. */}
+            {(assignableRoles.includes(user.role) ? assignableRoles : [user.role, ...assignableRoles])
+              .map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
+          </Select>
+        ) : (
+          <span className="text-sm">{ROLE_LABELS[user.role]}</span>
+        )}
       </td>
       <td className="px-5 py-3 text-right">
         <div className="inline-flex items-center gap-2">
-          {isUsernameUser ? (
+          {isUsernameUser && canManageThisRow ? (
             <>
               <Button
                 size="sm"
@@ -279,8 +319,10 @@ function UserRow({
                 {busy === "remove" ? <IconSpinner className="w-4 h-4" /> : "Remove"}
               </Button>
             </>
-          ) : (
+          ) : !isUsernameUser ? (
             <span className="text-xs text-ink-muted">manage in Supabase</span>
+          ) : (
+            <span className="text-xs text-ink-muted">owner only</span>
           )}
         </div>
       </td>
@@ -291,16 +333,22 @@ function UserRow({
 // ── add user form ─────────────────────────────────────────────────────
 
 function AddUserForm({
+  assignableRoles,
   onCancel,
   onCreated,
 }: {
+  assignableRoles: Role[];
   onCancel: () => void;
   onCreated: () => void;
 }) {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
-  const [role, setRole] = useState<Role>("manager");
+  // Default to the first role the current user can assign — owner gets
+  // "manager"; manager-tier caller gets "daily_manager".
+  const [role, setRole] = useState<Role>(
+    assignableRoles.includes("manager") ? "manager" : assignableRoles[0] ?? "cashier",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -377,7 +425,7 @@ function AddUserForm({
       </Field>
       <Field label="Role">
         <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-          {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+          {assignableRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
         </Select>
       </Field>
       <div className="flex items-center gap-2">

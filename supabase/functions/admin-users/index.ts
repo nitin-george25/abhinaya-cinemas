@@ -29,9 +29,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const LOCAL_DOMAIN = "local.abhinayacinemas.com";
 const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{1,30}[a-z0-9])?$/i;
 const PIN_RE = /^\d{6}$/;
-const ROLES = new Set(["owner", "manager", "daily_manager", "accountant"]);
+const ROLES = new Set(["owner", "manager", "daily_manager", "accountant", "cashier"]);
 
-type Role = "owner" | "manager" | "daily_manager" | "accountant";
+// Subset of roles a non-owner caller (manager) may create / edit / remove.
+// Owners can touch any role; managers are limited to the till-side
+// personas so they can't promote anyone above themselves.
+const MANAGER_MANAGEABLE_ROLES = new Set(["cashier", "daily_manager"]);
+
+type Role = "owner" | "manager" | "daily_manager" | "accountant" | "cashier";
 
 interface CreateBody { action: "create"; username: string; pin: string; fullName: string; role: Role; }
 interface ResetPinBody { action: "reset_pin"; username: string; pin: string; }
@@ -78,15 +83,18 @@ Deno.serve(async (req: Request) => {
   }
   const callerEmail = userRes.user.email.toLowerCase();
 
-  // 2) Verify caller is an owner
+  // 2) Verify caller has user-admin rights. Owner can touch anyone;
+  //    manager can touch only the till-side roles (cashier / daily_manager).
+  //    Per-action target checks below enforce the scope.
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
   const { data: callerRow } = await svc
     .from("authorized_users")
     .select("role")
     .eq("email", callerEmail)
     .maybeSingle();
-  if (callerRow?.role !== "owner") {
-    return json({ error: "owner role required" }, 403);
+  const callerRole = callerRow?.role as Role | undefined;
+  if (callerRole !== "owner" && callerRole !== "manager") {
+    return json({ error: "owner or manager role required" }, 403);
   }
 
   // 3) Dispatch
@@ -98,24 +106,54 @@ Deno.serve(async (req: Request) => {
   }
 
   switch (body.action) {
-    case "create":      return await createUser(svc, body);
-    case "reset_pin":   return await resetPin(svc, body);
-    case "update_role": return await updateRole(svc, body);
-    case "remove":      return await removeUser(svc, body);
+    case "create":      return await createUser(svc, body, callerRole);
+    case "reset_pin":   return await resetPin(svc, body, callerRole);
+    case "update_role": return await updateRole(svc, body, callerRole);
+    case "remove":      return await removeUser(svc, body, callerRole);
     default:
       return json({ error: "unknown action" }, 400);
   }
 });
 
+/**
+ * For non-owner callers, verify the target user (and the new role, if any)
+ * fall inside MANAGER_MANAGEABLE_ROLES. Owners bypass this check.
+ */
+async function authoriseTarget(
+  svc: Svc,
+  callerRole: Role,
+  targetEmail: string,
+  newRole?: Role,
+): Promise<string | null> {
+  if (callerRole === "owner") return null;
+  if (newRole && !MANAGER_MANAGEABLE_ROLES.has(newRole)) {
+    return "Manager can only assign cashier or daily_manager roles.";
+  }
+  // For actions on existing users (reset_pin / update_role / remove),
+  // check the target's current role isn't owner/manager/accountant.
+  const { data } = await svc
+    .from("authorized_users")
+    .select("role")
+    .eq("email", targetEmail)
+    .maybeSingle();
+  const targetRole = (data as { role?: Role } | null)?.role;
+  if (targetRole && !MANAGER_MANAGEABLE_ROLES.has(targetRole)) {
+    return "Manager can only manage cashier and daily_manager users.";
+  }
+  return null;
+}
+
 // ── actions ────────────────────────────────────────────────────────────
 
 type Svc = ReturnType<typeof createClient>;
 
-async function createUser(svc: Svc, b: CreateBody): Promise<Response> {
+async function createUser(svc: Svc, b: CreateBody, callerRole: Role): Promise<Response> {
   const v = validate(b);
   if (v) return json({ error: v }, 400);
 
   const email = usernameToEmail(b.username);
+  const guard = await authoriseTarget(svc, callerRole, email, b.role);
+  if (guard) return json({ error: guard }, 403);
 
   // Create the auth user with email_confirm so the user can sign in
   // immediately without an OTP / confirmation email round-trip.
@@ -142,11 +180,14 @@ async function createUser(svc: Svc, b: CreateBody): Promise<Response> {
   return json({ ok: true, email });
 }
 
-async function resetPin(svc: Svc, b: ResetPinBody): Promise<Response> {
+async function resetPin(svc: Svc, b: ResetPinBody, callerRole: Role): Promise<Response> {
   if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
   if (!PIN_RE.test(b.pin)) return json({ error: "PIN must be exactly 6 digits" }, 400);
 
   const email = usernameToEmail(b.username);
+  const guard = await authoriseTarget(svc, callerRole, email);
+  if (guard) return json({ error: guard }, 403);
+
   const user = await findAuthUser(svc, email);
   if (!user) return json({ error: "user not found" }, 404);
 
@@ -155,11 +196,14 @@ async function resetPin(svc: Svc, b: ResetPinBody): Promise<Response> {
   return json({ ok: true });
 }
 
-async function updateRole(svc: Svc, b: UpdateRoleBody): Promise<Response> {
+async function updateRole(svc: Svc, b: UpdateRoleBody, callerRole: Role): Promise<Response> {
   if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
   if (!ROLES.has(b.role)) return json({ error: "invalid role" }, 400);
 
   const email = usernameToEmail(b.username);
+  const guard = await authoriseTarget(svc, callerRole, email, b.role);
+  if (guard) return json({ error: guard }, 403);
+
   const { error } = await svc
     .from("authorized_users")
     .update({ role: b.role })
@@ -168,10 +212,13 @@ async function updateRole(svc: Svc, b: UpdateRoleBody): Promise<Response> {
   return json({ ok: true });
 }
 
-async function removeUser(svc: Svc, b: RemoveBody): Promise<Response> {
+async function removeUser(svc: Svc, b: RemoveBody, callerRole: Role): Promise<Response> {
   if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
 
   const email = usernameToEmail(b.username);
+  const guard = await authoriseTarget(svc, callerRole, email);
+  if (guard) return json({ error: guard }, 403);
+
   const user = await findAuthUser(svc, email);
   if (user) {
     const { error } = await svc.auth.admin.deleteUser(user.id);
