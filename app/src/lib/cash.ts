@@ -145,6 +145,8 @@ export interface PettyExpense {
   approvedAt:           string | null;
   rejectedReason:       string | null;
   receiptUrl:           string | null;
+  /** Required when receiptUrl is null. CHECK constraint server-side. */
+  noReceiptReason:      string | null;
   status:               PettyExpenseStatus;
   reconciledClosingId:  string | null;
   createdAt:            string | null;
@@ -295,6 +297,7 @@ export function mapPettyExpense(r: PettyExpenseRow): PettyExpense {
     approvedAt: r.approved_at,
     rejectedReason: r.rejected_reason,
     receiptUrl: r.receipt_url,
+    noReceiptReason: r.no_receipt_reason,
     status: r.status,
     reconciledClosingId: r.reconciled_closing_id,
     createdAt: r.created_at,
@@ -596,8 +599,37 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
 }
 
 /**
- * Cashier sign — marks the cash count as cashier-verified. Status moves
- * draft → counted. Manager still needs to sign before status reaches signed.
+ * Manager sign — the first signature. Shift manager fills in the POS
+ * report + cash count, then signs to lock the numbers and surface them
+ * to the cashier. Status moves draft → counted.
+ *
+ * The closing is not yet final: the ledger trigger only fires on the
+ * cashier's confirmation (counted → signed). This two-step ordering is
+ * what the user described: "once signed by shift manager, cashier should
+ * be able to sign from their session".
+ */
+export async function signClosing(id: string, managerEmail: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("daily_cash_closings")
+    .update({
+      status: "counted",
+      signed_at: new Date().toISOString(),
+      manager_signed_by_email: managerEmail,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Cashier confirm — the second and final signature. Status moves
+ * counted → signed. The fn_closing_to_ledger trigger fires on this
+ * transition and writes the matching bank-ledger row.
+ *
+ * Only the cashier named on the closing row may confirm. Server-side
+ * RLS doesn't enforce this yet; UI gating in [[project-cash-management]]
+ * is the operational check.
  */
 export async function cashierSignClosing(id: string, cashierEmail: string): Promise<void> {
   const sb = getSupabase();
@@ -605,28 +637,12 @@ export async function cashierSignClosing(id: string, cashierEmail: string): Prom
   const { error } = await sb
     .from("daily_cash_closings")
     .update({
-      status: "counted",
+      status: "signed",
       cashier_signed_at: new Date().toISOString(),
       cashier_signed_by_email: cashierEmail,
       cashier_email: cashierEmail,
     })
     .eq("id", id);
-  if (error) throw new Error(error.message);
-}
-
-/**
- * Manager sign — final lock. Status moves counted → signed. Trigger
- * fn_closing_to_ledger fires on this transition.
- */
-export async function signClosing(id: string, managerEmail?: string): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) throw new Error("Supabase not configured");
-  const patch: Record<string, unknown> = {
-    status: "signed",
-    signed_at: new Date().toISOString(),
-  };
-  if (managerEmail) patch.manager_signed_by_email = managerEmail;
-  const { error } = await sb.from("daily_cash_closings").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -649,11 +665,20 @@ export interface PettyDraft {
   paidTo?:            string | null;
   requestedByEmail:   string;
   receiptUrl?:        string | null;
+  /** Required by DB CHECK whenever receiptUrl is missing. */
+  noReceiptReason?:   string | null;
 }
 
 export async function createPettyExpense(d: PettyDraft): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
+  // Client-side guard so the user gets a clean message instead of the
+  // raw CHECK constraint violation. Server still enforces.
+  const hasReceipt = !!d.receiptUrl;
+  const hasReason  = !!d.noReceiptReason && d.noReceiptReason.trim().length > 0;
+  if (!hasReceipt && !hasReason) {
+    throw new Error("Attach a receipt or explain why one isn't available.");
+  }
   const { data, error } = await sb
     .from("petty_expenses")
     .insert({
@@ -665,6 +690,7 @@ export async function createPettyExpense(d: PettyDraft): Promise<string> {
       paid_to:            d.paidTo ?? null,
       requested_by_email: d.requestedByEmail,
       receipt_url:        d.receiptUrl ?? null,
+      no_receipt_reason:  hasReason ? d.noReceiptReason : null,
     })
     .select("id")
     .single();
@@ -714,13 +740,17 @@ export interface PaymentRequestDraft {
   amount:            number;
   mode:              PaymentRequestMode;
   purpose:           string;
-  invoiceUrl?:       string | null;
+  /** Required from migration 08 forward. The form must upload before submit. */
+  invoiceUrl:        string;
   requestedByEmail:  string;
 }
 
 export async function createPaymentRequest(d: PaymentRequestDraft): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
+  if (!d.invoiceUrl || d.invoiceUrl.trim().length === 0) {
+    throw new Error("Attach a receipt or invoice before submitting.");
+  }
   const { data, error } = await sb
     .from("payment_requests")
     .insert({
@@ -732,13 +762,35 @@ export async function createPaymentRequest(d: PaymentRequestDraft): Promise<stri
       amount:               d.amount,
       mode:                 d.mode,
       purpose:              d.purpose,
-      invoice_url:          d.invoiceUrl ?? null,
+      invoice_url:          d.invoiceUrl,
       requested_by_email:   d.requestedByEmail,
     })
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "createPaymentRequest failed");
   return (data as { id: string }).id;
+}
+
+/**
+ * Upload a payment-receipt PDF or image to the `payment-receipts` bucket.
+ * Returns the public URL so the caller can persist it on the request row.
+ * Splits the upload from the DB write so the form can show validation
+ * errors before consuming an upload slot.
+ */
+export async function uploadPaymentReceipt(
+  file: File,
+  uploaderEmail: string,
+): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop() ?? "jpg";
+  const path = `${uploaderEmail}/${Date.now()}.${ext}`;
+  const { error } = await sb.storage
+    .from("payment-receipts")
+    .upload(path, file, { upsert: false });
+  if (error) throw new Error(error.message);
+  const { data } = sb.storage.from("payment-receipts").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 export async function approvePaymentRequest(id: string, approverEmail: string): Promise<void> {
@@ -952,9 +1004,11 @@ export async function listCashierUsers(): Promise<AuthorizedUserSummary[]> {
 
 // ── Pure helpers ────────────────────────────────────────────────────────
 
-/** Default INR denominations used in the closing form, biggest first. */
+/** Default INR denominations used in the closing form, biggest first.
+ *  50 paise is no longer in active circulation — operators report it
+ *  causes more typos than it captures, so we exclude it. */
 export const INR_DENOMINATIONS: number[] = [
-  500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5,
+  500, 200, 100, 50, 20, 10, 5, 2, 1,
 ];
 
 /** Sum a denominations grid in rupees. */

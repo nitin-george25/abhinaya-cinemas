@@ -324,6 +324,9 @@ export interface PettyExpenseRow {
   approved_at:            string | null;
   rejected_reason:        string | null;
   receipt_url:            string | null;
+  /** Why no receipt was uploaded. Required when receipt_url is null
+   *  (CHECK constraint added in migration 08). */
+  no_receipt_reason:      string | null;
   status:                 PettyExpenseStatus;
   reconciled_closing_id:  string | null;
   created_at:             string | null;

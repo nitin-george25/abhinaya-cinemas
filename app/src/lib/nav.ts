@@ -44,11 +44,9 @@ const REPORT_ROLES: Role[] = ["owner", "manager", "accountant"];
 const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 
 // Cash management roles
-const CASH_CLOSING_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 const CASH_LEDGER_ROLES: Role[] = ["owner", "manager", "accountant"];
 const CASH_PAYMENTS_ROLES: Role[] = ["owner", "manager", "accountant"];
 const PETTY_QUEUE_ROLES: Role[] = ["owner", "manager", "daily_manager"];
-const CASHIER_ONLY: Role[] = ["cashier"];
 
 export const NAV: NavItem[] = [
   {
@@ -97,18 +95,18 @@ export const NAV: NavItem[] = [
     id: "cash",
     label: "Cash",
     Icon: IconCash,
-    roles: ["owner", "manager", "daily_manager", "accountant"],
+    roles: ["owner", "manager", "daily_manager", "accountant", "cashier"],
     children: [
-      { kind: "leaf", to: "/cash/today",    label: "Today",          roles: CASH_CLOSING_ROLES },
-      { kind: "leaf", to: "/cash/closings", label: "Closings",       roles: ["owner", "manager", "daily_manager", "accountant"] },
+      // Cashier sees this so they can find closings awaiting their signature
+      // and raise petty expenses in the same surface as everyone else.
+      { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
       { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: PETTY_QUEUE_ROLES },
+      { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
       { kind: "leaf", to: "/cash/payments", label: "Payments",       roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/ledger",   label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
       { kind: "leaf", to: "/cash/reports",  label: "Cashflow",       roles: CASH_LEDGER_ROLES },
     ],
   },
-  // Cashier-only landing — single leaf, no group chrome.
-  { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses", Icon: IconCash, roles: CASHIER_ONLY },
   {
     kind: "group",
     id: "settings",

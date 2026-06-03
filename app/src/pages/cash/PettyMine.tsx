@@ -32,6 +32,9 @@ export default function CashPettyMinePage() {
   const [category, setCat]    = useState("");
   const [paidTo, setPaidTo]   = useState("");
   const [file, setFile]       = useState<File | null>(null);
+  /** When the cashier toggles "no receipt available", they must record why. */
+  const [noReason, setNoReason] = useState("");
+  const [noReceipt, setNoReceipt] = useState(false);
   const [busy, setBusy]       = useState(false);
   const [err, setErr]         = useState<string | null>(null);
   const [okMsg, setOk]        = useState<string | null>(null);
@@ -63,9 +66,19 @@ export default function CashPettyMinePage() {
     const amt = Number(amount);
     if (!amt || amt <= 0) { setErr("Enter an amount."); return; }
     if (!desc.trim())     { setErr("Enter a description."); return; }
+    // Mandatory receipt-or-reason policy (migration 08). Validate up
+    // front so the cashier doesn't burn an upload on an invalid form.
+    if (!noReceipt && !file) {
+      setErr("Attach a receipt or tick \"no receipt available\".");
+      return;
+    }
+    if (noReceipt && !noReason.trim()) {
+      setErr("Explain why no receipt is available.");
+      return;
+    }
     setBusy(true); setErr(null); setOk(null);
     try {
-      const receiptUrl = await uploadReceipt();
+      const receiptUrl = noReceipt ? null : await uploadReceipt();
       await createPettyExpense({
         operatingUnitId: unitId,
         expenseDate: date,
@@ -75,9 +88,11 @@ export default function CashPettyMinePage() {
         paidTo: paidTo || null,
         requestedByEmail: state.email,
         receiptUrl,
+        noReceiptReason: noReceipt ? noReason.trim() : null,
       });
       setOk("Submitted — waiting for approval.");
       setAmount(""); setDesc(""); setCat(""); setPaidTo(""); setFile(null);
+      setNoReceipt(false); setNoReason("");
       await reload();
     } catch (e) {
       setErr((e as Error).message);
@@ -121,14 +136,35 @@ export default function CashPettyMinePage() {
           <Field label="Paid to (vendor)">
             <Input value={paidTo} onChange={(e) => setPaidTo(e.target.value)} />
           </Field>
-          <Field label="Receipt (optional)">
+          <Field label="Receipt">
             <input
               type="file"
               accept="image/*,.pdf"
+              disabled={noReceipt}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm"
+              className="block w-full text-sm disabled:opacity-50"
             />
+            <label className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                checked={noReceipt}
+                onChange={(e) => {
+                  setNoReceipt(e.target.checked);
+                  if (e.target.checked) setFile(null);
+                }}
+              />
+              No receipt available
+            </label>
           </Field>
+          {noReceipt ? (
+            <Field label="Reason no receipt is available">
+              <Input
+                value={noReason}
+                onChange={(e) => setNoReason(e.target.value)}
+                placeholder="e.g. tea-stall didn't print a bill"
+              />
+            </Field>
+          ) : null}
           {err ? <div className="text-sm text-red-600">{err}</div> : null}
           {okMsg ? <div className="text-sm text-emerald-600">{okMsg}</div> : null}
           <div className="flex justify-end">

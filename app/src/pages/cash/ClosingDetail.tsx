@@ -8,8 +8,10 @@ import { useParams, Link } from "react-router-dom";
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
+import { useSync } from "../../lib/hooks/SyncContext";
 import { fmtINR } from "../../lib/dashboard";
 import {
+  cashierSignClosing,
   disputeClosing,
   getClosing,
   signClosing,
@@ -17,11 +19,15 @@ import {
 } from "../../lib/cash";
 
 export default function CashClosingDetailPage() {
+  const { state }             = useSync();
   const { id }                = useParams<{ id: string }>();
   const refs                  = useCashRefs();
   const [closing, setClosing] = useState<DailyCashClosing | null>(null);
   const [err, setErr]         = useState<string | null>(null);
   const [busy, setBusy]       = useState(false);
+  const role                  = state.role;
+  const isCashier             = role === "cashier";
+  const isManager             = role === "owner" || role === "manager" || role === "daily_manager";
 
   useEffect(() => {
     if (!id) return;
@@ -51,10 +57,13 @@ export default function CashClosingDetailPage() {
           <span className={
             "text-xs px-2 py-0.5 rounded " +
             (closing.status === "signed"    ? "bg-emerald-100 text-emerald-700" :
+             closing.status === "counted"   ? "bg-blue-100 text-blue-700" :
              closing.status === "draft"     ? "bg-amber-100 text-amber-700" :
              closing.status === "disputed"  ? "bg-red-100 text-red-700" :
                                               "bg-paper text-ink-muted")
-          }>{closing.status}</span>
+          }>{
+            closing.status === "counted" ? "awaiting cashier" : closing.status
+          }</span>
         </CardHeader>
         <CardBody className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <Tile label="POS total"      value={fmtINR(closing.posTotalSales)} />
@@ -125,14 +134,49 @@ export default function CashClosingDetailPage() {
       ) : null}
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
+
+      {/* Signoff trail */}
+      <Card>
+        <CardHeader><CardTitle>Signoffs</CardTitle></CardHeader>
+        <CardBody className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>
+            <span className="font-medium text-ink">Manager:</span>{" "}
+            {closing.signedAt
+              ? `${closing.managerSignedByEmail ?? closing.closedByEmail} · ${closing.signedAt.slice(0, 16).replace("T", " ")}`
+              : "not signed"}
+          </div>
+          <div>
+            <span className="font-medium text-ink">Cashier:</span>{" "}
+            {closing.cashierSignedAt
+              ? `${closing.cashierSignedByEmail} · ${closing.cashierSignedAt.slice(0, 16).replace("T", " ")}`
+              : "awaiting"}
+          </div>
+        </CardBody>
+      </Card>
+
       <div className="flex justify-end gap-3">
-        {closing.status === "draft" ? (
+        {/* Manager sign-now from detail view (parallel to the dialog).
+            Draft → counted; cashier still must confirm. */}
+        {isManager && closing.status === "draft" && state.email ? (
           <Button disabled={busy} onClick={async () => {
             setBusy(true); setErr(null);
-            try { await signClosing(closing.id); await reload(); }
+            try { await signClosing(closing.id, state.email!); await reload(); }
             catch (e) { setErr((e as Error).message); }
             finally  { setBusy(false); }
-          }}>Sign now</Button>
+          }}>Manager sign</Button>
+        ) : null}
+        {/* Cashier confirm — counted → signed. Triggers ledger write. */}
+        {isCashier
+          && closing.status === "counted"
+          && state.email
+          && (!closing.cashierEmail
+              || closing.cashierEmail.toLowerCase() === state.email.toLowerCase()) ? (
+          <Button disabled={busy} onClick={async () => {
+            setBusy(true); setErr(null);
+            try { await cashierSignClosing(closing.id, state.email!); await reload(); }
+            catch (e) { setErr((e as Error).message); }
+            finally  { setBusy(false); }
+          }}>Confirm as cashier</Button>
         ) : null}
         {closing.status === "signed" ? (
           <Button variant="danger" disabled={busy} onClick={async () => {

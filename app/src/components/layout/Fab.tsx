@@ -35,7 +35,10 @@ const ACTIONS: Action[] = [
   { id: "bo",    label: "Enter BO show",     roles: ["owner", "manager", "daily_manager"] },
   { id: "dsr",   label: "Upload F&B CSV",    roles: ["owner", "manager", "daily_manager"] },
   { id: "cash",  label: "Cash closing",      roles: ["owner", "manager", "daily_manager"] },
-  { id: "petty", label: "New petty expense", roles: ["cashier"] },
+  // Petty-expense request: cashier raises their own; daily managers and
+  // above also use this from the floor when they're spending out of the
+  // till and need it on the approval queue.
+  { id: "petty", label: "New petty expense", roles: ["owner", "manager", "daily_manager", "cashier"] },
 ];
 
 export function Fab({ role }: Props) {
@@ -95,7 +98,7 @@ export function Fab({ role }: Props) {
                 onClick={() => {
                   setOpen(false);
                   // "cash" + "petty" navigate; the modal-backed actions stay in-place.
-                  if (a.id === "cash")       navigate("/cash/today");
+                  if (a.id === "cash")       navigate("/cash/closings");
                   else if (a.id === "petty") navigate("/cash/petty/mine");
                   else                       setActive(a.id);
                 }}

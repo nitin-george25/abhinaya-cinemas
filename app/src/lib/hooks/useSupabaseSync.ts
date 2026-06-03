@@ -81,6 +81,18 @@ export interface SyncState {
   error: string | null;
   /** UI hint — "saving" while a push is in flight, "saved" after it lands. */
   saveState: "idle" | "saving" | "saved" | "error";
+  /**
+   * Set when the user's auth session expires mid-use (signed-out event
+   * arrives after we were already "ready"). The shell renders a modal
+   * over the current view instead of yanking it. Dismissing the modal
+   * routes the user to sign-in.
+   *
+   * Why a flag instead of resetting status: the legacy flow flipped the
+   * whole app to <BootingScreen> on every tab focus because Supabase
+   * fires SIGNED_IN on session restore. Operators lost in-flight form
+   * input. The dialog respects work-in-progress until the user opts in.
+   */
+  sessionExpired: boolean;
 }
 
 export interface SyncApi {
@@ -92,6 +104,8 @@ export interface SyncApi {
   /** Trigger Google OAuth flow. */
   signIn: (redirectTo?: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Dismiss the session-expired dialog → sign out → land on sign-in. */
+  dismissSessionExpired: () => Promise<void>;
 }
 
 const PUSH_DEBOUNCE_MS = 900;
@@ -115,7 +129,17 @@ export function useSupabaseSync(): SyncApi {
     cinemaId: null,
     error: null,
     saveState: "idle",
+    sessionExpired: false,
   });
+
+  // Tracks whether the initial boot has completed. Used by the
+  // onAuthStateChange listener so we can ignore SIGNED_IN events fired
+  // by Supabase on tab focus / session restore, and convert SIGNED_OUT
+  // events into a sessionExpired modal instead of yanking the UI.
+  const didBoot = useRef(false);
+  // The email we successfully booted with — lets us detect "different
+  // user signed in" vs. "same session re-validated".
+  const bootedEmail = useRef<string | null>(null);
 
   // The "what's in the cloud right now" cache — used to compute deltas.
   // Held in a ref so updates don't trigger re-renders.
@@ -378,7 +402,10 @@ export function useSupabaseSync(): SyncApi {
         cinemaId: synced.current.cinemaId,
         saveState: "saved",
         error: appState ? null : "Could not reach the database.",
+        sessionExpired: false,
       }));
+      didBoot.current = true;
+      bootedEmail.current = email;
     } catch (err) {
       console.error("boot failed", err);
       setState((p) => ({
@@ -390,20 +417,66 @@ export function useSupabaseSync(): SyncApi {
   }, [sb, pullAll]);
 
   // Initial boot + auth-change listener.
+  //
+  // Why the event handling is so picky: Supabase fires `SIGNED_IN` not only
+  // on a real sign-in, but also every time the session is restored from
+  // localStorage (tab focus, return-from-background, token refresh in some
+  // versions). If we naively call boot() on every SIGNED_IN, the whole app
+  // flips back to the BootingScreen mid-keystroke. So we boot exactly once
+  // on mount, then quietly ignore re-validation events for the same user.
+  //
+  // Session expiry (a true SIGNED_OUT after we were already ready) raises
+  // a `sessionExpired` flag — the shell shows a modal over the current view,
+  // and only after the user dismisses it do we unwind to the sign-in screen.
   useEffect(() => {
     void boot();
-    const sub = sb.auth.onAuthStateChange((evt) => {
-      if (evt === "SIGNED_IN") void boot();
-      if (evt === "SIGNED_OUT") {
-        setState((p) => ({
-          ...p,
-          status: "signed-out",
-          email: null,
-          username: null,
-          fullName: null,
-          role: null,
-          appState: null,
-        }));
+    const sub = sb.auth.onAuthStateChange((evt, session) => {
+      switch (evt) {
+        case "INITIAL_SESSION":
+          // Handled by the initial boot() call above. No-op here.
+          return;
+        case "TOKEN_REFRESHED":
+          // Token rolled silently; nothing to do.
+          return;
+        case "USER_UPDATED":
+          return;
+        case "SIGNED_IN": {
+          const incoming = (session?.user?.email ?? "").toLowerCase();
+          if (!didBoot.current) {
+            // First sign-in (no prior boot completed).
+            void boot();
+            return;
+          }
+          if (incoming && incoming !== bootedEmail.current) {
+            // Different user. Re-boot.
+            void boot();
+            return;
+          }
+          // Same session re-validated (tab focus). Stay put.
+          return;
+        }
+        case "SIGNED_OUT": {
+          if (didBoot.current) {
+            // Mid-session expiry. Don't yank the current view; raise a
+            // modal so the user can finish what they were doing or
+            // dismiss it to re-authenticate.
+            setState((p) => ({ ...p, sessionExpired: true }));
+          } else {
+            setState((p) => ({
+              ...p,
+              status: "signed-out",
+              email: null,
+              username: null,
+              fullName: null,
+              role: null,
+              appState: null,
+              sessionExpired: false,
+            }));
+          }
+          return;
+        }
+        default:
+          return;
       }
     });
     return () => {
@@ -469,7 +542,31 @@ export function useSupabaseSync(): SyncApi {
 
   const signOut = useCallback(async () => {
     await sb.auth.signOut();
+    didBoot.current = false;
+    bootedEmail.current = null;
   }, [sb]);
 
-  return { state, setAppState, refresh, signIn, signOut };
+  /**
+   * Acknowledge the session-expired dialog: tear down local state and
+   * land on the sign-in screen. signOut() above already flips status
+   * via the SIGNED_OUT branch in onAuthStateChange, but didBoot is now
+   * false so it routes to "signed-out" instead of re-raising the modal.
+   */
+  const dismissSessionExpired = useCallback(async () => {
+    didBoot.current = false;
+    bootedEmail.current = null;
+    setState((p) => ({
+      ...p,
+      status: "signed-out",
+      email: null,
+      username: null,
+      fullName: null,
+      role: null,
+      appState: null,
+      sessionExpired: false,
+    }));
+    try { await sb.auth.signOut(); } catch { /* ignore */ }
+  }, [sb]);
+
+  return { state, setAppState, refresh, signIn, signOut, dismissSessionExpired };
 }

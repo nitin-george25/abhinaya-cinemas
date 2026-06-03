@@ -21,6 +21,7 @@ import {
   listPaymentRequests,
   markPaymentRequestPaid,
   rejectPaymentRequest,
+  uploadPaymentReceipt,
   type PaymentRequest,
   type PaymentRequestMode,
 } from "../../lib/cash";
@@ -62,6 +63,7 @@ export default function CashPaymentsPage() {
   const [neededBy, setNeededBy] = useState("");
   const [last4, setLast4]       = useState("");
   const [ifsc, setIfsc]         = useState("");
+  const [receipt, setReceipt]   = useState<File | null>(null);
   const [busy, setBusy]         = useState(false);
 
   async function submitNew() {
@@ -70,8 +72,15 @@ export default function CashPaymentsPage() {
     if (!payee || !amt || amt <= 0 || !purpose) {
       setErr("Fill payee, amount, and purpose."); return;
     }
+    // Receipt is mandatory from migration 08 onward — block submit so
+    // the CHECK constraint never fires user-facing.
+    if (!receipt) {
+      setErr("Attach the receipt / invoice for this payment.");
+      return;
+    }
     setBusy(true); setErr(null);
     try {
+      const invoiceUrl = await uploadPaymentReceipt(receipt, state.email);
       await createPaymentRequest({
         operatingUnitId: unitId,
         neededBy: neededBy || null,
@@ -81,9 +90,11 @@ export default function CashPaymentsPage() {
         amount: amt,
         mode,
         purpose,
+        invoiceUrl,
         requestedByEmail: state.email,
       });
-      setPayee(""); setAmount(""); setPurpose(""); setNeededBy(""); setLast4(""); setIfsc("");
+      setPayee(""); setAmount(""); setPurpose(""); setNeededBy("");
+      setLast4(""); setIfsc(""); setReceipt(null);
       await reload();
     } catch (e) { setErr((e as Error).message); }
     finally    { setBusy(false); }
@@ -174,6 +185,19 @@ export default function CashPaymentsPage() {
             </div>
             <Field label="Purpose">
               <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+            </Field>
+            <Field label="Receipt / invoice (required)">
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm"
+              />
+              {receipt ? (
+                <div className="text-xs text-ink-muted mt-1 truncate">
+                  {receipt.name}
+                </div>
+              ) : null}
             </Field>
             <div className="flex justify-end">
               <Button disabled={busy} onClick={() => void submitNew()}>Submit</Button>
