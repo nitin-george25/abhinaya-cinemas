@@ -28,7 +28,6 @@ export default function CashClosingDetailPage() {
   const [busy, setBusy]       = useState(false);
   const navigate              = useNavigate();
   const role                  = state.role;
-  const isCashier             = role === "cashier";
   const isManager             = role === "owner" || role === "manager" || role === "daily_manager";
   const isOwner               = role === "owner";
 
@@ -168,12 +167,14 @@ export default function CashClosingDetailPage() {
             finally  { setBusy(false); }
           }}>Manager sign</Button>
         ) : null}
-        {/* Cashier confirm — counted → signed. Triggers ledger write. */}
-        {isCashier
-          && closing.status === "counted"
+        {/* Cashier confirm — counted → signed. Triggers ledger write.
+            Gated on email match, not role — anyone who's been listed as
+            the cashier on this closing can confirm (owners and managers
+            often run the till themselves). */}
+        {closing.status === "counted"
           && state.email
-          && (!closing.cashierEmail
-              || closing.cashierEmail.toLowerCase() === state.email.toLowerCase()) ? (
+          && closing.cashierEmail
+          && closing.cashierEmail.toLowerCase() === state.email.toLowerCase() ? (
           <Button disabled={busy} onClick={async () => {
             setBusy(true); setErr(null);
             try { await cashierSignClosing(closing.id, state.email!); await reload(); }

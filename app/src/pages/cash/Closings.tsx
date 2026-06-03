@@ -95,19 +95,26 @@ export default function CashClosingsPage() {
     [unitId, isCashier]);
 
   // What requires *this user's* attention right now.
+  //
+  // Cashier-style attention is keyed off the email recorded on the
+  // closing, not the user's role — anyone listed as the cashier on till
+  // (often the owner in a single-screen op) gets the confirm prompt.
   const pendingForMe = useMemo(() => {
-    if (isCashier) {
-      const myEmail = (state.email ?? "").toLowerCase();
-      return rows.filter((r) =>
-        r.status === "counted"
-        && (!r.cashierEmail || r.cashierEmail.toLowerCase() === myEmail)
-      );
-    }
+    const myEmail = (state.email ?? "").toLowerCase();
+    const awaitingMyConfirm = rows.filter((r) =>
+      r.status === "counted"
+      && r.cashierEmail
+      && r.cashierEmail.toLowerCase() === myEmail
+    );
+    if (isCashier) return awaitingMyConfirm;
     if (isManager) {
-      // Manager attention: their own drafts that haven't been signed yet.
-      return rows.filter((r) => r.status === "draft");
+      // Manager attention: their own drafts + any closing waiting on
+      // their confirmation. Drafts come first because they're the
+      // active workflow step.
+      const drafts = rows.filter((r) => r.status === "draft");
+      return [...drafts, ...awaitingMyConfirm];
     }
-    return [];
+    return awaitingMyConfirm;
   }, [rows, isCashier, isManager, state.email]);
 
   function openNew() {
