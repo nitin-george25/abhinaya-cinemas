@@ -17,11 +17,15 @@ import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { fmtINR } from "../../lib/dashboard";
 import {
   approvePaymentRequest,
+  createManualLedgerEntry,
   createPaymentRequest,
+  listParties,
   listPaymentRequests,
   markPaymentRequestPaid,
   rejectPaymentRequest,
+  uploadCashSlip,
   uploadPaymentReceipt,
+  type Party,
   type PaymentRequest,
   type PaymentRequestMode,
 } from "../../lib/cash";
@@ -206,6 +210,17 @@ export default function CashPaymentsPage() {
         </Card>
       ) : null}
 
+      {/* Money in — accountant logs non-POS income directly into the bank
+          ledger. Refunds, franchise, owner top-ups, deposits returned. */}
+      {(isAccountant || canApproveAll || canApproveLow) && refs.bankAccounts.length > 0 && state.cinemaId ? (
+        <MoneyInSection
+          cinemaId={state.cinemaId}
+          bankAccounts={refs.bankAccounts}
+          userEmail={state.email}
+          onError={setErr}
+        />
+      ) : null}
+
       <Section
         title="Pending approval"
         rows={pending}
@@ -227,6 +242,122 @@ export default function CashPaymentsPage() {
       />
       <Section title="Closed" rows={closed} />
     </div>
+  );
+}
+
+/**
+ * "Money in" — accountant-side form for logging non-POS income directly
+ * to the bank ledger. Uses createManualLedgerEntry which writes a
+ * `manual_income` row. Slip upload optional but encouraged.
+ */
+function MoneyInSection({
+  cinemaId,
+  bankAccounts,
+  userEmail,
+  onError,
+}: {
+  cinemaId: string;
+  bankAccounts: { id: string; name: string; isPrimary: boolean }[];
+  userEmail: string | null;
+  onError: (m: string) => void;
+}) {
+  const [parties, setParties]   = useState<Party[]>([]);
+  const [bankId, setBankId]     = useState<string>("");
+  const [date, setDate]         = useState<string>(new Date().toISOString().slice(0, 10));
+  const [amount, setAmount]     = useState<string>("");
+  const [partyId, setPartyId]   = useState<string>("");
+  const [narration, setNarr]    = useState<string>("");
+  const [reference, setRef]     = useState<string>("");
+  const [file, setFile]         = useState<File | null>(null);
+  const [busy, setBusy]         = useState(false);
+  const [ok, setOk]             = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void listParties(cinemaId).then((p) => alive && setParties(p));
+    return () => { alive = false; };
+  }, [cinemaId]);
+
+  useEffect(() => {
+    if (bankId) return;
+    const primary = bankAccounts.find((b) => b.isPrimary) ?? bankAccounts[0];
+    if (primary) setBankId(primary.id);
+  }, [bankAccounts, bankId]);
+
+  async function submit() {
+    if (!userEmail) return;
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { onError("Enter the amount."); return; }
+    if (!bankId)          { onError("Pick a bank account."); return; }
+    if (!narration.trim()) { onError("Enter a narration."); return; }
+    setBusy(true); setOk(null);
+    try {
+      if (file) await uploadCashSlip(file, userEmail);
+      // The ledger entry itself doesn't carry the slip URL today; if you
+      // need it linkable, attach the URL to the narration for now and
+      // we'll move it onto a column when we add manual_income evidence.
+      await createManualLedgerEntry({
+        bankAccountId: bankId,
+        entryDate:     date,
+        narration:     narration.trim(),
+        amount:        amt,           // positive = receipt
+        partyId:       partyId || null,
+        bankReference: reference || null,
+        createdBy:     userEmail,
+      });
+      setAmount(""); setNarr(""); setRef(""); setPartyId(""); setFile(null);
+      setOk("Logged.");
+    } catch (e) { onError((e as Error).message); }
+    finally    { setBusy(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Money in (other receipts)</CardTitle></CardHeader>
+      <CardBody className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Bank account">
+            <Select value={bankId} onChange={(e) => setBankId(e.target.value)}>
+              {bankAccounts.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}{b.isPrimary ? " · primary" : ""}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Date">
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Amount (₹)">
+            <Input type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </Field>
+          <Field label="From (party)">
+            <Select value={partyId} onChange={(e) => setPartyId(e.target.value)}>
+              <option value="">—</option>
+              {parties.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Bank reference (optional)">
+            <Input value={reference} onChange={(e) => setRef(e.target.value)} />
+          </Field>
+          <Field label="Slip (optional)">
+            <input
+              type="file"
+              accept="image/*,.pdf"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm"
+            />
+          </Field>
+        </div>
+        <Field label="Narration">
+          <Input value={narration} onChange={(e) => setNarr(e.target.value)} placeholder="e.g. franchise income — March" />
+        </Field>
+        {ok ? <div className="text-sm text-emerald-600">{ok}</div> : null}
+        <div className="flex justify-end">
+          <Button disabled={busy} onClick={() => void submit()}>{busy ? "Logging…" : "Log receipt"}</Button>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 

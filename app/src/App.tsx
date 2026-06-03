@@ -26,6 +26,7 @@ import CashClosingDetailPage from "./pages/cash/ClosingDetail";
 import CashPettyPage from "./pages/cash/Petty";
 import CashPettyMinePage from "./pages/cash/PettyMine";
 import CashPaymentsPage from "./pages/cash/Payments";
+import CashSettlementsPage from "./pages/cash/Settlements";
 import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
 
@@ -197,9 +198,10 @@ function AppGate() {
               ) : null}
               {canApprovePayments ? (
                 <>
-                  <Route path="/cash/payments" element={<CashPaymentsPage />} />
-                  <Route path="/cash/ledger"   element={<CashLedgerPage />} />
-                  <Route path="/cash/reports"  element={<CashReportsPage />} />
+                  <Route path="/cash/payments"    element={<CashPaymentsPage />} />
+                  <Route path="/cash/settlements" element={<CashSettlementsPage />} />
+                  <Route path="/cash/ledger"      element={<CashLedgerPage />} />
+                  <Route path="/cash/reports"     element={<CashReportsPage />} />
                 </>
               ) : null}
 

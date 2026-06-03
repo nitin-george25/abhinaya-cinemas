@@ -12,6 +12,8 @@ import type {
   BankLedgerEntryRow,
   CashClosingDenominationRow,
   CashClosingPaymentMethodRow,
+  CashDepositRow,
+  CashDepositStatus,
   ClosingShift,
   ClosingStatus,
   DailyCashClosingRow,
@@ -26,12 +28,16 @@ import type {
   PaymentRequestStatus,
   PettyExpenseRow,
   PettyExpenseStatus,
+  PosSettlementClosingRow,
+  PosSettlementRow,
+  PosSettlementStatus,
 } from "./db-types";
 import type { DateISO } from "./types";
 
 // Re-export the snake-case enum unions so consumers of this module don't
 // have to reach into db-types.
 export type {
+  CashDepositStatus,
   ClosingShift,
   ClosingStatus,
   LedgerSourceKind,
@@ -40,17 +46,20 @@ export type {
   PaymentRequestMode,
   PaymentRequestStatus,
   PettyExpenseStatus,
+  PosSettlementStatus,
 } from "./db-types";
 
 // ── Domain types (camelCase) ────────────────────────────────────────────
 
 export interface OperatingUnit {
-  id:           string;
-  cinemaId:     string;
-  name:         string;
-  kind:         "box_office" | "food_beverage" | "other";
-  displayOrder: number;
-  archivedAt:   string | null;
+  id:                  string;
+  cinemaId:            string;
+  name:                string;
+  kind:                "box_office" | "food_beverage" | "other";
+  displayOrder:        number;
+  archivedAt:          string | null;
+  /** Recommended cash float to retain in till. Migration 10. */
+  defaultFloatAmount:  number;
 }
 
 export interface BankAccount {
@@ -111,8 +120,47 @@ export interface DailyCashClosing {
   managerSignedByEmail:    string | null;
   signedAt:                string | null;
 
+  edcSlipUrl:              string | null;
+
   denominations:           CashDenomination[];
   paymentMethods:          CashClosingPaymentMethod[];
+}
+
+export interface CashDeposit {
+  id:                  string;
+  closingId:           string | null;
+  operatingUnitId:     string;
+  bankAccountId:       string;
+  depositDate:         DateISO;
+  depositedAmount:     number;
+  retainedAmount:      number;
+  slipUrl:             string | null;
+  slipReference:       string | null;
+  depositedByEmail:    string;
+  status:              CashDepositStatus;
+  notes:               string | null;
+  createdAt:           string | null;
+}
+
+export interface PosSettlement {
+  id:                  string;
+  cinemaId:            string;
+  paymentMethodId:     string;
+  bankAccountId:       string;
+  settlementDate:      DateISO;
+  expectedAmount:      number;
+  receivedAmount:      number;
+  feeAmount:           number;
+  bankReference:       string | null;
+  slipUrl:             string | null;
+  notes:               string | null;
+  status:              PosSettlementStatus;
+  receivedByEmail:     string | null;
+  receivedAt:          string | null;
+  /** IDs of closings this settlement covers. Populated from the join
+   *  table by listPosSettlements / getPosSettlement. */
+  closingIds:          string[];
+  createdAt:           string | null;
 }
 
 export interface Party {
@@ -199,6 +247,51 @@ export function mapOperatingUnit(r: OperatingUnitRow): OperatingUnit {
     kind: r.kind,
     displayOrder: r.display_order,
     archivedAt: r.archived_at,
+    defaultFloatAmount: Number(r.default_float_amount ?? 0),
+  };
+}
+
+export function mapCashDeposit(r: CashDepositRow): CashDeposit {
+  return {
+    id: r.id,
+    closingId: r.closing_id,
+    operatingUnitId: r.operating_unit_id,
+    bankAccountId: r.bank_account_id,
+    depositDate: r.deposit_date,
+    depositedAmount: Number(r.deposited_amount ?? 0),
+    retainedAmount: Number(r.retained_amount ?? 0),
+    slipUrl: r.slip_url,
+    slipReference: r.slip_reference,
+    depositedByEmail: r.deposited_by_email,
+    status: r.status,
+    notes: r.notes,
+    createdAt: r.created_at,
+  };
+}
+
+export function mapPosSettlement(
+  r: PosSettlementRow,
+  closings: PosSettlementClosingRow[] = [],
+): PosSettlement {
+  return {
+    id: r.id,
+    cinemaId: r.cinema_id,
+    paymentMethodId: r.payment_method_id,
+    bankAccountId: r.bank_account_id,
+    settlementDate: r.settlement_date,
+    expectedAmount: Number(r.expected_amount ?? 0),
+    receivedAmount: Number(r.received_amount ?? 0),
+    feeAmount: Number(r.fee_amount ?? 0),
+    bankReference: r.bank_reference,
+    slipUrl: r.slip_url,
+    notes: r.notes,
+    status: r.status,
+    receivedByEmail: r.received_by_email,
+    receivedAt: r.received_at,
+    closingIds: closings
+      .filter((c) => c.settlement_id === r.id)
+      .map((c) => c.closing_id),
+    createdAt: r.created_at,
   };
 }
 
@@ -255,6 +348,7 @@ export function mapClosing(
     cashierSignedByEmail: r.cashier_signed_by_email,
     managerSignedByEmail: r.manager_signed_by_email,
     signedAt: r.signed_at,
+    edcSlipUrl: r.edc_slip_url,
     denominations: denoms
       .filter((d) => d.closing_id === r.id)
       .map((d) => ({ denomination: Number(d.denomination), count: d.count })),
@@ -541,6 +635,8 @@ export interface ClosingDraft {
   cashCounted:         number;
   cashDeposited:       number;
   notes?:              string | null;
+  /** Optional same-day EDC settlement slip URL. Migration 10. */
+  edcSlipUrl?:         string | null;
   denominations:       CashDenomination[];
   paymentMethods:      CashClosingPaymentMethod[];
 }
@@ -567,6 +663,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
       cash_counted:         d.cashCounted,
       cash_deposited:       d.cashDeposited,
       notes:                d.notes ?? null,
+      edc_slip_url:         d.edcSlipUrl ?? null,
       updated_at:           new Date().toISOString(),
     }, { onConflict: "operating_unit_id,business_date,shift" })
     .select("id")
@@ -1083,4 +1180,268 @@ export function cashTotalFromMethods(
   const cashIds = new Set(methods.filter((m) => m.flowType === "cash").map((m) => m.id));
   return rows.filter((r) => cashIds.has(r.paymentMethodId))
              .reduce((sum, r) => sum + (r.amount || 0), 0);
+}
+
+// ── Cash deposits ───────────────────────────────────────────────────────
+
+/**
+ * Upload a cash-deposit or settlement slip to the `cash-slips` bucket.
+ * One helper for both cases since they share the bucket + RLS.
+ */
+export async function uploadCashSlip(
+  file: File,
+  uploaderEmail: string,
+): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop() ?? "jpg";
+  const path = `${uploaderEmail}/${Date.now()}.${ext}`;
+  const { error } = await sb.storage
+    .from("cash-slips")
+    .upload(path, file, { upsert: false });
+  if (error) throw new Error(error.message);
+  const { data } = sb.storage.from("cash-slips").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export interface CashDepositFilter {
+  operatingUnitId?: string;
+  closingId?:       string;
+  status?:          CashDepositStatus;
+  from?:            DateISO;
+  to?:              DateISO;
+}
+
+export async function listCashDeposits(filter: CashDepositFilter = {}): Promise<CashDeposit[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  let q = sb.from("cash_deposits").select("*").order("deposit_date", { ascending: false });
+  if (filter.operatingUnitId) q = q.eq("operating_unit_id", filter.operatingUnitId);
+  if (filter.closingId) q = q.eq("closing_id", filter.closingId);
+  if (filter.status) q = q.eq("status", filter.status);
+  if (filter.from) q = q.gte("deposit_date", filter.from);
+  if (filter.to) q = q.lte("deposit_date", filter.to);
+  const { data, error } = await q;
+  if (error) {
+    console.warn("[cash] listCashDeposits", error.message);
+    return [];
+  }
+  return (data as CashDepositRow[] | null ?? []).map(mapCashDeposit);
+}
+
+export interface CashDepositDraft {
+  closingId?:         string | null;
+  operatingUnitId:    string;
+  bankAccountId:      string;
+  depositDate:        DateISO;
+  depositedAmount:    number;
+  retainedAmount?:    number;
+  slipUrl?:           string | null;
+  slipReference?:     string | null;
+  depositedByEmail:   string;
+  /** Default 'pending'. Set 'completed' to insert + immediately write
+   *  the ledger row (the insert trigger handles that path). */
+  status?:            CashDepositStatus;
+  notes?:             string | null;
+}
+
+export async function createCashDeposit(d: CashDepositDraft): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (!d.depositedAmount || d.depositedAmount <= 0) {
+    throw new Error("Deposit amount must be greater than zero.");
+  }
+  const { data, error } = await sb
+    .from("cash_deposits")
+    .insert({
+      closing_id:          d.closingId ?? null,
+      operating_unit_id:   d.operatingUnitId,
+      bank_account_id:     d.bankAccountId,
+      deposit_date:        d.depositDate,
+      deposited_amount:    d.depositedAmount,
+      retained_amount:     d.retainedAmount ?? 0,
+      slip_url:            d.slipUrl ?? null,
+      slip_reference:      d.slipReference ?? null,
+      deposited_by_email:  d.depositedByEmail,
+      status:              d.status ?? "pending",
+      notes:               d.notes ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "createCashDeposit failed");
+  return (data as { id: string }).id;
+}
+
+/**
+ * Flip a pending deposit to completed. The DB trigger writes the
+ * matching bank_ledger_entries row on this transition.
+ */
+export async function markCashDepositCompleted(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("cash_deposits")
+    .update({ status: "completed", updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function cancelCashDeposit(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("cash_deposits")
+    .update({ status: "cancelled", updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// ── POS settlements ─────────────────────────────────────────────────────
+
+export interface PosSettlementFilter {
+  status?:           PosSettlementStatus;
+  paymentMethodId?:  string;
+  from?:             DateISO;
+  to?:               DateISO;
+}
+
+export async function listPosSettlements(filter: PosSettlementFilter = {}): Promise<PosSettlement[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  let q = sb.from("pos_settlements").select("*").order("settlement_date", { ascending: false });
+  if (filter.status) q = q.eq("status", filter.status);
+  if (filter.paymentMethodId) q = q.eq("payment_method_id", filter.paymentMethodId);
+  if (filter.from) q = q.gte("settlement_date", filter.from);
+  if (filter.to) q = q.lte("settlement_date", filter.to);
+  const { data, error } = await q;
+  if (error) {
+    console.warn("[cash] listPosSettlements", error.message);
+    return [];
+  }
+  const rows = (data as PosSettlementRow[] | null) ?? [];
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  const { data: links } = await sb
+    .from("pos_settlement_closings")
+    .select("*")
+    .in("settlement_id", ids);
+  const linkRows = (links as PosSettlementClosingRow[] | null) ?? [];
+  return rows.map((r) => mapPosSettlement(r, linkRows));
+}
+
+export interface PosSettlementDraft {
+  cinemaId:          string;
+  paymentMethodId:   string;
+  bankAccountId:     string;
+  settlementDate:    DateISO;
+  expectedAmount:    number;
+  receivedAmount?:   number;
+  feeAmount?:        number;
+  bankReference?:    string | null;
+  slipUrl?:          string | null;
+  notes?:            string | null;
+  /** Closings this settlement covers (m:n). */
+  closingIds:        string[];
+}
+
+export async function createPosSettlement(d: PosSettlementDraft): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("pos_settlements")
+    .insert({
+      cinema_id:          d.cinemaId,
+      payment_method_id:  d.paymentMethodId,
+      bank_account_id:    d.bankAccountId,
+      settlement_date:    d.settlementDate,
+      expected_amount:    d.expectedAmount,
+      received_amount:    d.receivedAmount ?? 0,
+      fee_amount:         d.feeAmount ?? 0,
+      bank_reference:     d.bankReference ?? null,
+      slip_url:           d.slipUrl ?? null,
+      notes:              d.notes ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "createPosSettlement failed");
+  const id = (data as { id: string }).id;
+  if (d.closingIds.length > 0) {
+    await sb.from("pos_settlement_closings").insert(
+      d.closingIds.map((closingId) => ({ settlement_id: id, closing_id: closingId })),
+    );
+  }
+  return id;
+}
+
+/**
+ * Flip a pending settlement to received with the actual numbers + slip.
+ * The DB trigger writes the matching bank_ledger_entries row.
+ */
+export async function markPosSettlementReceived(
+  id: string,
+  receivedByEmail: string,
+  patch: {
+    receivedAmount: number;
+    feeAmount?:     number;
+    bankReference?: string | null;
+    slipUrl?:       string | null;
+  },
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("pos_settlements")
+    .update({
+      status:              "received",
+      received_amount:     patch.receivedAmount,
+      fee_amount:          patch.feeAmount ?? 0,
+      bank_reference:      patch.bankReference ?? null,
+      slip_url:            patch.slipUrl ?? null,
+      received_by_email:   receivedByEmail,
+      received_at:         new Date().toISOString(),
+      updated_at:          new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// ── Settings helpers ────────────────────────────────────────────────────
+
+/**
+ * Update the operating unit's default float amount — what we suggest the
+ * shift manager keep behind in the till after a deposit.
+ */
+export async function updateOperatingUnitFloat(
+  id: string,
+  amount: number,
+  updatedBy: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("operating_units")
+    .update({
+      default_float_amount: amount,
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Set the bank account a payment method settles into. Used by Settings →
+ * Cash → Payment methods to pre-fill the bank picker on POS settlements.
+ */
+export async function updatePaymentMethodBank(
+  methodId: string,
+  bankAccountId: string | null,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("payment_methods")
+    .update({ receives_into_bank: bankAccountId })
+    .eq("id", methodId);
+  if (error) throw new Error(error.message);
 }
