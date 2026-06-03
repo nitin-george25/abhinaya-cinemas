@@ -224,6 +224,7 @@ export function composeCatalogFromRows(args: {
       distributor: m.distributor ?? undefined,
       release: m.release_date ?? undefined,
       share: Number(m.share_pct),
+      posterUrl: m.poster_url ?? undefined,
     }));
 
   const ssClassesByStart = groupBy(args.serialStartClasses, (r) => r.serial_start_id);
@@ -365,6 +366,7 @@ export async function pushCatalogDeltas(
     distributor: m.distributor ?? null,
     release_date: m.release ?? null,
     share_pct: m.share,
+    poster_url: m.posterUrl ?? null,
     updated_by: email,
   }));
   const wantSerialStarts = next.serialStarts.map((ss) => ({

@@ -42,6 +42,10 @@ export default function CashClosingsPage() {
   const role                  = state.role;
   const isCashier             = role === "cashier";
   const isManager             = role === "owner" || role === "manager" || role === "daily_manager";
+  // Per migration 12, RLS narrows the result set for cashier (own
+  // assignments) and daily_manager (own creations). Both should see a
+  // "My closings" header instead of "All closings".
+  const isOwnScope            = isCashier || role === "daily_manager";
 
   const [unitId, setUnitId]   = useState<string>("");
   const [rows, setRows]       = useState<DailyCashClosing[]>([]);
@@ -193,7 +197,7 @@ export default function CashClosingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {isCashier ? "My closings" : "All closings"}
+            {isOwnScope ? "My closings" : "All closings"}
           </CardTitle>
         </CardHeader>
 
