@@ -58,21 +58,11 @@ cat > dist/_redirects <<'REDIRECTS'
 /admin/dcr/*    /admin/dcr/index.html   200
 REDIRECTS
 
-# Friendly landing at /  →  the new console
-cat > dist/index.html <<'HTML'
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Abhinaya Cinemas</title>
-    <meta http-equiv="refresh" content="0; url=/admin/dcr/" />
-    <meta name="robots" content="noindex" />
-  </head>
-  <body>
-    <p><a href="/admin/dcr/">Open the console</a></p>
-  </body>
-</html>
-HTML
+# Public landing page at /  →  marketing site (Now Showing, Coming Soon,
+# Legacy, Gallery, Contact). Pulls movies live from Supabase.
+cp index.html dist/index.html
+mkdir -p dist/site
+cp -R site/. dist/site/
 
 echo "==> Done"
 ls -la dist

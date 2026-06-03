@@ -1,0 +1,44 @@
+/* Hero — "Where Legacy Meets the Silver Screen". */
+function Hero({ onPlay, onBook }) {
+  return (
+    <section style={{ position: 'relative', minHeight: 'min(92vh, 760px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', textAlign: 'center', padding: '120px 24px 80px' }}>
+      {/* film-still backdrop */}
+      <ImgSlot label="hero film still — full bleed" ratio="auto" radius="0" style={{
+        position: 'absolute', inset: 0, aspectRatio: 'auto',
+      }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 90% at 50% 30%, rgba(21,21,21,0.35), rgba(21,21,21,0.92) 78%)' }} />
+      </ImgSlot>
+
+      {/* projector lens rings */}
+      <LensRings size={620} style={{ position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.5, pointerEvents: 'none' }} />
+
+      <div style={{ position: 'relative', maxWidth: 1000 }}>
+        <div className="eyebrow" style={{ marginBottom: 22 }}>Abhinaya Cinemas · Kottayam</div>
+        <h1 className="display" style={{ fontSize: 'clamp(3rem, 9vw, 7rem)', margin: 0 }}>
+          Where Legacy Meets<br />The Silver <span className="screen-text">Screen</span>
+        </h1>
+        <p className="lead" style={{ maxWidth: 680, margin: '26px auto 0' }}>
+          For over 50 years, more than just a theatre — a cultural landmark where stories
+          come alive, memories are made, and communities gather.
+        </p>
+        <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 38, flexWrap: 'wrap' }}>
+          <Button variant="primary" size="lg" icon="ticket" onClick={onBook}>Book Tickets</Button>
+          <Button variant="ghost" size="lg" icon="play" onClick={onPlay}>Watch Trailer</Button>
+        </div>
+      </div>
+
+      {/* play affordance + scroll hint */}
+      <button onClick={onPlay} aria-label="Play trailer" style={{
+        position: 'relative', marginTop: 54, width: 74, height: 74, borderRadius: '50%',
+        border: '1.5px solid var(--border-strong)', background: 'rgba(246,245,236,0.06)', color: 'var(--fg)',
+        cursor: 'pointer', display: 'grid', placeItems: 'center', backdropFilter: 'blur(4px)', transition: 'all .25s var(--ease)',
+      }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--screen-gradient)'; e.currentTarget.style.borderColor = 'transparent'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(246,245,236,0.06)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }}>
+        <Icon name="play" size={26} />
+      </button>
+    </section>
+  );
+}
+
+Object.assign(window, { Hero });
