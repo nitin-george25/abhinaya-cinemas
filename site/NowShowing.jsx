@@ -45,8 +45,8 @@ function MovieCard({ m, onBook }) {
         </div>
         {m.times.length > 0 ? (
           <div style={{ display: 'flex', gap: 7, marginTop: 16, flexWrap: 'wrap' }}>
-            {m.times.slice(0, 3).map((t) => <Pill key={t} onClick={() => onBook(m, t)}>{t}</Pill>)}
-            {m.times.length > 3 && <Pill dim onClick={() => onBook(m, m.times[3])}>+{m.times.length - 3}</Pill>}
+            {m.times.slice(0, 3).map((t) => <Pill key={t} onClick={openBms}>{t}</Pill>)}
+            {m.times.length > 3 && <Pill dim onClick={openBms}>+{m.times.length - 3}</Pill>}
           </div>
         ) : (
           <div style={{ marginTop: 16 }}><Button size="sm" variant="quiet" icon="bell">Notify Me</Button></div>

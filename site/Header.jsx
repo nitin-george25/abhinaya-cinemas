@@ -1,5 +1,5 @@
 /* Header / navigation bar with mobile drawer. */
-const NAV = ['Now Showing', 'Coming Soon', 'About Us', 'Legacy', 'Gallery', 'Contact'];
+const NAV = ['Now Showing', 'Coming Soon', 'Legacy', 'Gallery', 'Careers', 'Contact'];
 
 function Header({ active, onNav }) {
   const [open, setOpen] = useState(false);
@@ -33,7 +33,7 @@ function Header({ active, onNav }) {
         </nav>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div className="kit-desktop-nav"><Button size="sm" variant="primary" icon="ticket" onClick={() => onNav('Now Showing')}>Book</Button></div>
+          <div className="kit-desktop-nav"><Button size="sm" variant="primary" icon="ticket" onClick={openBms}>Book</Button></div>
           <button onClick={() => setOpen(true)} aria-label="Menu" style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer', display: 'inline-flex' }}>
             <Icon name="menu" size={26} />
           </button>

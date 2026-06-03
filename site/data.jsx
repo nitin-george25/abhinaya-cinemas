@@ -19,7 +19,8 @@ const SUPABASE_ANON =
 
 const STANDARD_SHOWTIMES = ['10:15 AM', '01:30 PM', '06:15 PM', '09:30 PM'];
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+window.sbClient = sbClient;
 
 /* Format YYYY-MM-DD into "MMM DD" (e.g. "Sep 12"). */
 function formatReleaseDate(iso) {
@@ -62,7 +63,7 @@ function rowToCard(row, isComingSoon) {
 async function loadMovies() {
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data, error } = await supabase
+  const { data, error } = await sbClient
     .from('movies')
     .select('id,name,distributor,release_date,language,certification,poster_url,archived_at')
     .is('archived_at', null)

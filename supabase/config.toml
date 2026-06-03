@@ -34,3 +34,8 @@ verify_jwt = true
 
 [functions.weekly-digest]
 verify_jwt = true
+
+[functions.contact]
+# Publicly callable from the marketing site — no auth required. The apikey
+# header (anon key) is still enforced by the platform.
+verify_jwt = false

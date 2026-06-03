@@ -13,7 +13,6 @@ function Hero({ onPlay, onBook }) {
       <LensRings size={620} style={{ position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.5, pointerEvents: 'none' }} />
 
       <div style={{ position: 'relative', maxWidth: 1000 }}>
-        <div className="eyebrow" style={{ marginBottom: 22 }}>Abhinaya Cinemas · Kottayam</div>
         <h1 className="display" style={{ fontSize: 'clamp(3rem, 9vw, 7rem)', margin: 0 }}>
           Where Legacy Meets<br />The Silver <span className="screen-text">Screen</span>
         </h1>
@@ -22,7 +21,7 @@ function Hero({ onPlay, onBook }) {
           come alive, memories are made, and communities gather.
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 38, flexWrap: 'wrap' }}>
-          <Button variant="primary" size="lg" icon="ticket" onClick={onBook}>Book Tickets</Button>
+          <Button variant="primary" size="lg" icon="ticket" onClick={openBms}>Book Tickets</Button>
           <Button variant="ghost" size="lg" icon="play" onClick={onPlay}>Watch Trailer</Button>
         </div>
       </div>
