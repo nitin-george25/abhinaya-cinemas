@@ -1,0 +1,205 @@
+/* ============================================================
+   ABHINAYA CINEMAS — Color & Type Foundations
+   Born in Kottayam, Kerala · 50 years of stories, redefined.
+   Brand is DARK-FIRST: warm near-black ground, cream ink,
+   a red→orange "screen" accent, and the RGB projector beam.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500;600&family=Fredoka:wght@400;500;600;700&display=swap');
+
+/* ------------------------------------------------------------
+   Pontiac (DEMO build — licensed version arriving shortly).
+   The demo watermarks NUMERALS with a "DEMO" glyph, so every
+   face is scoped with a unicode-range that EXCLUDES digits 0–9
+   (U+0030–0039) and "+" (U+002B). Those characters fall through
+   to Fredoka — which is why Fredoka stays second in the stack.
+   When the licensed files land: drop the unicode-range lines and
+   swap the four src URLs. See README §8.
+   ------------------------------------------------------------ */
+@font-face {
+  font-family: 'Pontiac'; font-weight: 300; font-style: normal; font-display: swap;
+  src: url('fonts/pontiac-light.otf') format('opentype');
+  unicode-range: U+0-2A, U+2C-2F, U+3A-10FFFF;
+}
+@font-face {
+  font-family: 'Pontiac'; font-weight: 400; font-style: normal; font-display: swap;
+  src: url('fonts/pontiac-regular.otf') format('opentype');
+  unicode-range: U+0-2A, U+2C-2F, U+3A-10FFFF;
+}
+@font-face {
+  font-family: 'Pontiac'; font-weight: 700; font-style: normal; font-display: swap;
+  src: url('fonts/pontiac-bold.otf') format('opentype');
+  unicode-range: U+0-2A, U+2C-2F, U+3A-10FFFF;
+}
+@font-face {
+  font-family: 'Pontiac'; font-weight: 900; font-style: normal; font-display: swap;
+  src: url('fonts/pontiac-black.otf') format('opentype');
+  unicode-range: U+0-2A, U+2C-2F, U+3A-10FFFF;
+}
+
+:root {
+  /* ---- Brand palette (verbatim from brand book) ---- */
+  --cod-gray:        #151515; /* near-black ground            */
+  --spring-wood:     #F6F5EC; /* warm cream — primary ink     */
+  --white:           #F7F7F7; /* cool white                   */
+  --red-orange:      #FF3720; /* primary accent / beam red    */
+  --flush-orange:    #FF7F00; /* "screen" gradient end        */
+  --selective-yellow:#FFB600; /* beam yellow                  */
+  --lochmara:        #008BDC; /* beam blue                    */
+  --chartreuse:      #A7C01B; /* utility green                */
+
+  /* ---- Neutral ramp (warm, derived from Cod Gray) ---- */
+  --ink-950: #0E0E0D;
+  --ink-900: #151515;  /* = Cod Gray */
+  --ink-850: #1C1C1A;  /* card / surface on dark */
+  --ink-800: #242422;  /* elevated surface, hairlines */
+  --ink-700: #34332F;  /* borders on dark */
+  --ink-500: #6E6C64;  /* muted ink */
+  --ink-300: #B8B5A8;
+  --ink-100: #ECEAE0;
+
+  /* ---- Semantic (dark theme is the default brand context) ---- */
+  --bg:            var(--cod-gray);
+  --bg-surface:    var(--ink-850);
+  --bg-elevated:   var(--ink-800);
+  --fg:            var(--spring-wood);
+  --fg-muted:      rgba(246, 245, 236, 0.60);
+  --fg-faint:      rgba(246, 245, 236, 0.38);
+  --border:        rgba(246, 245, 236, 0.12);
+  --border-strong: rgba(246, 245, 236, 0.24);
+
+  --accent:        var(--red-orange);
+  --accent-press:  #E22D17;
+  --on-accent:     var(--spring-wood);
+
+  /* Signature "silver screen" gradient (used on key words & CTAs) */
+  --screen-gradient: linear-gradient(90deg, var(--red-orange) 0%, var(--flush-orange) 100%);
+  /* The projector beam (logo) */
+  --beam-gradient: linear-gradient(90deg, var(--red-orange), var(--selective-yellow), var(--lochmara));
+
+  /* ---- Type families ---- */
+  /* Display = Pontiac (DEMO build wired via @font-face above; digits fall back
+     to Fredoka to dodge the demo's numeral watermark). Licensed files land in
+     ~1 week — then remove the unicode-range scoping. See README §8. */
+  --font-display: 'Pontiac', 'Fredoka', 'Barlow Condensed', system-ui, sans-serif;
+  --font-text:    'Barlow Condensed', 'Barlow', system-ui, sans-serif;             /* UI, body, labels */
+  --font-body:    'Barlow', system-ui, sans-serif;                                 /* long-form reading */
+
+  /* ---- Type scale (cinema-poster rhythm: big, condensed, uppercase) ---- */
+  --step--1: 0.833rem;
+  --step-0:  1rem;       /* 16px base */
+  --step-1:  1.25rem;
+  --step-2:  1.6rem;
+  --step-3:  2.25rem;
+  --step-4:  3.25rem;
+  --step-5:  4.75rem;
+  --step-6:  7rem;       /* hero */
+
+  /* ---- Radii — soft, rounded like the logo & seat backs ---- */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+
+  /* ---- Spacing ---- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px; --sp-9: 96px;
+
+  /* ---- Elevation — soft, no harsh edges on the dark ground ---- */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.45);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.55);
+  --glow-accent: 0 0 0 1px rgba(255,55,32,0.35), 0 12px 40px rgba(255,55,32,0.28);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============================================================
+   SEMANTIC TEXT STYLES
+   ============================================================ */
+
+.display, .h0 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.6rem, 7vw, var(--step-6));
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+h1, .h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 5vw, var(--step-5));
+  line-height: 0.95;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+h2, .h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--step-3);
+  line-height: 1.02;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+h3, .h3 {
+  font-family: var(--font-text);
+  font-weight: 700;
+  font-size: var(--step-2);
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+}
+.eyebrow {
+  font-family: var(--font-text);
+  font-weight: 600;
+  font-size: var(--step--1);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.lead {
+  font-family: var(--font-text);
+  font-weight: 400;
+  font-size: var(--step-1);
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+p, .body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+.label, .nav-item {
+  font-family: var(--font-text);
+  font-weight: 600;
+  font-size: var(--step--1);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.meta {
+  font-family: var(--font-text);
+  font-weight: 500;
+  font-size: var(--step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* The signature treatment: a hot word rendered in the screen gradient */
+.screen-text {
+  background: var(--screen-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

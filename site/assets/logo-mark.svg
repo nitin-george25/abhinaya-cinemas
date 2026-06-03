@@ -1,0 +1,9 @@
+<svg width="120" height="110" viewBox="0 0 120 110" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Abhinaya Cinemas">
+  <g fill="none" stroke-linecap="round">
+    <path d="M46 1.5 H70 A32.5 32.5 0 0 1 102.5 34 V98" stroke="#008BDC" stroke-width="5"></path>
+    <path d="M48 7.5 H70 A26.5 26.5 0 0 1 96.5 34 V98" stroke="#FFB600" stroke-width="5"></path>
+    <path d="M50 13.5 H70 A20.5 20.5 0 0 1 90.5 34 V98" stroke="#FF3720" stroke-width="5"></path>
+  </g>
+  <path d="M12 16 V26 M12 26 H70 A8 8 0 0 1 78 34 V95" stroke="currentColor" stroke-width="17" stroke-linecap="round" fill="none"></path>
+  <circle cx="42" cy="71" r="25" stroke="currentColor" stroke-width="14" fill="none"></circle>
+</svg>
