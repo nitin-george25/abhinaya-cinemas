@@ -171,9 +171,10 @@ function AppGate() {
                   <Route path="/settings/movies"  element={<SettingsMoviesPage />} />
                   <Route path="/settings/screens" element={<SettingsScreensPage />} />
                   <Route path="/settings/tax"     element={<SettingsTaxPage />} />
-                  {role === "owner" ? (
-                    <Route path="/settings/users" element={<SettingsUsersPage />} />
-                  ) : null}
+                  {/* Users page is now owner OR manager. Manager scope is
+                      enforced inside the UsersSection + admin-users Edge
+                      Function — they can only manage cashier + daily_manager. */}
+                  <Route path="/settings/users" element={<SettingsUsersPage />} />
                 </>
               ) : null}
 
