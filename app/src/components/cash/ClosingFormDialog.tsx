@@ -30,17 +30,22 @@ import {
   cashTotalFromMethods,
   cashierSignClosing,
   computeDiscrepancy,
+  createCashDeposit,
   getClosing,
+  listCashDeposits,
   listCashierUsers,
   listClosings,
   listPettyExpenses,
+  markCashDepositCompleted,
   signClosing,
   totalFromDenominations,
   totalFromPaymentMethods,
+  uploadCashSlip,
   upsertClosing,
   type AuthorizedUserSummary,
   type CashClosingPaymentMethod,
   type CashDenomination,
+  type CashDeposit,
   type ClosingShift,
   type DailyCashClosing,
 } from "../../lib/cash";
@@ -137,6 +142,24 @@ function DialogBody({
   const [saving, setSaving]         = useState(false);
   const [err, setErr]               = useState<string | null>(null);
 
+  // ── Phase 10 fields ──────────────────────────────────────────────────
+  /** Optional EDC slip captured at closing time (separate from any later
+   *  POS settlement record). Stored at the closing row level. */
+  const [edcFile, setEdcFile]       = useState<File | null>(null);
+  const [edcSlipUrl, setEdcSlipUrl] = useState<string | null>(null);
+
+  /** Existing cash deposit attached to this closing, if any. */
+  const [deposit, setDeposit]               = useState<CashDeposit | null>(null);
+  /** Deposit-form inputs. Default amounts back-fill from the closing
+   *  numbers + the unit's recommended float. */
+  const [depositDate, setDepositDate]       = useState<string>(todayIso());
+  const [depositAmount, setDepositAmount]   = useState<string>("");
+  const [retainedAmount, setRetainedAmount] = useState<string>("");
+  const [depositBankId, setDepositBankId]   = useState<string>("");
+  const [depositRef, setDepositRef]         = useState<string>("");
+  const [depositFile, setDepositFile]       = useState<File | null>(null);
+  const [depositSaving, setDepositSaving]   = useState(false);
+
   // Default unit once refs load.
   useEffect(() => {
     if (!unitId && refs.units.length > 0) {
@@ -168,6 +191,7 @@ function DialogBody({
       setExisting(found);
       setCashier(found.cashierEmail ?? "");
       setNotes(found.notes ?? "");
+      setEdcSlipUrl(found.edcSlipUrl ?? null);
       setMethods(
         refs.paymentMethods.map((m) => ({
           paymentMethodId: m.id,
@@ -185,6 +209,42 @@ function DialogBody({
     });
     return () => { alive = false; };
   }, [existingId, refs.paymentMethods]);
+
+  // Hydrate any existing deposit record tied to this closing.
+  useEffect(() => {
+    if (!existing) {
+      setDeposit(null);
+      return;
+    }
+    let alive = true;
+    void listCashDeposits({ closingId: existing.id }).then((rows) => {
+      if (!alive) return;
+      setDeposit(rows[0] ?? null);
+    });
+    return () => { alive = false; };
+  }, [existing]);
+
+  // Default deposit bank to the unit's primary account once refs load.
+  useEffect(() => {
+    if (depositBankId) return;
+    const primary = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
+    if (primary) setDepositBankId(primary.id);
+  }, [refs.bankAccounts, depositBankId]);
+
+  // Pre-fill deposit + retained amounts based on the closing's cash count
+  // and the operating unit's recommended float. Runs once per closing
+  // (or never if the form is in the cashier-confirm-only path).
+  useEffect(() => {
+    if (deposit) return;            // existing deposit overrides defaults
+    if (!existing) return;
+    if (depositAmount !== "" || retainedAmount !== "") return;
+    const unit = refs.units.find((u) => u.id === existing.operatingUnitId);
+    const recommendedFloat = unit?.defaultFloatAmount ?? 0;
+    const cashInTill = existing.cashCounted ?? 0;
+    const toDeposit = Math.max(cashInTill - recommendedFloat - existing.pettyExpensesPaid, 0);
+    setDepositAmount(String(toDeposit || ""));
+    setRetainedAmount(String(recommendedFloat || ""));
+  }, [deposit, existing, refs.units, depositAmount, retainedAmount]);
 
   // For new-closing flow, surface a non-blocking conflict notice when the
   // current (unit, date, shift) tuple already has a closing — but do NOT
@@ -281,6 +341,12 @@ function DialogBody({
     setSaving(true);
     setErr(null);
     try {
+      // If the manager picked an EDC slip file, upload it first so the
+      // closing row can persist the URL in the same save.
+      let nextEdcUrl = edcSlipUrl;
+      if (edcFile) {
+        nextEdcUrl = await uploadCashSlip(edcFile, state.email);
+      }
       const id = await upsertClosing({
         operatingUnitId: unitId,
         businessDate,
@@ -292,6 +358,7 @@ function DialogBody({
         cashCounted,
         cashDeposited: existing?.cashDeposited ?? 0,
         notes,
+        edcSlipUrl: nextEdcUrl,
         denominations: denoms.filter((d) => d.count > 0),
         paymentMethods: methods.filter((m) => m.amount > 0),
       });
@@ -300,12 +367,62 @@ function DialogBody({
       if (signAfter && isManager) await signClosing(id, state.email);
       const fresh = await getClosing(id);
       setExisting(fresh);
+      setEdcSlipUrl(fresh?.edcSlipUrl ?? null);
+      setEdcFile(null);
       onSaved?.();
       if (signAfter) onClose();
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── Deposit handlers ─────────────────────────────────────────────────
+  async function handleSaveDeposit() {
+    if (!state.email || !existing || !depositBankId) return;
+    const amt = Number(depositAmount);
+    if (!amt || amt <= 0) { setErr("Enter the deposit amount."); return; }
+    const retained = Number(retainedAmount) || 0;
+    setDepositSaving(true); setErr(null);
+    try {
+      let url: string | null = null;
+      if (depositFile) url = await uploadCashSlip(depositFile, state.email);
+      const id = await createCashDeposit({
+        closingId:        existing.id,
+        operatingUnitId:  existing.operatingUnitId,
+        bankAccountId:    depositBankId,
+        depositDate:      depositDate || todayIso(),
+        depositedAmount:  amt,
+        retainedAmount:   retained,
+        slipUrl:          url,
+        slipReference:    depositRef || null,
+        depositedByEmail: state.email,
+        status:           "pending",
+      });
+      const rows = await listCashDeposits({ closingId: existing.id });
+      setDeposit(rows.find((r) => r.id === id) ?? rows[0] ?? null);
+      setDepositFile(null);
+      onSaved?.();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setDepositSaving(false);
+    }
+  }
+
+  async function handleMarkDeposited() {
+    if (!deposit) return;
+    setDepositSaving(true); setErr(null);
+    try {
+      await markCashDepositCompleted(deposit.id);
+      const rows = await listCashDeposits({ closingId: deposit.closingId ?? "" });
+      setDeposit(rows[0] ?? null);
+      onSaved?.();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setDepositSaving(false);
     }
   }
 
@@ -479,6 +596,46 @@ function DialogBody({
         </div>
       </div>
 
+      {/* EDC settlement slip — same-day evidence captured at closing time.
+          The accountant logs the actual payout later as a pos_settlement
+          record, which can also carry its own slip. */}
+      <Field label="EDC / POS settlement slip (optional)">
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          disabled={lockedForManager}
+          onChange={(e) => setEdcFile(e.target.files?.[0] ?? null)}
+          className="block w-full text-sm disabled:opacity-50"
+        />
+        {edcFile ? (
+          <div className="text-xs text-ink-muted mt-1 truncate">{edcFile.name}</div>
+        ) : edcSlipUrl ? (
+          <div className="text-xs mt-1">
+            <a className="text-amber-600 underline" href={edcSlipUrl} target="_blank" rel="noreferrer">
+              View uploaded slip
+            </a>
+          </div>
+        ) : null}
+      </Field>
+
+      {/* Bank deposit sub-panel — only relevant once the closing exists. */}
+      {existing && isManager ? (
+        <DepositPanel
+          existing={existing}
+          deposit={deposit}
+          bankAccounts={refs.bankAccounts}
+          depositDate={depositDate}    setDepositDate={setDepositDate}
+          depositAmount={depositAmount} setDepositAmount={setDepositAmount}
+          retainedAmount={retainedAmount} setRetainedAmount={setRetainedAmount}
+          depositBankId={depositBankId} setDepositBankId={setDepositBankId}
+          depositRef={depositRef}      setDepositRef={setDepositRef}
+          depositFile={depositFile}    setDepositFile={setDepositFile}
+          saving={depositSaving}
+          onSave={() => void handleSaveDeposit()}
+          onMarkDeposited={() => void handleMarkDeposited()}
+        />
+      ) : null}
+
       {/* Notes */}
       <Field label="Notes">
         <Input value={notes} disabled={lockedForManager} onChange={(e) => setNotes(e.target.value)} />
@@ -533,6 +690,155 @@ function DialogBody({
           </Button>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Bank deposit sub-panel. Shown to manager-tier roles when a closing
+ * exists. Two states:
+ *
+ *   • No deposit yet — form to record amount/retained/slip/reference.
+ *     Save creates a row with status='pending'.
+ *   • Pending deposit exists — show the saved values and a
+ *     "Mark deposited" button which flips status to completed and
+ *     triggers the bank-ledger write.
+ *   • Completed — read-only summary.
+ */
+function DepositPanel({
+  existing,
+  deposit,
+  bankAccounts,
+  depositDate, setDepositDate,
+  depositAmount, setDepositAmount,
+  retainedAmount, setRetainedAmount,
+  depositBankId, setDepositBankId,
+  depositRef, setDepositRef,
+  depositFile, setDepositFile,
+  saving,
+  onSave,
+  onMarkDeposited,
+}: {
+  existing: DailyCashClosing;
+  deposit: CashDeposit | null;
+  bankAccounts: Array<{ id: string; name: string; isPrimary: boolean }>;
+  depositDate: string;     setDepositDate: (v: string) => void;
+  depositAmount: string;   setDepositAmount: (v: string) => void;
+  retainedAmount: string;  setRetainedAmount: (v: string) => void;
+  depositBankId: string;   setDepositBankId: (v: string) => void;
+  depositRef: string;      setDepositRef: (v: string) => void;
+  depositFile: File | null; setDepositFile: (f: File | null) => void;
+  saving: boolean;
+  onSave: () => void;
+  onMarkDeposited: () => void;
+}) {
+  const _ = existing; void _;            // referenced for future cash-counted hints
+  const completed = deposit?.status === "completed";
+  const pending   = deposit?.status === "pending";
+
+  return (
+    <div className="rounded-lg border border-line p-3 sm:p-4 space-y-3 bg-paper">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-sm font-semibold">Bank deposit</div>
+        {deposit ? (
+          <span className={
+            "text-xs px-2 py-0.5 rounded " +
+            (completed ? "bg-emerald-100 text-emerald-700"
+              : pending ? "bg-amber-100 text-amber-700"
+              : "bg-paper-card text-ink-muted")
+          }>
+            {deposit.status}
+          </span>
+        ) : null}
+      </div>
+
+      {deposit ? (
+        // Saved deposit view (pending or completed).
+        <div className="space-y-2 text-sm">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <span className="text-ink-muted">Date</span>
+            <span className="text-right">{deposit.depositDate}</span>
+            <span className="text-ink-muted">Deposited</span>
+            <span className="text-right tabular-nums">₹ {deposit.depositedAmount.toLocaleString("en-IN")}</span>
+            <span className="text-ink-muted">Retained</span>
+            <span className="text-right tabular-nums">₹ {deposit.retainedAmount.toLocaleString("en-IN")}</span>
+            {deposit.slipReference ? (
+              <>
+                <span className="text-ink-muted">Reference</span>
+                <span className="text-right truncate">{deposit.slipReference}</span>
+              </>
+            ) : null}
+            {deposit.slipUrl ? (
+              <>
+                <span className="text-ink-muted">Slip</span>
+                <span className="text-right">
+                  <a className="text-amber-600 underline" href={deposit.slipUrl} target="_blank" rel="noreferrer">
+                    view
+                  </a>
+                </span>
+              </>
+            ) : null}
+          </div>
+          {pending ? (
+            <div className="flex justify-end pt-1">
+              <Button size="sm" disabled={saving} onClick={onMarkDeposited}>
+                {saving ? "Marking…" : "Mark deposited at bank"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        // New-deposit form.
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Deposit date">
+              <Input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} />
+            </Field>
+            <Field label="Bank account">
+              <Select value={depositBankId} onChange={(e) => setDepositBankId(e.target.value)}>
+                {bankAccounts.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}{b.isPrimary ? " · primary" : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Amount to deposit (₹)">
+              <Input
+                type="number" inputMode="decimal"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+              />
+            </Field>
+            <Field label="Retained as float (₹)">
+              <Input
+                type="number" inputMode="decimal"
+                value={retainedAmount}
+                onChange={(e) => setRetainedAmount(e.target.value)}
+              />
+            </Field>
+            <Field label="Slip reference">
+              <Input value={depositRef} onChange={(e) => setDepositRef(e.target.value)} />
+            </Field>
+            <Field label="Slip upload">
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => setDepositFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm"
+              />
+              {depositFile ? (
+                <div className="text-xs text-ink-muted mt-1 truncate">{depositFile.name}</div>
+              ) : null}
+            </Field>
+          </div>
+          <div className="flex justify-end pt-1">
+            <Button size="sm" disabled={saving} onClick={onSave}>
+              {saving ? "Saving…" : "Save deposit (pending)"}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

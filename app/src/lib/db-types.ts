@@ -221,15 +221,17 @@ export interface RealtimeVersionRow {
 // Mirror migrations/cash-management/*.sql. All UUID PKs.
 
 export interface OperatingUnitRow {
-  id:             string;
-  cinema_id:      string;
-  name:           string;
-  kind:           "box_office" | "food_beverage" | "other";
-  display_order:  number;
-  archived_at:    string | null;
-  created_at:     string | null;
-  updated_at:     string | null;
-  updated_by:     string | null;
+  id:                     string;
+  cinema_id:              string;
+  name:                   string;
+  kind:                   "box_office" | "food_beverage" | "other";
+  display_order:          number;
+  archived_at:            string | null;
+  /** Recommended cash to retain in the till as float. Migration 10. */
+  default_float_amount:   number;
+  created_at:             string | null;
+  updated_at:             string | null;
+  updated_by:             string | null;
 }
 
 export interface BankAccountRow {
@@ -293,8 +295,58 @@ export interface DailyCashClosingRow {
   resolved_at:              string | null;
   resolved_by_email:        string | null;
 
+  /** Phase 10 — optional URL to a same-day EDC settlement slip. */
+  edc_slip_url:             string | null;
+
   created_at:               string | null;
   updated_at:               string | null;
+}
+
+// ── Phase 10 — Cash deposits + POS settlements ──────────────────────────
+
+export type CashDepositStatus = "pending" | "completed" | "cancelled";
+
+export interface CashDepositRow {
+  id:                  string;
+  closing_id:          string | null;
+  operating_unit_id:   string;
+  bank_account_id:     string;
+  deposit_date:        string;          // YYYY-MM-DD
+  deposited_amount:    number;
+  retained_amount:     number;
+  slip_url:            string | null;
+  slip_reference:      string | null;
+  deposited_by_email:  string;
+  status:              CashDepositStatus;
+  notes:               string | null;
+  created_at:          string | null;
+  updated_at:          string | null;
+}
+
+export type PosSettlementStatus = "pending" | "received" | "reconciled" | "disputed";
+
+export interface PosSettlementRow {
+  id:                  string;
+  cinema_id:           string;
+  payment_method_id:   string;
+  bank_account_id:     string;
+  settlement_date:     string;          // YYYY-MM-DD
+  expected_amount:     number;
+  received_amount:     number;
+  fee_amount:          number;
+  bank_reference:      string | null;
+  slip_url:            string | null;
+  notes:               string | null;
+  status:              PosSettlementStatus;
+  received_by_email:   string | null;
+  received_at:         string | null;
+  created_at:          string | null;
+  updated_at:          string | null;
+}
+
+export interface PosSettlementClosingRow {
+  settlement_id: string;
+  closing_id:    string;
 }
 
 export interface CashClosingDenominationRow {

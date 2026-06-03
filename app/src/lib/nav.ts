@@ -102,9 +102,10 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
       { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: PETTY_QUEUE_ROLES },
       { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
-      { kind: "leaf", to: "/cash/payments", label: "Payments",       roles: CASH_PAYMENTS_ROLES },
-      { kind: "leaf", to: "/cash/ledger",   label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
-      { kind: "leaf", to: "/cash/reports",  label: "Cashflow",       roles: CASH_LEDGER_ROLES },
+      { kind: "leaf", to: "/cash/payments",    label: "Payments",       roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/cash/settlements", label: "Settlements",    roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/cash/ledger",      label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
+      { kind: "leaf", to: "/cash/reports",     label: "Cashflow",       roles: CASH_LEDGER_ROLES },
     ],
   },
   {
