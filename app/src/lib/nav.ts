@@ -13,6 +13,7 @@ import {
   IconBackup,
   IconSettings,
   IconHistory,
+  IconCash,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -41,6 +42,11 @@ const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 const REPORT_ROLES: Role[] = ["owner", "manager", "accountant"];
 const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+
+// Cash management roles
+const CASH_LEDGER_ROLES: Role[] = ["owner", "manager", "accountant"];
+const CASH_PAYMENTS_ROLES: Role[] = ["owner", "manager", "accountant"];
+const PETTY_QUEUE_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 
 export const NAV: NavItem[] = [
   {
@@ -86,14 +92,32 @@ export const NAV: NavItem[] = [
   },
   {
     kind: "group",
+    id: "cash",
+    label: "Cash",
+    Icon: IconCash,
+    roles: ["owner", "manager", "daily_manager", "accountant", "cashier"],
+    children: [
+      // Cashier sees this so they can find closings awaiting their signature
+      // and raise petty expenses in the same surface as everyone else.
+      { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
+      { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: PETTY_QUEUE_ROLES },
+      { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
+      { kind: "leaf", to: "/cash/payments", label: "Payments",       roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/cash/ledger",   label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
+      { kind: "leaf", to: "/cash/reports",  label: "Cashflow",       roles: CASH_LEDGER_ROLES },
+    ],
+  },
+  {
+    kind: "group",
     id: "settings",
     label: "Settings",
     Icon: IconSettings,
-    roles: OWNER_MANAGER,
+    roles: ["owner", "manager", "accountant"],
     children: [
       { kind: "leaf", to: "/settings/movies",  label: "Movies",            roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
+      { kind: "leaf", to: "/settings/cash",    label: "Cash",              roles: ["owner", "accountant"] },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_ONLY },
     ],
   },
@@ -123,6 +147,7 @@ export function roleLabel(role: Role): string {
     case "manager":       return "manager";
     case "daily_manager": return "daily manager";
     case "accountant":    return "accountant";
+    case "cashier":       return "cashier";
   }
 }
 

@@ -17,9 +17,17 @@ import SettingsMoviesPage from "./pages/settings/Movies";
 import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
+import SettingsCashPage from "./pages/settings/Cash";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
 import DcrPage from "./pages/Dcr";
+import CashClosingsPage from "./pages/cash/Closings";
+import CashClosingDetailPage from "./pages/cash/ClosingDetail";
+import CashPettyPage from "./pages/cash/Petty";
+import CashPettyMinePage from "./pages/cash/PettyMine";
+import CashPaymentsPage from "./pages/cash/Payments";
+import CashLedgerPage from "./pages/cash/Ledger";
+import CashReportsPage from "./pages/cash/Reports";
 
 export default function App() {
   return (
@@ -34,7 +42,7 @@ export default function App() {
  * sequence: booting → signed-out → unauthorized → ready.
  */
 function AppGate() {
-  const { state, signOut } = useSync();
+  const { state, signOut, dismissSessionExpired } = useSync();
 
   switch (state.status) {
     case "booting":
@@ -81,11 +89,18 @@ function AppGate() {
       if (!state.role) return <SignInScreen />;
       {
         const role = state.role;
+        const expiredOverlay = state.sessionExpired ? (
+          <SessionExpiredDialog onDismiss={() => { void dismissSessionExpired(); }} />
+        ) : null;
         const canEnterBO = role === "owner" || role === "manager" || role === "daily_manager";
         const canDoFB    = canEnterBO; // same set: owner, manager, daily_manager
         const canSeeAdmin = role === "owner" || role === "manager"; // Dashboard, Activity, Backup, Settings
         const canSeeReports = role === "owner" || role === "manager" || role === "accountant";
+        const canCloseCash = canEnterBO; // owner, manager, daily_manager
+        const canApprovePayments = role === "owner" || role === "manager" || role === "accountant";
+        const isCashier = role === "cashier";
         const landing =
+          isCashier                 ? "/cash/closings"     :
           role === "accountant"     ? "/box-office/history" :
           role === "daily_manager"  ? "/box-office/entry"   :
                                       "/dashboard";
@@ -139,6 +154,13 @@ function AppGate() {
                 </>
               ) : null}
 
+              {/* Settings · Cash — owner + accountant (manages bank accounts,
+                  parties, etc.) Sits OUTSIDE the canSeeAdmin gate so
+                  accountants can reach it. */}
+              {role === "owner" || role === "accountant" ? (
+                <Route path="/settings/cash" element={<SettingsCashPage />} />
+              ) : null}
+
               {/* Admin-only: Dashboard, Activity, Backup, Settings */}
               {canSeeAdmin ? (
                 <>
@@ -154,6 +176,33 @@ function AppGate() {
                 </>
               ) : null}
 
+              {/* Cash management — see role gates below. */}
+              {/* "My / new petty expense" — open to anyone who handles
+                  on-site cash. Cashiers landed here, but daily managers and
+                  owners need to be able to raise the same request from
+                  the FAB when they're on the floor. */}
+              {(isCashier || canCloseCash) ? (
+                <Route path="/cash/petty/mine" element={<CashPettyMinePage />} />
+              ) : null}
+              {/* /cash/closings is now the unified "Cash Closing" tab —
+                  visible to cashiers too so they can confirm closings
+                  awaiting their signature. */}
+              <Route path="/cash"              element={<Navigate to="/cash/closings" replace />} />
+              {/* Legacy redirect: old /cash/today → unified page. */}
+              <Route path="/cash/today"        element={<Navigate to="/cash/closings" replace />} />
+              <Route path="/cash/closings"     element={<CashClosingsPage />} />
+              <Route path="/cash/closings/:id" element={<CashClosingDetailPage />} />
+              {canCloseCash ? (
+                <Route path="/cash/petty"      element={<CashPettyPage />} />
+              ) : null}
+              {canApprovePayments ? (
+                <>
+                  <Route path="/cash/payments" element={<CashPaymentsPage />} />
+                  <Route path="/cash/ledger"   element={<CashLedgerPage />} />
+                  <Route path="/cash/reports"  element={<CashReportsPage />} />
+                </>
+              ) : null}
+
               {/* DCR view is reachable from Entry + History. Accountants
                   see it too, since History is their landing tab. */}
               <Route
@@ -162,10 +211,38 @@ function AppGate() {
               />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            {expiredOverlay}
           </AppShell>
         );
       }
   }
+}
+
+/**
+ * Renders over the current view when the auth session expires mid-session.
+ * Until the user clicks OK their work stays on screen — no destructive
+ * navigation. Clicking OK signs out cleanly and routes to /sign-in.
+ */
+function SessionExpiredDialog({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="bg-paper-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Session expired</h2>
+          <p className="text-sm text-ink-muted mt-1">
+            You've been signed out. Please sign in again to continue.
+          </p>
+        </div>
+        <div className="flex justify-end">
+          <Button onClick={onDismiss}>OK</Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NotFound() {

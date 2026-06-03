@@ -6,6 +6,12 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "db:status": "supabase migration list",
+    "db:push:staging": "bash scripts/db-push.sh staging",
+    "db:push:prod": "bash scripts/db-push.sh prod",
+    "db:diff": "supabase db diff -f"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "resend": "^4.0.0"

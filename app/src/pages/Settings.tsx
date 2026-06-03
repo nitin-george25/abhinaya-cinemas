@@ -40,13 +40,14 @@ import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { IconSpinner } from "../components/icons";
 
-const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   manager: "Manager",
   daily_manager: "Daily Manager",
   accountant: "Accountant",
+  cashier: "Cashier",
 };
 
 // ── users section ─────────────────────────────────────────────────────
