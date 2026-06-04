@@ -53,6 +53,11 @@ cp -R app/dist/. dist/admin/dcr/
 #   • SPA fallback for /admin/dcr/* → /admin/dcr/index.html (React Router)
 #   • 301 from old /v2/* URLs (pre-cutover bookmarks) → /admin/dcr/*
 cat > dist/_redirects <<'REDIRECTS'
+# Root → landing page. The landing HTML lives at /home.html (NOT
+# /index.html) to defeat Cloudflare Pages' platform-level SPA fallback —
+# see the cp index.html dist/home.html line below.
+/    /home.html    200
+
 # Pre-cutover bookmarks — 301 redirect /v2/* into the new /admin/dcr/*.
 /v2/*    /admin/dcr/:splat   301
 
@@ -91,7 +96,14 @@ ROUTES
 
 # Public landing page at /  →  marketing site (Now Showing, Coming Soon,
 # Legacy, Gallery, Contact). Pulls movies live from Supabase.
-cp index.html   dist/index.html
+#
+# Critical: the landing HTML is shipped as dist/home.html, NOT
+# dist/index.html. With no root index.html, Cloudflare Pages' platform-level
+# SPA fallback has nothing to fall back to — every unmatched path becomes a
+# real 404 and the _redirects rules below are the only routing source.
+# `/  /home.html  200` (added in the REDIRECTS block above) wires the
+# landing page to the root URL.
+cp index.html   dist/home.html
 cp privacy.html dist/privacy.html
 cp terms.html   dist/terms.html
 mkdir -p dist/site
