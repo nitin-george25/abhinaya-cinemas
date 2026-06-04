@@ -12,7 +12,7 @@ export type DigestEnv = {
   supabaseKey: string;
   resendKey: string;
   fromAddr: string;
-  toAddr: string;
+  toAddrs: string[];
 };
 
 export function readEnv(): DigestEnv | { error: string } {
@@ -20,11 +20,12 @@ export function readEnv(): DigestEnv | { error: string } {
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
   const resendKey = process.env.RESEND_API_KEY || "";
   const fromAddr = process.env.DIGEST_FROM || "Abhinaya DCR <noreply@mail.abhinayacinemas.com>";
-  const toAddr = process.env.DIGEST_TO || "nitin.george@abhinayacinemas.com";
+  const toAddr = process.env.DIGEST_TO || "nitin.george@abhinayacinemas.com,ajim20@hotmail.com,shinu.thomas@abhinayacinemas.com";
+  const toAddrs = toAddr.split(",").map((s) => s.trim()).filter(Boolean);
   if (!supabaseUrl || !supabaseKey) {
     return { error: "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY env var" };
   }
-  return { supabaseUrl, supabaseKey, resendKey, fromAddr, toAddr };
+  return { supabaseUrl, supabaseKey, resendKey, fromAddr, toAddrs };
 }
 
 export function makeClient(env: DigestEnv): SupabaseClient {
@@ -247,7 +248,7 @@ export async function sendEmail(env: DigestEnv, subject: string, html: string, t
   const resend = new Resend(env.resendKey);
   const { error } = await resend.emails.send({
     from: env.fromAddr,
-    to: [env.toAddr],
+    to: env.toAddrs,
     subject,
     html,
     text,
