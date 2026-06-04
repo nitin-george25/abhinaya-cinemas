@@ -188,6 +188,9 @@ export interface MovieRow {
   certification:  string | null;
   /** Public URL in the `movie-posters` bucket. Migration 13. */
   poster_url:     string | null;
+  /** Programme lifecycle flag (migration 15). Anon RLS policy gates
+   *  public reads on this column. */
+  status:         "coming_soon" | "now_showing" | "past";
   archived_at:    string | null;
 }
 
