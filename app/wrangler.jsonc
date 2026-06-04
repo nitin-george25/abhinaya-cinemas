@@ -11,10 +11,17 @@
   // Vite outputs to app/dist; wrangler resolves "./dist" relative to this
   // wrangler.jsonc file, so the deploy command should `cd app/` before
   // running `npx wrangler versions upload`.
-  //
-  // The SPA fallback (`/* /index.html 200`) lives in app/public/_redirects,
-  // which Vite copies verbatim into app/dist/_redirects.
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+
+    // Workers Static Assets has its own SPA-fallback mode: any unmatched
+    // path serves /index.html with the request's original URL, so React
+    // Router 6 (basename "/") can match the path client-side.
+    //
+    // This replaces the legacy `/* /index.html 200` _redirects rule —
+    // which Cloudflare rejects on newer Workers projects because their
+    // URL-cleanup layer would strip `.html` from the destination, creating
+    // an infinite redirect loop (error code 100324).
+    "not_found_handling": "single-page-application"
   }
 }
