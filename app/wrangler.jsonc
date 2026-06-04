@@ -1,0 +1,20 @@
+{
+  // Worker name must match the Cloudflare Pages/Workers project this app
+  // deploys to (admin.abhinayacinemas.com → abhinaya-cinemas-admin).
+  "name": "abhinaya-cinemas-admin",
+
+  // Compatibility date pins Worker runtime semantics. Bump on review,
+  // never auto. 2026-06-04 = subdomain-split landing day.
+  "compatibility_date": "2026-06-04",
+
+  // The admin DCR app is a pure static SPA — no Worker code, just assets.
+  // Vite outputs to app/dist; wrangler resolves "./dist" relative to this
+  // wrangler.jsonc file, so the deploy command should `cd app/` before
+  // running `npx wrangler versions upload`.
+  //
+  // The SPA fallback (`/* /index.html 200`) lives in app/public/_redirects,
+  // which Vite copies verbatim into app/dist/_redirects.
+  "assets": {
+    "directory": "./dist"
+  }
+}
