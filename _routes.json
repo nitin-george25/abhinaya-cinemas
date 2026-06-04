@@ -1,5 +1,11 @@
 {
   "version": 1,
-  "include": ["/api/*"],
+  "description": "Pages Functions scope. /api/* runs the contact-form forwarder. / runs the landing-page resolver. /admin/dcr/* and /admin/dcr-legacy/* run the SPA-shell middleware (asset paths fall through to static via next()). Everything else is strict static.",
+  "include": [
+    "/",
+    "/api/*",
+    "/admin/dcr/*",
+    "/admin/dcr-legacy/*"
+  ],
   "exclude": []
 }

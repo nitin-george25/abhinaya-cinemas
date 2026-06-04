@@ -86,10 +86,19 @@ REDIRECTS
 #
 # This is the canonical fix per Cloudflare's docs:
 #   https://developers.cloudflare.com/pages/functions/routing/#create-a-_routesjson-file
+# Pages Functions routing scope. Must include every path prefix that has
+# a function file under functions/ — Cloudflare won't invoke a function
+# unless its prefix is in the include list. See _routes.json at the repo
+# root for the canonical version (build.sh copied it above).
 cat > dist/_routes.json <<'ROUTES'
 {
   "version": 1,
-  "include": ["/api/*"],
+  "include": [
+    "/",
+    "/api/*",
+    "/admin/dcr/*",
+    "/admin/dcr-legacy/*"
+  ],
   "exclude": []
 }
 ROUTES
