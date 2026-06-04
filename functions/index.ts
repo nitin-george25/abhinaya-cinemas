@@ -1,18 +1,15 @@
 // ============================================================================
 // Root URL handler — serves the landing page (/home.html).
 //
-// Uses env.ASSETS.fetch() instead of next(new Request(...)) because
-// Cloudflare's auto URL-cleanup strips `.html` and 301-redirects to the
-// cleaned URL when the rewritten target ends in .html. That triggers the
-// Function again with the cleaned URL → another rewrite to /home.html →
-// another 301 → infinite redirect loop ("too many redirects").
-//
-// env.ASSETS is the binding to the deployment's static asset store.
-// Fetching through it returns the raw file content with no URL
-// normalization or redirect side-effects.
+// Uses the serveShell() helper which reads the asset content and returns
+// it as a fresh 200 response. This sidesteps Cloudflare's .html-stripping
+// URL cleanup that was causing infinite redirect loops with simpler
+// rewrite patterns. See ./_lib/serve-shell.ts for the rationale.
 //
 // `_routes.json` must include "/" so this function actually runs.
 // ============================================================================
+
+import { serveShell } from "./_lib/serve-shell";
 
 interface Env {
   ASSETS: Fetcher;
@@ -20,6 +17,5 @@ interface Env {
 
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
-  const homeUrl = new URL('/home.html', url.origin);
-  return env.ASSETS.fetch(new Request(homeUrl, request));
+  return serveShell("/home.html", url.origin, env.ASSETS);
 };
