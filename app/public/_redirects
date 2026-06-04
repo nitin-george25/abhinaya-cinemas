@@ -1,0 +1,5 @@
+# SPA fallback for the admin DCR app at admin.abhinayacinemas.com.
+# React Router 6 (basename "/") handles all routes client-side; any path
+# that isn't a real static asset serves /index.html so the router can
+# match the URL inside the browser.
+/*    /index.html    200

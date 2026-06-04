@@ -25,7 +25,7 @@
 //
 // Anon keys are PUBLIC by Supabase classification — RLS is what controls
 // access. Hardcoding them keeps the deploy zero-config.
-const PROD_HOSTS = ['abhinayacinemas.com', 'www.abhinayacinemas.com'];
+const PROD_HOSTS = ['abhinayacinemas.com', 'www.abhinayacinemas.com', 'admin.abhinayacinemas.com'];
 
 const SUPABASE_ENVS = {
   prod: {

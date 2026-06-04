@@ -21,7 +21,7 @@ import {
 } from "../../lib/whatsappMessage";
 import type { AppState, ComputedEntry, Entry } from "../../lib/types";
 
-const LOGO_SRC = "/admin/dcr/img/logomark-white.png";
+const LOGO_SRC = "/img/logomark-white.png";
 
 interface Props {
   open: boolean;

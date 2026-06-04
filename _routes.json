@@ -1,11 +1,6 @@
 {
   "version": 1,
-  "description": "Pages Functions scope. /api/* runs the contact-form forwarder. / runs the landing-page resolver. /admin/dcr/* and /admin/dcr-legacy/* run the SPA-shell middleware (asset paths fall through to static via next()). Everything else is strict static.",
-  "include": [
-    "/",
-    "/api/*",
-    "/admin/dcr/*",
-    "/admin/dcr-legacy/*"
-  ],
+  "description": "Subdomain split (2026-06-04): the landing project no longer runs any Pages Functions. /api/* used to route to /functions/api/contact.ts (now tombstoned — contact form moved to a Supabase Edge Function). Empty include leaves all paths to strict static serving with _redirects rules.",
+  "include": [],
   "exclude": []
 }

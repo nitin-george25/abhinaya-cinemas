@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Admin project deploys from app/dist (no functions/ in this subtree). Explicit empty include defends against any future repo-root functions/ being picked up.",
+  "include": [],
+  "exclude": []
+}

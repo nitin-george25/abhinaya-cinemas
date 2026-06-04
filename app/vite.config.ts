@@ -2,13 +2,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Phase C7: cutover. The React app is now the primary console served at
-// /admin/dcr/. The legacy vanilla app stays accessible at /admin/dcr-legacy/
-// for fallback during the confidence period (~2 weeks). Old /v2/* URLs are
-// 301-redirected by build.sh's _redirects file.
+// The admin DCR console deploys to its own Cloudflare Pages project at
+// admin.abhinayacinemas.com, so the app is served at the root of that
+// hostname (basename "/"). Previously it lived at /admin/dcr/ on the
+// shared apex domain — see git log for the subdomain-split commit.
 export default defineConfig({
   plugins: [react()],
-  base: "/admin/dcr/",
+  base: "/",
   build: {
     outDir: "dist",
     sourcemap: true,
