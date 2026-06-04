@@ -18,14 +18,38 @@
  * times and a release-date badge instead.
  */
 
-const SUPABASE_URL  = 'https://xkmjygegtpmmwwnyoufn.supabase.co';
-const SUPABASE_ANON =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbWp5Z2VndHBtbXd3bnlvdWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODI2NTEsImV4cCI6MjA5NTQ1ODY1MX0.ILYBoN4OqFGIatTCTJ3hhfbGj6n8Q6e5LAhOVDDuTgo';
+// Environment detection — mirrors app/src/lib/env.ts exactly so the landing
+// page hits the same Supabase project the admin app does:
+//   abhinayacinemas.com / www. → prod
+//   anything else (*.pages.dev, localhost, branch previews) → staging
+//
+// Anon keys are PUBLIC by Supabase classification — RLS is what controls
+// access. Hardcoding them keeps the deploy zero-config.
+const PROD_HOSTS = ['abhinayacinemas.com', 'www.abhinayacinemas.com'];
+
+const SUPABASE_ENVS = {
+  prod: {
+    url:     'https://xkmjygegtpmmwwnyoufn.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbWp5Z2VndHBtbXd3bnlvdWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODI2NTEsImV4cCI6MjA5NTQ1ODY1MX0.ILYBoN4OqFGIatTCTJ3hhfbGj6n8Q6e5LAhOVDDuTgo',
+  },
+  staging: {
+    url:     'https://lctkvmpzijaspaytunkm.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjdGt2bXB6aWphc3BheXR1bmttIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTU0NDgsImV4cCI6MjA5NTYzMTQ0OH0.YeYegXQvX0l0FMABDgljs_bV_t9C66x77Y3kj2YZ55A',
+  },
+};
+
+const ENV_NAME = PROD_HOSTS.includes(location.hostname) ? 'prod' : 'staging';
+const SUPABASE_URL  = SUPABASE_ENVS[ENV_NAME].url;
+const SUPABASE_ANON = SUPABASE_ENVS[ENV_NAME].anonKey;
 
 const STANDARD_SHOWTIMES = ['10:15 AM', '01:30 PM', '06:15 PM', '09:30 PM'];
 
 const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 window.sbClient = sbClient;
+
+// Surface which project we're talking to in the console — invaluable when
+// debugging "why isn't this movie showing up" on preview URLs.
+console.info('[abhinaya] supabase env:', ENV_NAME, SUPABASE_URL);
 
 /* Format YYYY-MM-DD into "MMM DD" (e.g. "Sep 12"). */
 function formatReleaseDate(iso) {
