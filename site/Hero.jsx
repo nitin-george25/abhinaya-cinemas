@@ -14,7 +14,7 @@ function Hero({ onPlay, onBook }) {
 
       <div style={{ position: 'relative', maxWidth: 1000 }}>
         <h1 className="display" style={{ fontSize: 'clamp(3rem, 9vw, 7rem)', margin: 0 }}>
-          Where Legacy Meets<br />The Silver <span className="screen-text">Screen</span>
+          History of Storytelling,<br /><span className="screen-text">Reimagined.</span>
         </h1>
         <p className="lead" style={{ maxWidth: 680, margin: '26px auto 0' }}>
           For over 50 years, more than just a theatre — a cultural landmark where stories

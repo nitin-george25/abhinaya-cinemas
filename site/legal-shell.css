@@ -1,0 +1,87 @@
+/* Shared layout for the standalone legal pages (privacy + terms). Lives
+ * outside the React landing-page bundle so these pages load instantly and
+ * remain readable even if the JSX runtime fails. */
+
+.legal-page {
+  background: var(--cod-gray);
+  color: var(--fg);
+  font-family: var(--font-body);
+  min-height: 100vh;
+}
+
+.legal-page a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.legal-page a:hover { color: var(--accent-press); }
+
+.legal-header {
+  border-bottom: 1px solid var(--border);
+  padding: 22px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(21, 21, 21, 0.92);
+  backdrop-filter: blur(14px);
+}
+.legal-header img { height: 38px; width: auto; display: block; }
+.legal-header .back {
+  font-family: var(--font-text); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.12em; font-size: 13px; color: var(--fg);
+  text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+}
+.legal-header .back:hover { color: var(--accent); }
+
+.legal-main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 80px 32px 120px;
+}
+
+.legal-eyebrow {
+  font-family: var(--font-text); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.18em; font-size: 12px; color: var(--accent);
+  margin-bottom: 18px;
+}
+.legal-title {
+  font-family: var(--font-display); font-weight: 700; text-transform: uppercase;
+  font-size: clamp(2.4rem, 5vw, 3.6rem); line-height: 0.95; margin: 0;
+}
+.legal-updated {
+  font-family: var(--font-text); font-size: 13px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--fg-faint); margin-top: 20px;
+}
+
+.legal-main h2 {
+  font-family: var(--font-display); font-weight: 700; text-transform: uppercase;
+  font-size: 1.5rem; letter-spacing: 0.02em;
+  margin: 56px 0 14px;
+  color: var(--fg);
+}
+.legal-main h3 {
+  font-family: var(--font-text); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; font-size: 14px; color: var(--fg-muted);
+  margin: 30px 0 10px;
+}
+.legal-main p, .legal-main li {
+  font-size: 16px; line-height: 1.75; color: var(--fg-muted);
+}
+.legal-main strong { color: var(--fg); font-weight: 600; }
+.legal-main ul { padding-left: 22px; }
+.legal-main li { margin-bottom: 6px; }
+
+.legal-callout {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 20px 22px;
+  margin: 28px 0;
+}
+.legal-callout p { margin: 0; color: var(--fg); }
+
+.legal-footer {
+  border-top: 1px solid var(--border);
+  padding: 36px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  font-family: var(--font-text); font-size: 12px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-faint);
+}
+.legal-footer a { color: var(--fg-faint); text-decoration: none; }
+.legal-footer a:hover { color: var(--accent); }
+.legal-footer nav { display: flex; gap: 22px; }

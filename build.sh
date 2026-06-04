@@ -60,7 +60,9 @@ REDIRECTS
 
 # Public landing page at /  →  marketing site (Now Showing, Coming Soon,
 # Legacy, Gallery, Contact). Pulls movies live from Supabase.
-cp index.html dist/index.html
+cp index.html   dist/index.html
+cp privacy.html dist/privacy.html
+cp terms.html   dist/terms.html
 mkdir -p dist/site
 cp -R site/. dist/site/
 
