@@ -71,6 +71,8 @@ export interface Screen {
   priceCards: PriceCard[];
 }
 
+export type MovieStatus = "coming_soon" | "now_showing" | "past";
+
 export interface Movie {
   id: UUID;
   name: string;
@@ -81,6 +83,11 @@ export interface Movie {
    *  create form makes this mandatory client-side; pre-existing rows
    *  may have it undefined (column is nullable per migration 13). */
   posterUrl?: string;
+  /** Programme lifecycle flag. Drives the public landing page (Now Showing
+   *  vs Coming Soon vs hidden). Migration 15. Default `coming_soon` on
+   *  create — owner flips to `now_showing` when the film opens, then to
+   *  `past` when the run ends. */
+  status: MovieStatus;
 }
 
 export interface SerialStart {

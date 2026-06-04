@@ -28,6 +28,7 @@ import type {
   ClassDef,
   FbProduct,
   Movie,
+  MovieStatus,
   PriceCard,
   Screen,
   ScreenClassAssignment,
@@ -736,6 +737,26 @@ async function uploadMoviePoster(file: File, uploaderEmail: string): Promise<str
 
 // ── Movies ─────────────────────────────────────────────────────────────
 
+/** Visual indicator of a movie's lifecycle stage. Colors match the
+ *  brand palette: chartreuse for active, ember for upcoming, neutral for
+ *  retired. */
+function MovieStatusPill({ status }: { status: MovieStatus }) {
+  const styles: Record<MovieStatus, { bg: string; fg: string; label: string }> = {
+    now_showing: { bg: "bg-emerald-100", fg: "text-emerald-800", label: "Now Showing" },
+    coming_soon: { bg: "bg-amber-100",   fg: "text-amber-800",   label: "Coming Soon" },
+    past:        { bg: "bg-zinc-100",    fg: "text-zinc-600",    label: "Past" },
+  };
+  const cls = styles[status] ?? styles.coming_soon;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.bg} ${cls.fg}`}
+      title={cls.label}
+    >
+      {cls.label}
+    </span>
+  );
+}
+
 export function MoviesSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
@@ -787,6 +808,7 @@ export function MoviesSection() {
                   <th className="text-left px-5 py-3 font-semibold">Name</th>
                   <th className="text-left px-5 py-3 font-semibold w-48">Distributor</th>
                   <th className="text-left px-5 py-3 font-semibold w-32">Release</th>
+                  <th className="text-left px-5 py-3 font-semibold w-32">Status</th>
                   <th className="text-right px-5 py-3 font-semibold w-24">Share %</th>
                   <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
@@ -819,6 +841,7 @@ function MovieRow({
   const [dist, setDist] = useState(movie.distributor ?? "");
   const [release, setRelease] = useState(movie.release ?? "");
   const [share, setShare] = useState(String(movie.share ?? 0));
+  const [status, setStatus] = useState<MovieStatus>(movie.status ?? "coming_soon");
   const [posterUrl, setPosterUrl] = useState<string | undefined>(movie.posterUrl);
   const [uploading, setUploading] = useState(false);
   const [posterErr, setPosterErr] = useState<string | null>(null);
@@ -845,6 +868,7 @@ function MovieRow({
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl: posterUrl,
+      status,
     });
     setEditing(false);
   }
@@ -875,6 +899,17 @@ function MovieRow({
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={dist} onChange={(e) => setDist(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as MovieStatus)}
+            className="h-8 w-full rounded border border-line bg-white px-2 text-sm"
+          >
+            <option value="coming_soon">Coming Soon</option>
+            <option value="now_showing">Now Showing</option>
+            <option value="past">Past</option>
+          </select>
+        </td>
         <td className="px-5 py-2">
           <Input
             type="number" min={0} max={100} step={0.01}
@@ -912,6 +947,9 @@ function MovieRow({
       <td className="px-5 py-2 font-medium">{movie.name}</td>
       <td className="px-5 py-2 text-ink-muted">{movie.distributor ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{movie.release ?? "—"}</td>
+      <td className="px-5 py-2">
+        <MovieStatusPill status={movie.status ?? "coming_soon"} />
+      </td>
       <td className="px-5 py-2 text-right tabular-nums">{movie.share}%</td>
       <td className="px-5 py-2 text-right whitespace-nowrap">
         <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
@@ -927,6 +965,7 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
   const [dist, setDist] = useState("");
   const [release, setRelease] = useState("");
   const [share, setShare] = useState("60");
+  const [status, setStatus] = useState<MovieStatus>("coming_soon");
   const [posterUrl, setPosterUrl] = useState<string | undefined>(undefined);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -962,16 +1001,28 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl,
+      status,
     });
   }
 
   return (
-    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end">
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Empuraan" /></Field>
       <Field label="Distributor"><Input value={dist} onChange={(e) => setDist(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
       <Field label="Release date"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} /></Field>
       <Field label="Share %">
         <Input type="number" min={0} max={100} step={0.01} value={share} onChange={(e) => setShare(e.target.value)} className="text-right" />
+      </Field>
+      <Field label="Status">
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as MovieStatus)}
+          className="h-9 w-full rounded border border-line bg-white px-2 text-sm"
+        >
+          <option value="coming_soon">Coming Soon</option>
+          <option value="now_showing">Now Showing</option>
+          <option value="past">Past</option>
+        </select>
       </Field>
       <Field label="Poster (required)">
         <div className="flex items-center gap-2">

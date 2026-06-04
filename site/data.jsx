@@ -4,9 +4,14 @@
  * database is what actually controls access. Same key the admin/dcr app
  * uses for unauthenticated reads.
  *
- * Buckets:
- *   - Now Showing  = active movies whose release_date is in the past (or null)
- *   - Coming Soon  = active movies whose release_date is in the future
+ * Classification is driven by `movies.status` (migration cash_15_movie_status):
+ *   - 'now_showing'  → Now Showing tab
+ *   - 'coming_soon'  → Coming Soon tab
+ *   - 'past'         → not shown on the landing page
+ *
+ * The owner controls `status` from the admin console — no date math, no
+ * "today" inference. This is also the only schema the anon-readable RLS
+ * policy lets us see.
  *
  * Showtimes: the cinema runs a standard 4-show daily slate. We hard-code it
  * here until a shows/showtimes table is added. Coming-Soon movies get no
@@ -31,10 +36,8 @@ function formatReleaseDate(iso) {
 }
 
 /* Map a Supabase row to the shape NowShowing.jsx expects. */
-function rowToCard(row, isComingSoon) {
-  const releasedToday =
-    !row.release_date ||
-    new Date(row.release_date + 'T00:00:00') <= new Date();
+function rowToCard(row) {
+  const isComingSoon = row.status === 'coming_soon';
 
   // Light badging — only when something is clearly worth flagging.
   let badge = null;
@@ -55,19 +58,21 @@ function rowToCard(row, isComingSoon) {
     badge,
     posterUrl: row.poster_url || null,
     date:     isComingSoon ? formatReleaseDate(row.release_date) : null,
-    times:    isComingSoon || !releasedToday ? [] : STANDARD_SHOWTIMES,
+    times:    isComingSoon ? [] : STANDARD_SHOWTIMES,
   };
 }
 
 /* Fetch + classify. Returns { 'Now Showing': [...], 'Coming Soon': [...] }. */
 async function loadMovies() {
-  const today = new Date().toISOString().slice(0, 10);
-
+  // The anon RLS policy (migration cash_15) already restricts to
+  // status in ('coming_soon','now_showing') and archived_at is null, but
+  // we include the filter explicitly for clarity and to avoid surprises if
+  // the policy is ever loosened.
   const { data, error } = await sbClient
     .from('movies')
-    .select('id,name,distributor,release_date,language,certification,poster_url,archived_at')
-    .is('archived_at', null)
-    .order('release_date', { ascending: false, nullsFirst: false });
+    .select('id,name,distributor,release_date,language,certification,poster_url,status')
+    .in('status', ['coming_soon', 'now_showing'])
+    .order('release_date', { ascending: true, nullsFirst: false });
 
   if (error) {
     console.error('[abhinaya] failed to load movies', error);
@@ -77,14 +82,15 @@ async function loadMovies() {
   const nowShowing = [];
   const comingSoon = [];
   for (const row of data || []) {
-    if (row.release_date && row.release_date > today) {
-      comingSoon.push(rowToCard(row, true));
-    } else {
-      nowShowing.push(rowToCard(row, false));
-    }
+    if (row.status === 'coming_soon') comingSoon.push(rowToCard(row));
+    else nowShowing.push(rowToCard(row));
   }
-  // Coming-soon: earliest first.
+
+  // Now-showing: most recent release at top (matches "what just opened" feel).
+  nowShowing.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  // Coming-soon: earliest first (the next thing to release).
   comingSoon.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
   return { 'Now Showing': nowShowing, 'Coming Soon': comingSoon };
 }
 
