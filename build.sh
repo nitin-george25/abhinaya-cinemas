@@ -44,6 +44,11 @@ cp -R app/dist/. dist/admin/dcr/
 # Cloudflare Pages headers — copy from repo root if present
 [ -f _headers ] && cp _headers dist/_headers
 
+# Cloudflare Pages Functions routing scope — copy repo-root version too.
+# The build below overwrites with a fresh heredoc, but copying first means
+# the repo-committed version is the source of truth that tracks via git.
+[ -f _routes.json ] && cp _routes.json dist/_routes.json
+
 # Cloudflare Pages redirects — written fresh by build.sh because we need:
 #   • SPA fallback for /admin/dcr/* → /admin/dcr/index.html (React Router)
 #   • 301 from old /v2/* URLs (pre-cutover bookmarks) → /admin/dcr/*
@@ -51,12 +56,38 @@ cat > dist/_redirects <<'REDIRECTS'
 # Pre-cutover bookmarks — 301 redirect /v2/* into the new /admin/dcr/*.
 /v2/*    /admin/dcr/:splat   301
 
+# Legacy vanilla console SPA fallback — first, so /admin/dcr-legacy/*
+# never matches the /admin/dcr/* rule below.
+/admin/dcr-legacy/*    /admin/dcr-legacy/index.html   200
+
 # SPA fallback for the React app at /admin/dcr/ — any /admin/dcr/* request
 # that doesn't match a real file is served the index.html shell with 200
-# so React Router can pick up the path client-side. This MUST come after
-# the legacy block above so /admin/dcr-legacy/* keeps serving static.
+# so React Router can pick up the path client-side.
 /admin/dcr/*    /admin/dcr/index.html   200
 REDIRECTS
+
+# Cloudflare Pages Functions routing scope.
+#
+# With ANY file under functions/, Cloudflare's default _routes.json includes
+# a catch-all "/*" that pipes every request through the Functions middleware.
+# When the middleware doesn't match a function, Cloudflare's framework
+# detection can fall back to serving the root index.html as a SPA — which
+# makes /_redirects, /admin/dcr/*, and every other non-asset path render
+# the landing page.
+#
+# Scoping `include` to /api/* tells Cloudflare:
+#   - /api/* → run Pages Functions
+#   - everything else → strict static file serving with _redirects rules
+#
+# This is the canonical fix per Cloudflare's docs:
+#   https://developers.cloudflare.com/pages/functions/routing/#create-a-_routesjson-file
+cat > dist/_routes.json <<'ROUTES'
+{
+  "version": 1,
+  "include": ["/api/*"],
+  "exclude": []
+}
+ROUTES
 
 # Public landing page at /  →  marketing site (Now Showing, Coming Soon,
 # Legacy, Gallery, Contact). Pulls movies live from Supabase.
