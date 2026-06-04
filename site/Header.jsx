@@ -62,8 +62,8 @@ function Header({ active, onNav }) {
             </a>
           ))}
         </nav>
-        <div style={{ marginTop: 'auto', display: 'flex', gap: 18, color: 'var(--fg-muted)' }}>
-          <Icon name="instagram" size={20} /><Icon name="facebook" size={20} /><Icon name="youtube" size={20} />
+        <div style={{ marginTop: 'auto' }}>
+          <SocialLinks size={22} gap={20} />
         </div>
       </div>
     </header>

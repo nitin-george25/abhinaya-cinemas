@@ -17,6 +17,27 @@ function openBms() {
   window.open(bmsUrl(), '_blank', 'noopener,noreferrer');
 }
 
+/* ---------- Social links ---------- */
+const SOCIALS = {
+  instagram: 'https://www.instagram.com/abhinayacinemas/',
+  facebook:  'https://www.facebook.com/profile.php?id=61586263048713',
+  youtube:   'https://www.youtube.com/@AbhinayaCinemas',
+};
+function SocialLinks({ size = 20, color = 'var(--fg-muted)', gap = 16, style }) {
+  return (
+    <div style={{ display: 'flex', gap, color, ...style }}>
+      {Object.entries(SOCIALS).map(([key, url]) => (
+        <a key={key} href={url} target="_blank" rel="noopener noreferrer" aria-label={key}
+           style={{ color: 'inherit', display: 'inline-flex', transition: 'color .18s var(--ease)' }}
+           onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
+           onMouseLeave={(e) => (e.currentTarget.style.color = 'inherit')}>
+          <Icon name={key} size={size} />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function LogoMark({ size = 34, tone = 'cream', style }) {
   const src = LOGO_BASE + (tone === 'dark' ? 'logo-symbol-dark.png' : 'logo-symbol-cream.png');
   return <img src={src} alt="Abhinaya Cinemas" style={{ height: size * 1.18, width: 'auto', display: 'block', ...style }} />;
@@ -131,4 +152,4 @@ function Beam({ width = 90, skew = -18, style }) {
   );
 }
 
-Object.assign(window, { LogoMark, LogoLockup, Icon, Button, Badge, Pill, ImgSlot, LensRings, Beam, useState, useEffect, useRef, bmsUrl, openBms });
+Object.assign(window, { LogoMark, LogoLockup, Icon, Button, Badge, Pill, ImgSlot, LensRings, Beam, useState, useEffect, useRef, bmsUrl, openBms, SOCIALS, SocialLinks });

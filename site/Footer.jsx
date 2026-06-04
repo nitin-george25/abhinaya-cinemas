@@ -28,14 +28,22 @@ function Footer({ onNav }) {
               <input placeholder="Email address" style={{ flex: 1, minWidth: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-strong)', borderRadius: 'var(--r-sm)', color: 'var(--fg)', fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: 13, padding: '12px 14px', outline: 'none' }} />
               <Button size="sm" variant="solid" icon="arrow-right" />
             </div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 22, color: 'var(--fg-muted)' }}>
-              <Icon name="instagram" size={20} /><Icon name="facebook" size={20} /><Icon name="youtube" size={20} />
+            <div style={{ marginTop: 22 }}>
+              <SocialLinks size={20} gap={16} />
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, paddingTop: 24 }}>
           <span className="meta">© 2026 Abhinaya Cinemas · abhinayacinemas.com</span>
-          <span className="meta">Privacy · Terms</span>
+          <span className="meta" style={{ display: 'flex', gap: 14 }}>
+            <a href="/privacy.html" style={{ color: 'inherit', textDecoration: 'none' }}
+               onMouseEnter={(e)=>e.currentTarget.style.color='var(--accent)'}
+               onMouseLeave={(e)=>e.currentTarget.style.color='inherit'}>Privacy</a>
+            <span>·</span>
+            <a href="/terms.html" style={{ color: 'inherit', textDecoration: 'none' }}
+               onMouseEnter={(e)=>e.currentTarget.style.color='var(--accent)'}
+               onMouseLeave={(e)=>e.currentTarget.style.color='inherit'}>Terms</a>
+          </span>
         </div>
       </div>
     </footer>
