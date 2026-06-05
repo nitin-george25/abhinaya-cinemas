@@ -38,7 +38,6 @@ cp -R site/.    dist/site/
 # tombstoned functions/ dir from the pre-split routing experiments; this
 # empty-include _routes.json tells Cloudflare to bundle but never invoke
 # them. Cleanup pass: `git rm -r functions/` once we're confident.
-[ -f _routes.json ] && cp _routes.json dist/_routes.json
 
 # Redirects.
 #   - Old /admin/dcr/* and /admin/dcr-legacy/* paths from the pre-split
