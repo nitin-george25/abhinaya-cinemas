@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../ui/cn";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
 
@@ -23,7 +23,7 @@ interface Props {
   role: Role;
 }
 
-type ActionId = "bo" | "dsr";
+type ActionId = "bo" | "dsr" | "cash" | "petty";
 
 interface Action {
   id: ActionId;
@@ -32,12 +32,18 @@ interface Action {
 }
 
 const ACTIONS: Action[] = [
-  { id: "bo",  label: "Enter BO show",  roles: ["owner", "manager", "daily_manager"] },
-  { id: "dsr", label: "Upload F&B CSV", roles: ["owner", "manager", "daily_manager"] },
+  { id: "bo",    label: "Enter BO show",     roles: ["owner", "manager", "daily_manager"] },
+  { id: "dsr",   label: "Upload F&B CSV",    roles: ["owner", "manager", "daily_manager"] },
+  { id: "cash",  label: "Cash closing",      roles: ["owner", "manager", "daily_manager"] },
+  // Petty-expense request: cashier raises their own; daily managers and
+  // above also use this from the floor when they're spending out of the
+  // till and need it on the approval queue.
+  { id: "petty", label: "New petty expense", roles: ["owner", "manager", "daily_manager", "cashier"] },
 ];
 
 export function Fab({ role }: Props) {
   const { state, setAppState } = useSync();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<ActionId | null>(null);
   const location = useLocation();
@@ -89,7 +95,13 @@ export function Fab({ role }: Props) {
             {items.map((a) => (
               <button
                 key={a.id}
-                onClick={() => { setOpen(false); setActive(a.id); }}
+                onClick={() => {
+                  setOpen(false);
+                  // "cash" + "petty" navigate; the modal-backed actions stay in-place.
+                  if (a.id === "cash")       navigate("/cash/closings");
+                  else if (a.id === "petty") navigate("/cash/petty/mine");
+                  else                       setActive(a.id);
+                }}
                 className="w-full text-left px-4 py-3 text-sm border-b border-line last:border-b-0 active:bg-paper"
               >
                 {a.label}

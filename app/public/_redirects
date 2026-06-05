@@ -1,0 +1,9 @@
+# SPA fallback for the admin DCR app is handled in app/wrangler.jsonc via
+# `assets.not_found_handling: "single-page-application"` — that's the
+# canonical Workers Static Assets pattern.
+#
+# Don't add `/*  /index.html  200` here: Cloudflare's URL-cleanup layer
+# rejects it as an infinite-loop redirect (error code 100324, because
+# stripping `.html` from the destination cycles back to the source).
+#
+# Keep this file around as a placeholder for future real redirect rules.

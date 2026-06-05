@@ -2,8 +2,8 @@
 -- Abhinaya Cinemas — Phase 1.7: Schedule digest emails from Postgres (pg_cron)
 --
 -- After this runs, two cron jobs will fire automatically:
---   • daily-digest  — every day at 7:00 AM IST (01:30 UTC)
---   • weekly-digest — every Monday at 7:00 AM IST (01:30 UTC)
+--   • daily-digest  — every day at 10:00 AM IST (04:30 UTC)
+--   • weekly-digest — every Monday at 11:00 AM IST (05:30 UTC)
 --
 -- Each job POSTs to its Edge Function URL. The function reads yesterday's /
 -- previous-week's data and sends the email via Resend.
@@ -47,7 +47,7 @@ create extension if not exists pg_net  with schema extensions;
 
 
 -- ---------------------------------------------------------------------------
--- 3) Daily digest — every day at 7:00 AM IST (01:30 UTC)
+-- 3) Daily digest — every day at 10:00 AM IST (04:30 UTC)
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -60,7 +60,7 @@ end $$;
 
 select cron.schedule(
   'abhinaya-daily-digest',
-  '30 1 * * *',
+  '30 4 * * *',
   $$
   select net.http_post(
     url     := '{{SUPABASE_PROJECT_URL}}/functions/v1/daily-digest',
@@ -75,7 +75,7 @@ select cron.schedule(
 
 
 -- ---------------------------------------------------------------------------
--- 4) Weekly digest — every Monday at 7:00 AM IST (01:30 UTC)
+-- 4) Weekly digest — every Monday at 11:00 AM IST (05:30 UTC)
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -87,7 +87,7 @@ end $$;
 
 select cron.schedule(
   'abhinaya-weekly-digest',
-  '30 1 * * 1',
+  '30 5 * * 1',
   $$
   select net.http_post(
     url     := '{{SUPABASE_PROJECT_URL}}/functions/v1/weekly-digest',

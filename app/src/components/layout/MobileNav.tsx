@@ -82,8 +82,9 @@ export function MobileNav({ role, open, onClose }: Props) {
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="h-14 px-5 flex items-center gap-3 border-b border-white/10 shrink-0">
+          {/* See note in Sidebar.tsx for the ?v=2 cache-buster. */}
           <img
-            src="/admin/dcr/img/logomark-white.png"
+            src="/img/logomark-white.png?v=2"
             alt="Abhinaya Cinemas"
             className="h-7 w-auto shrink-0"
           />

@@ -1,0 +1,41 @@
+# ============================================================================
+# Supabase CLI config for the Abhinaya Cinemas project.
+#
+# This file is intentionally tiny. The CLI uses sensible defaults for
+# everything we care about — migrations live in supabase/migrations/ and
+# Edge Functions live in supabase/functions/<name>/ without us having to
+# spell those out.
+#
+# Project refs (passed to `supabase link --project-ref ...`):
+#   staging  →  lctkvmpzijaspaytunkm
+#   prod     →  xkmjygegtpmmwwnyoufn
+#
+# Anon keys + service-role keys are NOT in this file. Set Edge Function
+# secrets with `supabase secrets set --project-ref ...`.
+# ============================================================================
+
+# Used by `supabase start` for the local Docker stack. We don't run locally
+# yet, but the CLI requires this field to parse the config.
+project_id = "abhinaya-cinemas"
+
+[db]
+# Match the Postgres major version of your Supabase project. Supabase
+# Cloud currently provisions Postgres 15; bump this if you upgrade.
+major_version = 15
+
+# Per-function options. Add a block per Edge Function as the list grows.
+# `verify_jwt` defaults to true, so we'd only set it explicitly for
+# functions that need to be publicly callable.
+[functions.admin-users]
+verify_jwt = true
+
+[functions.daily-digest]
+verify_jwt = true
+
+[functions.weekly-digest]
+verify_jwt = true
+
+[functions.contact]
+# Publicly callable from the marketing site — no auth required. The apikey
+# header (anon key) is still enforced by the platform.
+verify_jwt = false

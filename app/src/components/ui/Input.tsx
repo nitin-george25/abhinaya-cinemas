@@ -1,4 +1,5 @@
 import type {
+  FocusEvent,
   InputHTMLAttributes,
   SelectHTMLAttributes,
   ReactNode,
@@ -31,7 +32,7 @@ const numberOverrides =
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
-export function Input({ className, onWheel, type, ...rest }: InputProps) {
+export function Input({ className, onWheel, onFocus, type, ...rest }: InputProps) {
   const isNumber = type === "number";
 
   // For number inputs: blur on wheel so the page scrolls normally instead of
@@ -46,11 +47,31 @@ export function Input({ className, onWheel, type, ...rest }: InputProps) {
       }
     : onWheel;
 
+  // For number inputs: select the current value on focus so a "0" placeholder
+  // doesn't trap the user — typing replaces it instead of appending. Caller's
+  // own onFocus still runs first.
+  //
+  // Using requestAnimationFrame is important: on iOS Safari, calling
+  // select() inside the focus handler synchronously is unreliable because
+  // the browser hasn't placed the cursor yet. Deferring by one frame works
+  // on every browser we target.
+  const handleFocus = isNumber
+    ? (e: FocusEvent<HTMLInputElement>) => {
+        onFocus?.(e);
+        if (e.defaultPrevented) return;
+        const target = e.currentTarget;
+        requestAnimationFrame(() => {
+          try { target.select(); } catch { /* detached node — ignore */ }
+        });
+      }
+    : onFocus;
+
   return (
     <input
       {...rest}
       type={type}
       onWheel={handleWheel}
+      onFocus={handleFocus}
       className={cn(fieldBase, isNumber && numberOverrides, className)}
     />
   );
@@ -60,11 +81,46 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   children: ReactNode;
 }
 
-export function Select({ className, children, ...rest }: SelectProps) {
+/**
+ * Native <select> wrapped with a chevron overlay so it looks like a
+ * proper dropdown instead of an unmarked input. We keep the underlying
+ * <select> on purpose: the native picker is accessible, keyboard-
+ * friendly, and on mobile uses the OS-provided wheel — a custom popover
+ * would lose all three for no real gain at this scale.
+ *
+ * The wrapping <div> is `relative`; the chevron is `pointer-events-none`
+ * so clicks pass through to the select.
+ */
+export function Select({ className, children, disabled, ...rest }: SelectProps) {
   return (
-    <select {...rest} className={cn(fieldBase, "appearance-none pr-9", className)}>
-      {children}
-    </select>
+    <div className={cn("relative", disabled && "opacity-60")}>
+      <select
+        {...rest}
+        disabled={disabled}
+        className={cn(
+          fieldBase,
+          "appearance-none pr-9 cursor-pointer",
+          // Subtle hover affordance on desktop. Mobile ignores hover.
+          "hover:border-ink-muted",
+          className,
+        )}
+      >
+        {children}
+      </select>
+      {/* Chevron — purely decorative, never intercepts clicks. */}
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted"
+      >
+        <path d="M5 8l5 5 5-5" />
+      </svg>
+    </div>
   );
 }
 

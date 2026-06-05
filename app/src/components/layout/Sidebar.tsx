@@ -30,8 +30,12 @@ export function Sidebar({ role }: { role: Role }) {
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-ink text-white">
       <div className="h-14 px-5 flex items-center gap-3 border-b border-white/10 shrink-0">
+        {/* Logomark — the ?v=2 cache-buster forces browsers to refetch even
+            though /img/* is marked `immutable` in _headers. The
+            asset on disk was unintentionally swapped to a 2084x2084
+            square; restored to the original 238x200 in this commit. */}
         <img
-          src="/admin/dcr/img/logomark-white.png"
+          src="/img/logomark-white.png?v=2"
           alt="Abhinaya Cinemas"
           className="h-7 w-auto shrink-0"
         />

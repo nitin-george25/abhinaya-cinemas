@@ -9,9 +9,10 @@ if (!root) throw new Error("Missing #root element");
 
 createRoot(root).render(
   <StrictMode>
-    {/* basename matches Vite's `base`. Updated for the C7 cutover —
-        React app is now the primary console at /admin/dcr/. */}
-    <BrowserRouter basename="/admin/dcr">
+    {/* basename matches Vite's `base`. App now lives at the root of its
+        own subdomain (admin.abhinayacinemas.com). See the subdomain-split
+        commit for the move off the /admin/dcr/ prefix. */}
+    <BrowserRouter basename="/">
       <App />
     </BrowserRouter>
   </StrictMode>,

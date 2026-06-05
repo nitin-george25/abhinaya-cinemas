@@ -73,7 +73,7 @@ function makeDefaultState(): AppState {
       },
     ],
     movies: [
-      { id: "mov_empuraan", name: "Empuraan", distributor: "Ashirvad Cinemas", release: "2025-03-27", share: 60 },
+      { id: "mov_empuraan", name: "Empuraan", distributor: "Ashirvad Cinemas", release: "2025-03-27", share: 60, status: "now_showing" },
     ],
     serialStarts: [
       {
@@ -276,8 +276,8 @@ describe("computeFund()", () => {
     s.entries = entries;
     s.movies = [
       ...s.movies,
-      { id: "mov_b", name: "Bahubali", share: 60 },
-      { id: "mov_c", name: "Chhaava",  share: 60 },
+      { id: "mov_b", name: "Bahubali", share: 60, status: "now_showing" },
+      { id: "mov_c", name: "Chhaava",  share: 60, status: "now_showing" },
     ];
     return s;
   }

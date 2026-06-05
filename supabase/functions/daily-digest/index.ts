@@ -10,7 +10,8 @@
 //
 // Env vars (set in Supabase Dashboard → Edge Functions → Secrets):
 //   RESEND_API_KEY  (required)
-//   DIGEST_TO       (optional, default nitin.george@abhinayacinemas.com)
+//   DIGEST_TO       (optional, comma-separated list. Default:
+//                    nitin.george@abhinayacinemas.com, ajim20@hotmail.com, shinu.thomas@abhinayacinemas.com)
 //   DIGEST_FROM     (optional, default Abhinaya DCR <noreply@mail.abhinayacinemas.com>)
 //   SUPABASE_URL              (auto-injected)
 //   SUPABASE_SERVICE_ROLE_KEY (auto-injected)
@@ -226,7 +227,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = Deno.env.get("RESEND_API_KEY") || "";
   const fromAddr = Deno.env.get("DIGEST_FROM") || "Abhinaya DCR <noreply@mail.abhinayacinemas.com>";
-  const toAddr = Deno.env.get("DIGEST_TO") || "nitin.george@abhinayacinemas.com";
+  const toAddr = Deno.env.get("DIGEST_TO") || "nitin.george@abhinayacinemas.com,ajim20@hotmail.com,shinu.thomas@abhinayacinemas.com";
+  const toAddrs = toAddr.split(",").map((s) => s.trim()).filter(Boolean);
 
   if (!supabaseUrl || !supabaseKey) {
     return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var", { status: 500 });
@@ -294,11 +296,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const resend = new Resend(resendKey);
   const { error } = await resend.emails.send({
-    from: fromAddr, to: [toAddr], subject, html,
+    from: fromAddr, to: toAddrs, subject, html,
   });
   if (error) return new Response("Resend error: " + JSON.stringify(error), { status: 500 });
 
-  return new Response(JSON.stringify({ ok: true, target, sentTo: toAddr, screens: boByEntry.length, fb: !!fbForDay, missingScreens }), {
+  return new Response(JSON.stringify({ ok: true, target, sentTo: toAddrs, screens: boByEntry.length, fb: !!fbForDay, missingScreens }), {
     status: 200, headers: { "Content-Type": "application/json" },
   });
 });

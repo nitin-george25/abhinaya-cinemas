@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abhinaya Cinemas — 50 Years of Stories, Now Redefined</title>
+<meta name="description" content="Kottayam's family-owned boutique cinema since 1974. Now Showing, Coming Soon, and the story of a Kerala landmark.">
+<meta property="og:title" content="Abhinaya Cinemas">
+<meta property="og:description" content="Where Legacy Meets the Silver Screen. Kottayam, Kerala.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/site/assets/favicon-16.png">
+<link rel="shortcut icon" href="/site/assets/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/site/assets/apple-touch-icon.png">
+<link rel="manifest" href="/site/site.webmanifest">
+<link rel="stylesheet" href="/site/colors_and_type.css">
+<style>
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  html,body{margin:0;}
+  body{background:var(--cod-gray);color:var(--fg);font-family:var(--font-text);-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  a{text-decoration:none;}
+  ::selection{background:var(--accent);color:var(--spring-wood);}
+  @keyframes kitFade{from{opacity:0}to{opacity:1}}
+  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  ::-webkit-scrollbar{width:10px;}
+  ::-webkit-scrollbar-thumb{background:var(--ink-700);border-radius:99px;border:3px solid var(--cod-gray);}
+  @media (max-width:1080px){ .kit-desktop-nav{display:none !important;} }
+
+  /* Boot splash — visible until React mounts. Keeps first paint on-brand. */
+  #boot{position:fixed;inset:0;display:grid;place-items:center;background:var(--cod-gray);z-index:1000;transition:opacity .4s ease-out;}
+  #boot.gone{opacity:0;pointer-events:none;}
+  #boot img{height:48px;width:auto;opacity:.85;}
+</style>
+</head>
+<body>
+  <div id="boot"><img src="/site/assets/logo-lockup-cream.png" alt="Abhinaya Cinemas"></div>
+  <div id="root"></div>
+
+  <!-- React + Babel (in-browser JSX) + Lucide icons. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
+  <!-- Supabase JS — for live movies data. -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+
+  <!-- App. Order matters: primitives → data → sections → shell. -->
+  <script type="text/babel" src="/site/components.jsx"></script>
+  <script type="text/babel" src="/site/data.jsx"></script>
+  <script type="text/babel" src="/site/Header.jsx"></script>
+  <script type="text/babel" src="/site/Hero.jsx"></script>
+  <script type="text/babel" src="/site/NowShowing.jsx"></script>
+  <script type="text/babel" src="/site/Legacy.jsx"></script>
+  <script type="text/babel" src="/site/Gallery.jsx"></script>
+  <script type="text/babel" src="/site/Careers.jsx"></script>
+  <script type="text/babel" src="/site/Contact.jsx"></script>
+  <script type="text/babel" src="/site/Footer.jsx"></script>
+  <script type="text/babel" src="/site/Modals.jsx"></script>
+  <script type="text/babel" src="/site/app.jsx"></script>
+
+  <script>
+    // Hide boot splash once the first paint lands.
+    window.addEventListener('load', () => {
+      requestAnimationFrame(() => {
+        const b = document.getElementById('boot');
+        if (b) { b.classList.add('gone'); setTimeout(() => b.remove(), 500); }
+      });
+    });
+  </script>
+</body>
+</html>

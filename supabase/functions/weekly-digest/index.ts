@@ -270,7 +270,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = Deno.env.get("RESEND_API_KEY") || "";
   const fromAddr = Deno.env.get("DIGEST_FROM") || "Abhinaya DCR <noreply@mail.abhinayacinemas.com>";
-  const toAddr = Deno.env.get("DIGEST_TO") || "nitin.george@abhinayacinemas.com";
+  const toAddr = Deno.env.get("DIGEST_TO") || "nitin.george@abhinayacinemas.com,ajim20@hotmail.com,shinu.thomas@abhinayacinemas.com";
+  const toAddrs = toAddr.split(",").map((s) => s.trim()).filter(Boolean);
 
   if (!supabaseUrl || !supabaseKey) return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var", { status: 500 });
   if (!resendKey && !dry) return new Response("Missing RESEND_API_KEY env var (use ?dry=1)", { status: 500 });
@@ -325,11 +326,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (dry) return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
 
   const resend = new Resend(resendKey);
-  const { error } = await resend.emails.send({ from: fromAddr, to: [toAddr], subject, html });
+  const { error } = await resend.emails.send({ from: fromAddr, to: toAddrs, subject, html });
   if (error) return new Response("Resend error: " + JSON.stringify(error), { status: 500 });
 
   return new Response(JSON.stringify({
-    ok: true, weekFrom, weekTo, sentTo: toAddr,
+    ok: true, weekFrom, weekTo, sentTo: toAddrs,
     daysWithBO: curr.daysWithBO, daysWithFB: curr.daysWithFB,
     tickets: curr.totalTickets, fbNet: curr.totalFbNet,
   }), { status: 200, headers: { "Content-Type": "application/json" } });

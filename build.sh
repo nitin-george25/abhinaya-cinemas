@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Cloudflare Pages build script.
+# Cloudflare Pages build script — LANDING SITE.
 #
-# Phase C7 cutover layout:
-#   /admin/dcr/         → New React app  (primary console)
-#   /admin/dcr-legacy/  → Legacy vanilla console (fallback during the
-#                         confidence period; remove after ~2 weeks)
+# This project (abhinaya-cinemas) is the landing site, deployed to:
+#   abhinayacinemas.com       (apex)
+#   www.abhinayacinemas.com
+#   staging-refactor.abhinaya-cinemas.pages.dev (and other branch previews)
 #
-# Cloudflare Pages dashboard settings:
+# The admin DCR console moved to its own Cloudflare Pages project served
+# at admin.abhinayacinemas.com — it builds from app/ in this same repo via
+# a separate CF Pages project configuration (root: /, build command:
+# `cd app && npm install && npm run build`, output: app/dist).
+#
+# Cloudflare Pages dashboard settings for THIS project:
 #   Build command:           bash build.sh
 #   Build output directory:  dist
 # ============================================================================
@@ -17,62 +22,37 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_ROOT"
 
-echo "==> Building React app (app/)"
-cd app
-if [ -f package-lock.json ]; then
-  npm ci
-else
-  npm install
-fi
-npm run build
-cd "$REPO_ROOT"
-
-echo "==> Staging unified Cloudflare output (dist/)"
+echo "==> Staging landing-site output (dist/)"
 rm -rf dist
-mkdir -p dist
+mkdir -p dist/site
 
-# Legacy vanilla site → /admin/dcr-legacy/
-mkdir -p dist/admin
-cp -R admin/dcr dist/admin/dcr-legacy
+cp index.html   dist/index.html
+cp privacy.html dist/privacy.html
+cp terms.html   dist/terms.html
+cp -R site/.    dist/site/
 
-# React app → /admin/dcr/  (Vite base is '/admin/dcr/', so the index.html
-# already references /admin/dcr/assets/*. We just need to put the files
-# at that path.)
-mkdir -p dist/admin/dcr
-cp -R app/dist/. dist/admin/dcr/
-
-# Cloudflare Pages headers — copy from repo root if present
+# Cloudflare Pages headers — long cache on /site/assets and /site/fonts.
 [ -f _headers ] && cp _headers dist/_headers
 
-# Cloudflare Pages redirects — written fresh by build.sh because we need:
-#   • SPA fallback for /admin/dcr/* → /admin/dcr/index.html (React Router)
-#   • 301 from old /v2/* URLs (pre-cutover bookmarks) → /admin/dcr/*
+# Disable Pages Functions for this project. The repo still has the
+# tombstoned functions/ dir from the pre-split routing experiments; this
+# empty-include _routes.json tells Cloudflare to bundle but never invoke
+# them. Cleanup pass: `git rm -r functions/` once we're confident.
+
+# Redirects.
+#   - Old /admin/dcr/* and /admin/dcr-legacy/* paths from the pre-split
+#     era 301 to admin.abhinayacinemas.com so existing bookmarks survive.
+#   - /v2/* bookmarks (pre-cutover) bounce the same way.
 cat > dist/_redirects <<'REDIRECTS'
-# Pre-cutover bookmarks — 301 redirect /v2/* into the new /admin/dcr/*.
-/v2/*    /admin/dcr/:splat   301
+# Pre-cutover bookmarks → admin subdomain.
+/v2/*                  https://admin.abhinayacinemas.com/:splat           301
 
-# SPA fallback for the React app at /admin/dcr/ — any /admin/dcr/* request
-# that doesn't match a real file is served the index.html shell with 200
-# so React Router can pick up the path client-side. This MUST come after
-# the legacy block above so /admin/dcr-legacy/* keeps serving static.
-/admin/dcr/*    /admin/dcr/index.html   200
+# Subdomain-split bookmarks. The admin console lived at /admin/dcr/* on
+# the apex from 2025-12 through 2026-06-04; this rule preserves those
+# bookmarks indefinitely.
+/admin/dcr/*           https://admin.abhinayacinemas.com/:splat           301
+/admin/dcr-legacy/*    https://admin.abhinayacinemas.com/legacy/:splat    301
 REDIRECTS
-
-# Friendly landing at /  →  the new console
-cat > dist/index.html <<'HTML'
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Abhinaya Cinemas</title>
-    <meta http-equiv="refresh" content="0; url=/admin/dcr/" />
-    <meta name="robots" content="noindex" />
-  </head>
-  <body>
-    <p><a href="/admin/dcr/">Open the console</a></p>
-  </body>
-</html>
-HTML
 
 echo "==> Done"
 ls -la dist

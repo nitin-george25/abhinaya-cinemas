@@ -1,11 +1,28 @@
 # Cloudflare Pages headers — long cache on static assets, short on HTML.
 # HTML must revalidate so deploys propagate instantly.
 #
-# Phase C7 cutover layout:
-#   /admin/dcr/         → React app  (primary)
+# Site layout:
+#   /                   → Public landing page (index.html + /site/*)
+#   /admin/dcr/         → React DCR console  (primary)
 #   /admin/dcr-legacy/  → Legacy vanilla console (fallback)
 
 /*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# ── Public landing page assets at /site/ ────────────────────────────────
+# Logo PNGs, font files, JSX bundles — safe to cache aggressively. Bust by
+# renaming the file or appending ?v=... to the reference if ever needed.
+/site/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/site/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/site/colors_and_type.css
+  Cache-Control: public, max-age=604800, must-revalidate
+
+# JSX is parsed in-browser via Babel; revalidate so edits ship instantly.
+/site/*.jsx
   Cache-Control: public, max-age=0, must-revalidate
 
 # ── Legacy vanilla console at /admin/dcr-legacy/ ────────────────────────

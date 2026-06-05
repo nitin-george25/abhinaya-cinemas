@@ -41,7 +41,7 @@ export interface ConfigPayload {
 /** `public.authorized_users` — access allowlist + role. */
 export interface AuthorizedUserRow {
   email: string;
-  role: "owner" | "manager" | "daily_manager" | "accountant";
+  role: "owner" | "manager" | "daily_manager" | "accountant" | "cashier";
   full_name: string | null;
   /** Set when the user signs in via username + PIN. Null for Google users. */
   username: string | null;
@@ -186,6 +186,11 @@ export interface MovieRow {
   language:       string | null;
   genre:          string | null;
   certification:  string | null;
+  /** Public URL in the `movie-posters` bucket. Migration 13. */
+  poster_url:     string | null;
+  /** Programme lifecycle flag (migration 15). Anon RLS policy gates
+   *  public reads on this column. */
+  status:         "coming_soon" | "now_showing" | "past";
   archived_at:    string | null;
 }
 
@@ -214,4 +219,248 @@ export interface RealtimeVersionRow {
   layer:      "catalog" | "operational";
   version:    number;
   updated_at: string | null;
+}
+
+// ── Cash management tables ───────────────────────────────────────────────
+//
+// Mirror migrations/cash-management/*.sql. All UUID PKs.
+
+export interface OperatingUnitRow {
+  id:                     string;
+  cinema_id:              string;
+  name:                   string;
+  kind:                   "box_office" | "food_beverage" | "other";
+  display_order:          number;
+  archived_at:            string | null;
+  /** Recommended cash to retain in the till as float. Migration 10. */
+  default_float_amount:   number;
+  created_at:             string | null;
+  updated_at:             string | null;
+  updated_by:             string | null;
+}
+
+export interface BankAccountRow {
+  id:                    string;
+  cinema_id:             string;
+  operating_unit_id:     string;
+  name:                  string;
+  bank_name:             string | null;
+  account_number_last4:  string | null;
+  opening_balance:       number;
+  opening_date:          string;          // YYYY-MM-DD
+  is_primary:            boolean;
+  archived_at:           string | null;
+  created_at:            string | null;
+  updated_at:            string | null;
+  updated_by:            string | null;
+}
+
+export type PaymentFlowType = "cash" | "online_immediate" | "online_settled";
+
+export interface PaymentMethodRow {
+  id:                  string;
+  cinema_id:           string;
+  code:                string;
+  display_name:        string;
+  flow_type:           PaymentFlowType;
+  receives_into_bank:  string | null;
+  display_order:       number;
+  archived_at:         string | null;
+  created_at:          string | null;
+}
+
+export type ClosingShift  = "morning" | "evening" | "all_day";
+export type ClosingStatus = "draft" | "counted" | "signed" | "disputed" | "resolved";
+
+export interface DailyCashClosingRow {
+  id:                       string;
+  operating_unit_id:        string;
+  business_date:            string;          // YYYY-MM-DD
+  shift:                    ClosingShift;
+  cashier_email:            string | null;
+  closed_by_email:          string;
+
+  pos_total_sales:          number;
+  pos_non_cash_total:       number;
+  pos_cash_expected:        number;          // generated
+
+  cash_counted:             number;
+  petty_expenses_paid:      number;
+  cash_deposited:           number;
+  discrepancy:              number;          // generated
+
+  notes:                    string | null;
+  status:                   ClosingStatus;
+
+  // Phase 7 — dual signoff
+  cashier_signed_at:        string | null;
+  cashier_signed_by_email:  string | null;
+  manager_signed_by_email:  string | null;
+  signed_at:                string | null;    // manager sign timestamp
+  resolved_at:              string | null;
+  resolved_by_email:        string | null;
+
+  /** Phase 10 — optional URL to a same-day EDC settlement slip. */
+  edc_slip_url:             string | null;
+
+  created_at:               string | null;
+  updated_at:               string | null;
+}
+
+// ── Phase 10 — Cash deposits + POS settlements ──────────────────────────
+
+export type CashDepositStatus = "pending" | "completed" | "cancelled";
+
+export interface CashDepositRow {
+  id:                  string;
+  closing_id:          string | null;
+  operating_unit_id:   string;
+  bank_account_id:     string;
+  deposit_date:        string;          // YYYY-MM-DD
+  deposited_amount:    number;
+  retained_amount:     number;
+  slip_url:            string | null;
+  slip_reference:      string | null;
+  deposited_by_email:  string;
+  status:              CashDepositStatus;
+  notes:               string | null;
+  created_at:          string | null;
+  updated_at:          string | null;
+}
+
+export type PosSettlementStatus = "pending" | "received" | "reconciled" | "disputed";
+
+export interface PosSettlementRow {
+  id:                  string;
+  cinema_id:           string;
+  payment_method_id:   string;
+  bank_account_id:     string;
+  settlement_date:     string;          // YYYY-MM-DD
+  expected_amount:     number;
+  received_amount:     number;
+  fee_amount:          number;
+  bank_reference:      string | null;
+  slip_url:            string | null;
+  notes:               string | null;
+  status:              PosSettlementStatus;
+  received_by_email:   string | null;
+  received_at:         string | null;
+  created_at:          string | null;
+  updated_at:          string | null;
+}
+
+export interface PosSettlementClosingRow {
+  settlement_id: string;
+  closing_id:    string;
+}
+
+export interface CashClosingDenominationRow {
+  closing_id:   string;
+  denomination: number;
+  count:        number;
+}
+
+export interface CashClosingPaymentMethodRow {
+  closing_id:        string;
+  payment_method_id: string;
+  amount:            number;
+}
+
+export type PettyExpenseStatus = "pending" | "approved" | "rejected";
+
+export interface PettyExpenseRow {
+  id:                     string;
+  operating_unit_id:      string;
+  expense_date:           string;        // YYYY-MM-DD
+  amount:                 number;
+  category:               string | null;
+  description:            string;
+  paid_to:                string | null;
+  requested_by_email:     string;
+  approved_by_email:      string | null;
+  approved_at:            string | null;
+  rejected_reason:        string | null;
+  receipt_url:            string | null;
+  /** Why no receipt was uploaded. Required when receipt_url is null
+   *  (CHECK constraint added in migration 08). */
+  no_receipt_reason:      string | null;
+  status:                 PettyExpenseStatus;
+  reconciled_closing_id:  string | null;
+  created_at:             string | null;
+  updated_at:             string | null;
+}
+
+export type PaymentRequestMode   = "bank_transfer" | "cheque" | "cash" | "upi";
+export type PaymentRequestStatus = "pending" | "approved" | "rejected" | "paid";
+
+export interface PaymentRequestRow {
+  id:                        string;
+  operating_unit_id:         string;
+  needed_by:                 string | null;     // YYYY-MM-DD
+  payee_name:                string;
+  party_id:                  string | null;
+  payee_account_last4:       string | null;
+  payee_ifsc:                string | null;
+  amount:                    number;
+  mode:                      PaymentRequestMode;
+  purpose:                   string;
+  invoice_url:               string | null;
+  requested_by_email:        string;
+  approved_by_email:         string | null;
+  approved_at:               string | null;
+  rejected_reason:           string | null;
+  paid_at:                   string | null;
+  paid_via_bank_account_id:  string | null;
+  bank_reference:            string | null;
+  status:                    PaymentRequestStatus;
+  created_at:                string | null;
+  updated_at:                string | null;
+}
+
+export type LedgerSourceKind =
+  | "opening_balance"
+  | "cash_deposit"
+  | "payment_request"
+  | "inter_unit_transfer"
+  | "pos_settlement"
+  | "manual"
+  | "manual_income"
+  | "manual_expense";
+
+export interface BankLedgerEntryRow {
+  id:              string;
+  bank_account_id: string;
+  entry_date:      string;                // YYYY-MM-DD
+  narration:       string;
+  receipt_amount:  number;
+  payment_amount:  number;
+  source_kind:     LedgerSourceKind;
+  source_id:       string | null;
+  bank_reference:  string | null;
+  reconciled_at:   string | null;
+  notes:           string | null;
+  party_id:        string | null;
+  created_at:      string | null;
+  created_by:      string | null;
+}
+
+export type PartyType = "vendor" | "customer" | "employee" | "other";
+
+export interface PartyRow {
+  id:             string;
+  cinema_id:      string;
+  name:           string;
+  party_type:     PartyType;
+  category:       string | null;
+  contact_name:   string | null;
+  phone:          string | null;
+  email:          string | null;
+  gstin:          string | null;
+  pan:            string | null;
+  account_last4:  string | null;
+  ifsc:           string | null;
+  notes:          string | null;
+  archived_at:    string | null;
+  created_at:     string | null;
+  updated_at:     string | null;
 }
