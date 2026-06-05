@@ -10,7 +10,7 @@
 // hosting changes. If we ever move off Cloudflare, only this constant moves.
 // ============================================================================
 
-export const PROD_HOSTS = ["abhinayacinemas.com", "www.abhinayacinemas.com"];
+export const PROD_HOSTS = ["abhinayacinemas.com", "www.abhinayacinemas.com", "admin.abhinayacinemas.com"];
 
 export type EnvName = "prod" | "staging";
 

@@ -255,7 +255,7 @@ function NotFound() {
   return (
     <div className="max-w-md py-16 text-center mx-auto">
       <p className="text-ink-muted text-sm">No such page.</p>
-      <a className="text-amber-600 underline text-sm mt-2 inline-block" href="/admin/dcr/">
+      <a className="text-amber-600 underline text-sm mt-2 inline-block" href="/">
         Back to home
       </a>
     </div>

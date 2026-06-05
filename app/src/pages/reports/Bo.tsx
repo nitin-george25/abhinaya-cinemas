@@ -20,7 +20,7 @@ export default function ReportsBoPage() {
           <Badge tone="neutral">Coming soon</Badge>
           <p className="text-sm text-ink-muted">
             The BO report is the next workstream. Until then, use{" "}
-            <a className="text-amber-600 underline" href="/admin/dcr/box-office/history">
+            <a className="text-amber-600 underline" href="/box-office/history">
               Box Office &rarr; History
             </a>{" "}
             for the same data.
