@@ -9,7 +9,7 @@
 --
 -- Active layout (confirmed by Nitin, 2026-06-06):
 --   Audi 1 (7gwkvh9): cls_royale (Royale), cls_lounge (Lounge), cls_prime (Prime)
---   Audi 2 (oxnv3cw): xxa50jt (Platinum), 1hliv5d (Gold), tlju8sn (Silver)
+--   Audi 2 (oxnv3cw): 1u1lpa4 (Platinum), lp9hi7s (Gold), bsl9hd8 (Silver)
 -- Every other assignment on those screens is historical → active = false.
 --
 -- Idempotent; safe on envs where the backfill has not run (the only
@@ -29,7 +29,7 @@ begin
     when sc.screen_id = '7gwkvh9'
       then sc.class_id in ('cls_royale', 'cls_lounge', 'cls_prime')
     when sc.screen_id = 'oxnv3cw'
-      then sc.class_id in ('xxa50jt', '1hliv5d', 'tlju8sn')
+      then sc.class_id in ('1u1lpa4', 'lp9hi7s', 'bsl9hd8')
     else true
   end
   where sc.screen_id in ('7gwkvh9', 'oxnv3cw');
@@ -53,7 +53,7 @@ begin
   for scr in select * from jsonb_array_elements(coalesce(d->'screens', '[]'::jsonb)) loop
     keep := case scr->>'id'
       when '7gwkvh9' then array['cls_royale', 'cls_lounge', 'cls_prime']
-      when 'oxnv3cw' then array['xxa50jt', '1hliv5d', 'tlju8sn']
+      when 'oxnv3cw' then array['1u1lpa4', 'lp9hi7s', 'bsl9hd8']
       else null
     end;
     if keep is not null then
