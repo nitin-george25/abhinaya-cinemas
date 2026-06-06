@@ -191,6 +191,12 @@ export interface MovieRow {
   /** Programme lifecycle flag (migration 15). Anon RLS policy gates
    *  public reads on this column. */
   status:         "coming_soon" | "now_showing" | "past";
+  /** Owner's manual pin (migration 16). NULL = Auto. */
+  status_override: "coming_soon" | "now_showing" | "past" | null;
+  /** Trailer link played by the landing hero (migration 16). */
+  trailer_url:    string | null;
+  /** Drives the landing hero film; at most one true (migration 16). */
+  is_featured:    boolean;
   archived_at:    string | null;
 }
 

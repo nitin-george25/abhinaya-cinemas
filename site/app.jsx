@@ -14,6 +14,15 @@ function App() {
   const [active, setActive] = useState('Now Showing');
   const [tab, setTab] = useState('Now Showing');
   const [trailer, setTrailer] = useState(false);
+  const [heroMovie, setHeroMovie] = useState(null);
+
+  // Load the programme once for the hero film (NowShowing fetches its own
+  // copy for the grid). Small payload, cheap second read.
+  useEffect(() => {
+    let alive = true;
+    window.loadMovies().then((m) => { if (alive) setHeroMovie(window.pickHero(m)); });
+    return () => { alive = false; };
+  }, []);
 
   const scrollTo = (id) => {
     const el = document.getElementById(id);
@@ -73,14 +82,14 @@ function App() {
   return (
     <div>
       <Header active={active} onNav={onNav} />
-      <Hero onPlay={() => setTrailer(true)} onBook={openBms} />
+      <Hero onPlay={() => setTrailer(true)} onBook={openBms} heroMovie={heroMovie} />
       <NowShowing tab={tab} setTab={(t) => { setTab(t); setActive(t); }} onBook={openBms} />
       <Legacy />
       <Gallery />
       <Careers />
       <Contact />
       <Footer onNav={onNav} />
-      {trailer && <TrailerModal onClose={() => setTrailer(false)} />}
+      {trailer && <TrailerModal trailerUrl={heroMovie && heroMovie.trailerUrl} onClose={() => setTrailer(false)} />}
     </div>
   );
 }
