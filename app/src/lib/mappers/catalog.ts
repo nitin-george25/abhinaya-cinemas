@@ -226,10 +226,11 @@ export function composeCatalogFromRows(args: {
       release: m.release_date ?? undefined,
       share: Number(m.share_pct),
       posterUrl: m.poster_url ?? undefined,
-      // Migration 15 introduces `status`; rows from before it ran will
-      // come back as `now_showing` by the backfill, but we defend against
-      // missing values just in case.
-      status: m.status ?? "coming_soon",
+      trailerUrl: m.trailer_url ?? undefined,
+      featured: m.is_featured ?? false,
+      statusOverride: m.status_override ?? undefined,
+      // `status` is server-derived (migration 16) and read-only here.
+      status: m.status ?? undefined,
     }));
 
   const ssClassesByStart = groupBy(args.serialStartClasses, (r) => r.serial_start_id);
@@ -373,10 +374,12 @@ export async function pushCatalogDeltas(
     release_date: m.release ?? null,
     share_pct: m.share,
     poster_url: m.posterUrl ?? null,
-    // Migration 15. Default at the DB layer is 'coming_soon', so a null
-    // here would be filled in automatically — sending it explicitly
-    // means owner edits round-trip predictably.
-    status: m.status ?? "coming_soon",
+    trailer_url: m.trailerUrl ?? null,
+    is_featured: m.featured ?? false,
+    // `status` is owned by the server-side engine (migration 16); the app
+    // only writes the manual override (null = Auto). Writing `status` here
+    // would clobber the calc on every config push.
+    status_override: m.statusOverride ?? null,
     updated_by: email,
   }));
   const wantSerialStarts = next.serialStarts.map((ss) => ({

@@ -740,20 +740,27 @@ async function uploadMoviePoster(file: File, uploaderEmail: string): Promise<str
 /** Visual indicator of a movie's lifecycle stage. Colors match the
  *  brand palette: chartreuse for active, ember for upcoming, neutral for
  *  retired. */
-function MovieStatusPill({ status }: { status: MovieStatus }) {
+function MovieStatusPill({ movie }: { movie: Movie }) {
   const styles: Record<MovieStatus, { bg: string; fg: string; label: string }> = {
     now_showing: { bg: "bg-emerald-100", fg: "text-emerald-800", label: "Now Showing" },
     coming_soon: { bg: "bg-amber-100",   fg: "text-amber-800",   label: "Coming Soon" },
     past:        { bg: "bg-zinc-100",    fg: "text-zinc-600",    label: "Past" },
   };
-  const cls = styles[status] ?? styles.coming_soon;
+  const pinned = !!movie.statusOverride;
+  const eff = (movie.statusOverride ?? movie.status) as MovieStatus | undefined;
+  const cls = (eff && styles[eff]) || { bg: "bg-zinc-100", fg: "text-zinc-400", label: "—" };
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.bg} ${cls.fg}`}
-      title={cls.label}
-    >
-      {cls.label}
-    </span>
+    <div className="flex flex-col items-start gap-0.5">
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.bg} ${cls.fg}`}
+        title={pinned ? `Pinned to ${cls.label}` : `Auto: ${cls.label}`}
+      >
+        {cls.label}
+      </span>
+      <span className="text-[9px] uppercase tracking-wider text-ink-muted">
+        {pinned ? "Pinned" : "Auto"}
+      </span>
+    </div>
   );
 }
 
@@ -767,7 +774,12 @@ export function MoviesSection() {
   function save(next: Movie) {
     if (!appState) return;
     const others = appState.movies.filter((m) => m.id !== next.id);
-    setAppState({ ...appState, movies: [...others, next] });
+    // At most one featured movie drives the hero - unfeature the rest when
+    // this one is featured.
+    const normalized = next.featured
+      ? others.map((m) => (m.featured ? { ...m, featured: false } : m))
+      : others;
+    setAppState({ ...appState, movies: [...normalized, next] });
   }
   function remove(id: UUID) {
     if (!appState) return;
@@ -809,6 +821,7 @@ export function MoviesSection() {
                   <th className="text-left px-5 py-3 font-semibold w-48">Distributor</th>
                   <th className="text-left px-5 py-3 font-semibold w-32">Release</th>
                   <th className="text-left px-5 py-3 font-semibold w-32">Status</th>
+                  <th className="text-left px-5 py-3 font-semibold w-64">Hero / Trailer</th>
                   <th className="text-right px-5 py-3 font-semibold w-24">Share %</th>
                   <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
@@ -841,7 +854,9 @@ function MovieRow({
   const [dist, setDist] = useState(movie.distributor ?? "");
   const [release, setRelease] = useState(movie.release ?? "");
   const [share, setShare] = useState(String(movie.share ?? 0));
-  const [status, setStatus] = useState<MovieStatus>(movie.status ?? "coming_soon");
+  const [statusOverride, setStatusOverride] = useState<"" | MovieStatus>(movie.statusOverride ?? "");
+  const [trailerUrl, setTrailerUrl] = useState(movie.trailerUrl ?? "");
+  const [featured, setFeatured] = useState<boolean>(movie.featured ?? false);
   const [posterUrl, setPosterUrl] = useState<string | undefined>(movie.posterUrl);
   const [uploading, setUploading] = useState(false);
   const [posterErr, setPosterErr] = useState<string | null>(null);
@@ -868,7 +883,9 @@ function MovieRow({
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl: posterUrl,
-      status,
+      trailerUrl: trailerUrl.trim() || undefined,
+      featured,
+      statusOverride: statusOverride || undefined,
     });
     setEditing(false);
   }
@@ -899,18 +916,32 @@ function MovieRow({
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={dist} onChange={(e) => setDist(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} className="h-8" /></td>
-        <td className="px-5 py-2">
+        <td className="px-5 py-2 align-top">
           <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as MovieStatus)}
+            value={statusOverride}
+            onChange={(e) => setStatusOverride(e.target.value as "" | MovieStatus)}
             className="h-8 w-full rounded border border-line bg-white px-2 text-sm"
+            title="Auto = calculated from release date + last show"
           >
-            <option value="coming_soon">Coming Soon</option>
-            <option value="now_showing">Now Showing</option>
-            <option value="past">Past</option>
+            <option value="">Auto (calculated)</option>
+            <option value="coming_soon">Pin: Coming Soon</option>
+            <option value="now_showing">Pin: Now Showing</option>
+            <option value="past">Pin: Past</option>
           </select>
         </td>
-        <td className="px-5 py-2">
+        <td className="px-5 py-2 align-top">
+          <label className="flex items-center gap-1.5 text-xs mb-1.5 cursor-pointer">
+            <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} />
+            Feature on homepage
+          </label>
+          <Input
+            value={trailerUrl}
+            onChange={(e) => setTrailerUrl(e.target.value)}
+            placeholder="Trailer URL (YouTube)"
+            className="h-8"
+          />
+        </td>
+        <td className="px-5 py-2 align-top">
           <Input
             type="number" min={0} max={100} step={0.01}
             value={share} onChange={(e) => setShare(e.target.value)}
@@ -948,7 +979,16 @@ function MovieRow({
       <td className="px-5 py-2 text-ink-muted">{movie.distributor ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{movie.release ?? "—"}</td>
       <td className="px-5 py-2">
-        <MovieStatusPill status={movie.status ?? "coming_soon"} />
+        <MovieStatusPill movie={movie} />
+      </td>
+      <td className="px-5 py-2">
+        <div className="flex flex-col gap-0.5 text-[11px]">
+          {movie.featured ? <span className="font-semibold text-amber-700">★ Featured</span> : null}
+          {movie.trailerUrl ? (
+            <a href={movie.trailerUrl} target="_blank" rel="noreferrer" className="text-amber-700 underline">▶ Trailer</a>
+          ) : null}
+          {!movie.featured && !movie.trailerUrl ? <span className="text-ink-muted">—</span> : null}
+        </div>
       </td>
       <td className="px-5 py-2 text-right tabular-nums">{movie.share}%</td>
       <td className="px-5 py-2 text-right whitespace-nowrap">
@@ -965,7 +1005,9 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
   const [dist, setDist] = useState("");
   const [release, setRelease] = useState("");
   const [share, setShare] = useState("60");
-  const [status, setStatus] = useState<MovieStatus>("coming_soon");
+  const [statusOverride, setStatusOverride] = useState<"" | MovieStatus>("");
+  const [trailerUrl, setTrailerUrl] = useState("");
+  const [featured, setFeatured] = useState(false);
   const [posterUrl, setPosterUrl] = useState<string | undefined>(undefined);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1001,7 +1043,9 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl,
-      status,
+      trailerUrl: trailerUrl.trim() || undefined,
+      featured,
+      statusOverride: statusOverride || undefined,
     });
   }
 
@@ -1015,14 +1059,25 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
       </Field>
       <Field label="Status">
         <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as MovieStatus)}
+          value={statusOverride}
+          onChange={(e) => setStatusOverride(e.target.value as "" | MovieStatus)}
           className="h-9 w-full rounded border border-line bg-white px-2 text-sm"
+          title="Auto = calculated from release date + last show"
         >
-          <option value="coming_soon">Coming Soon</option>
-          <option value="now_showing">Now Showing</option>
-          <option value="past">Past</option>
+          <option value="">Auto (calculated)</option>
+          <option value="coming_soon">Pin: Coming Soon</option>
+          <option value="now_showing">Pin: Now Showing</option>
+          <option value="past">Pin: Past</option>
         </select>
+      </Field>
+      <Field label="Trailer URL">
+        <Input value={trailerUrl} onChange={(e) => setTrailerUrl(e.target.value)} placeholder="YouTube link" />
+      </Field>
+      <Field label="Featured">
+        <label className="flex items-center gap-2 h-9 text-sm cursor-pointer">
+          <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} />
+          Homepage hero
+        </label>
       </Field>
       <Field label="Poster (required)">
         <div className="flex items-center gap-2">

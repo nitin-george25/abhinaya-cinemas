@@ -81,6 +81,8 @@ function rowToCard(row) {
     cert:     row.certification || '',
     badge,
     posterUrl: row.poster_url || null,
+    trailerUrl: row.trailer_url || null,
+    featured: !!row.is_featured,
     date:     isComingSoon ? formatReleaseDate(row.release_date) : null,
     times:    isComingSoon ? [] : STANDARD_SHOWTIMES,
   };
@@ -94,7 +96,7 @@ async function loadMovies() {
   // the policy is ever loosened.
   const { data, error } = await sbClient
     .from('movies')
-    .select('id,name,distributor,release_date,language,certification,poster_url,status')
+    .select('id,name,distributor,release_date,language,certification,poster_url,status,trailer_url,is_featured')
     .in('status', ['coming_soon', 'now_showing'])
     .order('release_date', { ascending: true, nullsFirst: false });
 
@@ -118,5 +120,21 @@ async function loadMovies() {
   return { 'Now Showing': nowShowing, 'Coming Soon': comingSoon };
 }
 
+/* Decide the hero film whose trailer plays at the top of the page.
+ * Hybrid rule (matches the admin "Feature on homepage" toggle):
+ *   1) the owner-featured film, if it has a trailer;
+ *   2) otherwise the first Now-Showing film that has a trailer;
+ *   3) otherwise null -> the Hero hides its trailer affordances.
+ * The hero *backdrop* is always the brand auditorium photo (see Hero.jsx);
+ * the hero film only supplies the trailer. */
+function pickHero(movies) {
+  const now  = (movies && movies['Now Showing']) || [];
+  const soon = (movies && movies['Coming Soon']) || [];
+  const featured = [...now, ...soon].find((m) => m.featured && m.trailerUrl);
+  if (featured) return featured;
+  return now.find((m) => m.trailerUrl) || null;
+}
+
 window.MOVIES = { 'Now Showing': [], 'Coming Soon': [] };
 window.loadMovies = loadMovies;
+window.pickHero = pickHero;
