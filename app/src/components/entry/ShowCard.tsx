@@ -1,7 +1,7 @@
 import { Input, Select } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { Card, CardBody } from "../ui/Card";
-import { screenById, screenClasses, cardById, N } from "../../lib/engine";
+import { screenById, entryClasses, cardById, N } from "../../lib/engine";
 import { fmtINR, fmtInt } from "../../lib/dashboard";
 import type {
   AppState,
@@ -43,7 +43,8 @@ export function ShowCard({
   onGenerateMessage,
 }: Props) {
   const screen = screenById(state, entry.screenId);
-  const cls = screenClasses(state, screen);
+  // Active classes + any historical-era class with tickets in this entry.
+  const cls = entryClasses(state, screen, entry);
   const cards = screen?.priceCards ?? [];
   const selectedCard = cardById(state, entry.screenId, show.priceCardId);
 

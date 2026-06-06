@@ -56,6 +56,12 @@ export interface ClassDef {
 export interface ScreenClassAssignment {
   classId: UUID;
   seats: number;
+  /**
+   * False for historical-era classes kept only so old entries still compute
+   * (e.g. backfilled 2019-26 layouts). Absent/true = part of the screen's
+   * CURRENT layout: offered on new entries and counted in occupancy.
+   */
+  active?: boolean;
 }
 
 export interface PriceCard {
@@ -83,11 +89,22 @@ export interface Movie {
    *  create form makes this mandatory client-side; pre-existing rows
    *  may have it undefined (column is nullable per migration 13). */
   posterUrl?: string;
-  /** Programme lifecycle flag. Drives the public landing page (Now Showing
-   *  vs Coming Soon vs hidden). Migration 15. Default `coming_soon` on
-   *  create — owner flips to `now_showing` when the film opens, then to
-   *  `past` when the run ends. */
-  status: MovieStatus;
+  /** YouTube (or any) trailer URL. Played by the landing-page hero CTA.
+   *  Migration 16. */
+  trailerUrl?: string;
+  /** When true, this movie drives the landing-page hero film. At most one
+   *  movie is featured at a time (enforced in the Movies settings UI).
+   *  Migration 16. */
+  featured?: boolean;
+  /** Owner's manual status pin. `undefined` = "Auto": the server-side
+   *  engine derives status from release date + last DCR (migration 16).
+   *  When set, the engine respects this value. This is the only status the
+   *  app authoritatively writes. */
+  statusOverride?: MovieStatus;
+  /** Effective programme status, DERIVED server-side (migration 16) and
+   *  read-only in the app. Drives the public landing page. May be undefined
+   *  until the first sync after a movie is created. */
+  status?: MovieStatus;
 }
 
 export interface SerialStart {
@@ -285,6 +302,8 @@ export interface ResolvedClass {
   name: string;
   gstPct: number;
   seats: number;
+  /** Mirrors ScreenClassAssignment.active (absent = true). */
+  active: boolean;
 }
 
 export interface SerialRange {

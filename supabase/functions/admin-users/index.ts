@@ -89,10 +89,14 @@ Deno.serve(async (req: Request) => {
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
   const { data: callerRow } = await svc
     .from("authorized_users")
-    .select("role")
+    .select("role, cinema_ids")
     .eq("email", callerEmail)
     .maybeSingle();
   const callerRole = callerRow?.role as Role | undefined;
+  // New users inherit the caller's cinema access. Without this the row
+  // defaults to '{}' and cinema_access() fails every RLS check (symptom:
+  // cashier sees an empty Unit dropdown in the petty expense form).
+  const callerCinemaIds = (callerRow?.cinema_ids as string[] | null) ?? [];
   if (callerRole !== "owner" && callerRole !== "manager") {
     return json({ error: "owner or manager role required" }, 403);
   }
@@ -106,7 +110,7 @@ Deno.serve(async (req: Request) => {
   }
 
   switch (body.action) {
-    case "create":      return await createUser(svc, body, callerRole);
+    case "create":      return await createUser(svc, body, callerRole, callerCinemaIds);
     case "reset_pin":   return await resetPin(svc, body, callerRole);
     case "update_role": return await updateRole(svc, body, callerRole);
     case "remove":      return await removeUser(svc, body, callerRole);
@@ -147,7 +151,12 @@ async function authoriseTarget(
 
 type Svc = ReturnType<typeof createClient>;
 
-async function createUser(svc: Svc, b: CreateBody, callerRole: Role): Promise<Response> {
+async function createUser(
+  svc: Svc,
+  b: CreateBody,
+  callerRole: Role,
+  callerCinemaIds: string[],
+): Promise<Response> {
   const v = validate(b);
   if (v) return json({ error: v }, 400);
 
@@ -166,11 +175,14 @@ async function createUser(svc: Svc, b: CreateBody, callerRole: Role): Promise<Re
   if (createErr) return json({ error: createErr.message }, 400);
 
   // Insert into authorized_users so the existing role-lookup works.
+  // cinema_ids inherited from the caller — required for cinema_access()
+  // RLS checks (operating_units, petty expenses, etc.).
   const { error: insertErr } = await svc.from("authorized_users").insert({
     email,
     role: b.role,
     full_name: b.fullName,
     username: b.username,
+    cinema_ids: callerCinemaIds,
   });
   if (insertErr) {
     // Roll back the auth user so we don't leave an orphan.

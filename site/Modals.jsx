@@ -10,14 +10,41 @@ function Overlay({ children, onClose, max = 920 }) {
   );
 }
 
-function TrailerModal({ onClose }) {
+/* Normalize a YouTube watch/share/shorts/embed URL to an autoplay embed.
+ * Returns null for anything we can't parse as YouTube. */
+function youtubeEmbed(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    let id = '';
+    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
+    else if (u.searchParams.get('v')) id = u.searchParams.get('v');
+    else if (u.pathname.includes('/embed/')) id = u.pathname.split('/embed/')[1];
+    else if (u.pathname.includes('/shorts/')) id = u.pathname.split('/shorts/')[1];
+    id = (id || '').split(/[/?&]/)[0];
+    if (!id) return null;
+    return 'https://www.youtube.com/embed/' + id + '?autoplay=1&rel=0&modestbranding=1';
+  } catch (e) { return null; }
+}
+
+function TrailerModal({ onClose, trailerUrl }) {
+  const embed = youtubeEmbed(trailerUrl);
   return (
     <Overlay onClose={onClose}>
-      <ImgSlot label="trailer video — 16:9" ratio="16/9" radius="0">
-        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-          <div style={{ width: 78, height: 78, borderRadius: '50%', background: 'var(--screen-gradient)', display: 'grid', placeItems: 'center', color: 'var(--spring-wood)' }}><Icon name="play" size={28} /></div>
-        </div>
-      </ImgSlot>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000' }}>
+        {embed ? (
+          <iframe src={embed} title="Trailer"
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }} />
+        ) : trailerUrl ? (
+          <video src={trailerUrl} controls autoPlay playsInline
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
+        ) : (
+          <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--fg-muted)', fontFamily: 'var(--font-text)' }}>
+            Trailer coming soon.
+          </div>
+        )}
+      </div>
     </Overlay>
   );
 }

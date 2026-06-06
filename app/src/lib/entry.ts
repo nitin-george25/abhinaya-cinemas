@@ -5,7 +5,7 @@
 // hook handles the rest (delta detection + debounced push to Supabase).
 // ============================================================================
 
-import { screenById, screenClasses } from "./engine";
+import { entryClasses, screenById } from "./engine";
 import { uid } from "./mappers";
 import type {
   AppState,
@@ -63,7 +63,9 @@ export function blankShow(
   priceCardId?: UUID,
 ): Show {
   const screen = screenById(state, screenId);
-  const cls = screenClasses(state, screen);
+  // Active classes only — new shows must not pre-seed rows for
+  // historical-era classes.
+  const cls = entryClasses(state, screen);
   const rows: Record<UUID, ShowRow> = {};
   cls.forEach((c) => {
     rows[c.classId] = { tickets: 0 };
