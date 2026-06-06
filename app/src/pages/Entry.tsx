@@ -27,6 +27,7 @@ import type { AppState, DateISO, Entry, UUID } from "../lib/types";
 import { Card, CardBody } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
@@ -43,6 +44,9 @@ export default function EntryPage() {
   const [movieId, setMovieId] = useState<UUID | "">("");
   const [screenId, setScreenId] = useState<UUID | "">("");
   const [shareOverride, setShareOverride] = useState<number | null>(null);
+  /** Owner-only delete confirmation dialog. Declared here (not next to
+   *  onDelete) so the hook runs before the `!appState` early return. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Default movie / screen to the first available so the form isn't empty
   // on first load.
@@ -104,9 +108,19 @@ export default function EntryPage() {
     }
   }
 
+  // Owner-only delete with an explicit confirmation dialog. RLS enforces
+  // the same rule server-side (ent_delete policy, migration 20260606150000)
+  // and an AFTER DELETE trigger writes the deletion_log row the Activity
+  // page surfaces.
+  const canDelete = state.role === "owner";
+
   function onDelete() {
-    if (!existing) return;
-    if (!confirm("Delete this entry? This removes it from the cloud.")) return;
+    if (!existing || !canDelete) return;
+    setConfirmingDelete(true);
+  }
+
+  function confirmDelete() {
+    setConfirmingDelete(false);
     setAppState(deleteEntry(appState!, date, movieId as UUID, screenId as UUID));
   }
 
@@ -124,10 +138,30 @@ export default function EntryPage() {
           <EntryActions
             entry={existing}
             appState={appState}
+            canDelete={canDelete}
             onDelete={onDelete}
           />
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this entry?"
+        confirmLabel="Delete entry"
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={confirmDelete}
+      >
+        <p>
+          {appState.movies.find((m) => m.id === movieId)?.name ?? "?"} on{" "}
+          {appState.screens.find((s) => s.id === screenId)?.name ?? "?"} ·{" "}
+          {date}
+        </p>
+        <p>
+          This permanently removes the entry and all its shows from the
+          cloud. The deletion is recorded in the Activity log, but the
+          figures cannot be recovered.
+        </p>
+      </ConfirmDialog>
 
       <EntryHeader
         state={appState}
@@ -241,10 +275,14 @@ function EntryBody({
 function EntryActions({
   entry,
   appState,
+  canDelete,
   onDelete,
 }: {
   entry: Entry;
   appState: AppState;
+  /** Owner only — delete is a legal-record action (see migration
+   *  20260606150000). Others don't even see the button. */
+  canDelete: boolean;
   onDelete: () => void;
 }) {
   const computed = useMemo(
@@ -284,7 +322,9 @@ function EntryActions({
         <Button variant="secondary" size="sm" onClick={dlCsv}>CSV</Button>
         <Button variant="secondary" size="sm" onClick={dlTally}>Tally CSV</Button>
         <Button size="sm" onClick={dlPdf}>Download PDF</Button>
-        <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
+        {canDelete ? (
+          <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
+        ) : null}
       </div>
 
       <DcrModal
