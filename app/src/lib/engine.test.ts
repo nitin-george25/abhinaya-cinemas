@@ -21,12 +21,14 @@ import {
   computeFund,
   computeShallow,
   daysBetween,
+  entryRepBatta,
   isNight,
   r2,
   realShowCount,
   repBattaFor,
   screenById,
   screenClasses,
+  sharedScreenMovie,
 } from "./engine";
 import type { AppState, Entry, TaxConfig } from "./types";
 
@@ -516,5 +518,223 @@ describe("computeSerials via computeEntry — ticket-serial bookkeeping", () => 
     const r = c.shows[0]?.rows.find((x) => x.cls === "Lounge");
     expect(r?.from).toBe(1);
     expect(r?.to).toBe("NA");
+  });
+});
+
+// ── cross-screen rep batta pooling (owner-approved change, 2026-06-06) ──
+//
+// When the SAME movie has real shows on more than one screen on the same
+// date, each screen's entry-wide rep batta = per-show day/night batta
+// (₹100) × its own real shows, replacing the rep1/rep2/rep5 step lookup.
+// Combined total = 100 × total shows: 1+1 → 200, 1+2 → 300, 1+3 → 400.
+// Single-screen days must remain bit-identical to the legacy step lookup.
+
+describe("entryRepBatta() — cross-screen pooling", () => {
+  function twoScreenState(): AppState {
+    const s = makeDefaultState();
+    s.screens = [
+      ...s.screens,
+      {
+        id: "scr_tara",
+        name: "Tara",
+        classes: [{ classId: "cls_royale", seats: 150 }],
+        priceCards: [{ id: "pc_t1", name: "Card T1", prices: { cls_royale: 290 } }],
+      },
+    ];
+    s.movies = [
+      ...s.movies,
+      { id: "mov_b", name: "Bahubali", share: 60, status: "now_showing" },
+    ];
+    return s;
+  }
+  const entryOn = (
+    id: string,
+    screenId: string,
+    nShows: number,
+    movieId = "mov_empuraan",
+    date = "2025-04-15",
+  ): Entry => ({
+    id, date, movieId, screenId, share: 60,
+    // 10:00, 13:00, 16:00, 19:00, 22:00 — all day shows (repDay)
+    shows: Array.from({ length: nShows }, (_, i) => ({
+      showtime: `${10 + 3 * i}:00`,
+      rows: {},
+    })),
+  });
+
+  it("single screen → legacy step lookup, unchanged", () => {
+    const s = twoScreenState();
+    const e = entryOn("e1", "scr_abhinaya", 1);
+    s.entries = [e];
+    expect(sharedScreenMovie(s, e)).toBe(false);
+    expect(entryRepBatta(s, e, s.tax)).toBe(250);              // rep1
+    s.entries = [entryOn("e1", "scr_abhinaya", 3)];
+    expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(400);  // rep2
+    s.entries = [entryOn("e1", "scr_abhinaya", 5)];
+    expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(600);  // rep5
+  });
+
+  it("1+1 shows → 100/100 (total 200, not 250/250)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 1);
+    s.entries = [a, b];
+    expect(sharedScreenMovie(s, a)).toBe(true);
+    expect(entryRepBatta(s, a, s.tax)).toBe(100);
+    expect(entryRepBatta(s, b, s.tax)).toBe(100);
+  });
+
+  it("1+2 shows → 100/200 (total 300)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 2);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(100);
+    expect(entryRepBatta(s, b, s.tax)).toBe(200);
+  });
+
+  it("1+3 shows → 100/300 (total 400)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 3);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(100);
+    expect(entryRepBatta(s, b, s.tax)).toBe(300);
+  });
+
+  it("2+3 shows → 200/300 (total 500, linear past the rep5 step)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 2);
+    const b = entryOn("eB", "scr_tara", 3);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(200);
+    expect(entryRepBatta(s, b, s.tax)).toBe(300);
+  });
+
+  it("different movies on the two screens → no pooling", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 3, "mov_b");
+    s.entries = [a, b];
+    expect(sharedScreenMovie(s, a)).toBe(false);
+    expect(entryRepBatta(s, a, s.tax)).toBe(250);
+    expect(entryRepBatta(s, b, s.tax)).toBe(400);
+  });
+
+  it("same movie on the other screen but a DIFFERENT date → no pooling", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 3, "mov_empuraan", "2025-04-16");
+    s.entries = [a, b];
+    expect(sharedScreenMovie(s, a)).toBe(false);
+    expect(entryRepBatta(s, a, s.tax)).toBe(250);
+  });
+
+  it("other-screen entry with no real shows → no pooling", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b: Entry = {
+      id: "eB", date: "2025-04-15", movieId: "mov_empuraan",
+      screenId: "scr_tara", share: 60,
+      shows: [{ rows: { cls_royale: { tickets: 0 } } }],
+    };
+    s.entries = [a, b];
+    expect(sharedScreenMovie(s, a)).toBe(false);
+    expect(entryRepBatta(s, a, s.tax)).toBe(250);
+  });
+
+  it("only real shows are counted on the pooled side", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 2);
+    b.shows = [...(b.shows || []), { rows: { cls_royale: { tickets: 0 } } }]; // placeholder
+    s.entries = [a, b];
+    expect(entryRepBatta(s, b, s.tax)).toBe(200); // not 300
+  });
+
+  it("night shows use repNight in the pooled sum", () => {
+    const s = twoScreenState();
+    s.tax = { ...s.tax, repNight: 150 };
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b: Entry = {
+      id: "eB", date: "2025-04-15", movieId: "mov_empuraan",
+      screenId: "scr_tara", share: 60,
+      shows: [{ showtime: "19:00", rows: {} }, { showtime: "23:15", rows: {} }],
+    };
+    s.entries = [a, b];
+    expect(entryRepBatta(s, b, s.tax)).toBe(250); // 100 day + 150 night
+  });
+
+  it("an in-flight draft on the other screen triggers pooling", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    s.entries = [a];
+    s.draft = entryOn("eB", "scr_tara", 2);
+    expect(sharedScreenMovie(s, a)).toBe(true);
+    expect(entryRepBatta(s, a, s.tax)).toBe(100);
+    expect(entryRepBatta(s, s.draft!, s.tax)).toBe(200);
+  });
+});
+
+describe("computeEntry()/computeShallow() — pooled batta flows into netShare", () => {
+  function pooledState(): { s: AppState; a: Entry; b: Entry } {
+    const s = makeDefaultState();
+    s.screens = [
+      ...s.screens,
+      {
+        id: "scr_tara",
+        name: "Tara",
+        classes: [{ classId: "cls_royale", seats: 150 }],
+        priceCards: [{ id: "pc_t1", name: "Card T1", prices: { cls_royale: 290 } }],
+      },
+    ];
+    const a: Entry = {
+      id: "eA", date: "2025-04-15", movieId: "mov_empuraan",
+      screenId: "scr_abhinaya", share: 60,
+      shows: [{
+        showtime: "13:00", priceCardId: "pc_1",
+        rows: { cls_royale: { tickets: 10 }, cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } },
+      }],
+    };
+    const b: Entry = {
+      id: "eB", date: "2025-04-15", movieId: "mov_empuraan",
+      screenId: "scr_tara", share: 60,
+      shows: [
+        { showtime: "10:00", priceCardId: "pc_t1", rows: { cls_royale: { tickets: 5 } } },
+        { showtime: "16:00", priceCardId: "pc_t1", rows: { cls_royale: { tickets: 5 } } },
+        { showtime: "19:00", priceCardId: "pc_t1", rows: { cls_royale: { tickets: 5 } } },
+      ],
+    };
+    s.entries = [a, b];
+    return { s, a, b };
+  }
+
+  it("grand.repBatta is the pooled per-screen value (100 / 300)", () => {
+    const { s, a, b } = pooledState();
+    expect(computeEntry(s, a).grand.repBatta).toBe(100);
+    expect(computeEntry(s, b).grand.repBatta).toBe(300);
+  });
+
+  it("combined batta across screens = 100 × total shows (400)", () => {
+    const { s, a, b } = pooledState();
+    const total =
+      computeEntry(s, a).grand.repBatta + computeEntry(s, b).grand.repBatta;
+    expect(total).toBe(400);
+  });
+
+  it("netShare identity still holds with the pooled batta", () => {
+    const { s, a } = pooledState();
+    const t = computeEntry(s, a).today;
+    expect(t.repBatta).toBe(100);
+    expect(t.netShare).toBeCloseTo(
+      t.grossColl - t.gst - t.tmc - t.cess - t.fund - t.repBatta - t.etax,
+      6,
+    );
+  });
+
+  it("computeShallow agrees with computeEntry on the pooled entry", () => {
+    const { s, a, b } = pooledState();
+    expect(computeShallow(s, a).repBatta).toBe(computeEntry(s, a).today.repBatta);
+    expect(computeShallow(s, b).repBatta).toBe(computeEntry(s, b).today.repBatta);
   });
 });
