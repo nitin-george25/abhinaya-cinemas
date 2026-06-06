@@ -183,6 +183,9 @@ async function createUser(
     full_name: b.fullName,
     username: b.username,
     cinema_ids: callerCinemaIds,
+    // Owner/manager issued this PIN — force the user to pick their own
+    // on first login (cleared by fn_clear_must_change_pin after change).
+    must_change_pin: true,
   });
   if (insertErr) {
     // Roll back the auth user so we don't leave an orphan.
@@ -205,6 +208,14 @@ async function resetPin(svc: Svc, b: ResetPinBody, callerRole: Role): Promise<Re
 
   const { error } = await svc.auth.admin.updateUserById(user.id, { password: b.pin });
   if (error) return json({ error: error.message }, 400);
+
+  // A reset PIN is owner/manager-issued too — force a change on next
+  // login. Non-fatal if the column write fails; the PIN itself is set.
+  await svc
+    .from("authorized_users")
+    .update({ must_change_pin: true })
+    .eq("email", email);
+
   return json({ ok: true });
 }
 

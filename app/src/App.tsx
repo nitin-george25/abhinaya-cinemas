@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { SyncProvider, useSync } from "./lib/hooks/SyncContext";
 import { AppShell } from "./components/layout/AppShell";
 import { BootingScreen } from "./components/auth/BootingScreen";
+import { ChangePinScreen } from "./components/auth/ChangePinScreen";
 import { SignInScreen } from "./components/auth/SignInScreen";
 import { Button } from "./components/ui/Button";
 
@@ -88,6 +89,10 @@ function AppGate() {
 
     case "ready":
       if (!state.role) return <SignInScreen />;
+      // Forced PIN change — username+PIN users whose PIN was issued by
+      // the owner/manager (create or reset) must pick their own before
+      // they reach the app. Google users never carry the flag.
+      if (state.mustChangePin && state.username) return <ChangePinScreen />;
       {
         const role = state.role;
         const expiredOverlay = state.sessionExpired ? (
