@@ -160,6 +160,8 @@ export interface ScreenClassRow {
   screen_id:  string;
   class_id:   string;
   seats:      number;
+  /** False = historical-era assignment kept for old entries; absent/null = active. */
+  active?:    boolean | null;
 }
 
 export interface PriceCardRow {

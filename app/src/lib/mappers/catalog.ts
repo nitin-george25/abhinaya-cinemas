@@ -197,6 +197,7 @@ export function composeCatalogFromRows(args: {
       const scAssignments = (screenClassesByScreen[s.id] ?? []).map((sc) => ({
         classId: sc.class_id as UUID,
         seats:   Number(sc.seats),
+        active:  sc.active !== false,
       }));
       const cards: PriceCard[] = (priceCardsByScreen[s.id] ?? [])
         .sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
@@ -344,6 +345,7 @@ export async function pushCatalogDeltas(
       screen_id: s.id,
       class_id: sc.classId,
       seats: sc.seats,
+      active: sc.active !== false,
     })),
   );
   const wantPriceCards = next.screens.flatMap((s) =>
