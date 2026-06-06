@@ -91,11 +91,40 @@ export function screenClasses(
     .map((a): ResolvedClass | null => {
       const c = catClass(state, a.classId);
       return c
-        ? { classId: a.classId, name: c.name, gstPct: N(c.gstPct), seats: N(a.seats) }
+        ? {
+            classId: a.classId,
+            name: c.name,
+            gstPct: N(c.gstPct),
+            seats: N(a.seats),
+            active: a.active !== false,
+          }
         : null;
     })
     .filter((x): x is ResolvedClass => x !== null)
     .sort((x, y) => order.indexOf(x.classId) - order.indexOf(y.classId));
+}
+
+/**
+ * Classes relevant to a specific entry (or a new one when `entry` is omitted):
+ * the screen's ACTIVE assignments plus any inactive (historical-era) class
+ * that actually has tickets somewhere in this entry. Historical entries keep
+ * their era classes; new entries only see the current layout.
+ *
+ * Output-safe: excluded classes are zero-ticket by definition, so every money
+ * total computed over this list is identical to computing over all classes.
+ */
+export function entryClasses(
+  state: AppState,
+  screen: Screen | undefined,
+  entry?: Entry | null,
+): ResolvedClass[] {
+  const all = screenClasses(state, screen);
+  if (!entry) return all.filter((c) => c.active);
+  const hasTickets = (cid: UUID): boolean =>
+    (entry.shows || []).some(
+      (sh) => N(((sh.rows || {})[cid] || ({} as ShowRow)).tickets) > 0,
+    );
+  return all.filter((c) => c.active || hasTickets(c.classId));
 }
 
 export const cardsOf = (state: AppState, screenId: UUID): PriceCard[] => {
@@ -371,7 +400,10 @@ export function computeEntry(
 ): ComputedEntry {
   const movie = state.movies.find((m) => m.id === entry.movieId);
   const screen = screenById(state, entry.screenId);
-  const cls = screenClasses(state, screen);
+  // entryClasses (not screenClasses): hides zero-ticket historical-era
+  // classes from rows/PDF. Money totals are unchanged — excluded classes
+  // have 0 tickets by definition.
+  const cls = entryClasses(state, screen, entry);
   const tax = state.tax;
   // Compute serials over (persisted ∪ {this entry as draft}) so the entry
   // sees its own tickets in the chronological roll.

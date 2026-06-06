@@ -56,6 +56,12 @@ export interface ClassDef {
 export interface ScreenClassAssignment {
   classId: UUID;
   seats: number;
+  /**
+   * False for historical-era classes kept only so old entries still compute
+   * (e.g. backfilled 2019-26 layouts). Absent/true = part of the screen's
+   * CURRENT layout: offered on new entries and counted in occupancy.
+   */
+  active?: boolean;
 }
 
 export interface PriceCard {
@@ -285,6 +291,8 @@ export interface ResolvedClass {
   name: string;
   gstPct: number;
   seats: number;
+  /** Mirrors ScreenClassAssignment.active (absent = true). */
+  active: boolean;
 }
 
 export interface SerialRange {
