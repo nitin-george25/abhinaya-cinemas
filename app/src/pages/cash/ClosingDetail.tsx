@@ -39,6 +39,7 @@ export default function CashClosingDetailPage() {
   if (!closing) return <div className="text-sm text-ink-muted">Loading…</div>;
   const unit  = refs.units.find((u) => u.id === closing.operatingUnitId);
   const lkup  = new Map(refs.paymentMethods.map((m) => [m.id, m.displayName] as const));
+  const flow  = new Map(refs.paymentMethods.map((m) => [m.id, m.flowType] as const));
 
   async function reload() { if (id) setClosing(await getClosing(id)); }
 
@@ -89,16 +90,38 @@ export default function CashClosingDetailPage() {
             <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left">Method</th>
-                <th className="px-3 py-2 text-right">Amount</th>
+                <th className="px-3 py-2 text-right">POS</th>
+                <th className="px-3 py-2 text-right">Actual</th>
+                <th className="px-3 py-2 text-right">Diff</th>
               </tr>
             </thead>
             <tbody>
-              {closing.paymentMethods.map((p) => (
-                <tr key={p.paymentMethodId} className="border-t border-line">
-                  <td className="px-3 py-2">{lkup.get(p.paymentMethodId) ?? p.paymentMethodId}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtINR(p.amount)}</td>
-                </tr>
-              ))}
+              {closing.paymentMethods.map((p) => {
+                // Cash's actual lives in the denomination count below;
+                // legacy rows (pre-cash_17) have no recorded actual.
+                const isCash = flow.get(p.paymentMethodId) === "cash";
+                const actual = isCash ? null : p.actualAmount ?? null;
+                const diff   = actual == null ? null : actual - p.amount;
+                return (
+                  <tr key={p.paymentMethodId} className="border-t border-line">
+                    <td className="px-3 py-2">{lkup.get(p.paymentMethodId) ?? p.paymentMethodId}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtINR(p.amount)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
+                      {actual == null
+                        ? (isCash ? "see cash count" : "—")
+                        : fmtINR(actual)}
+                    </td>
+                    <td className={
+                      "px-3 py-2 text-right tabular-nums " +
+                      (diff == null ? "text-ink-muted"
+                        : diff === 0 ? "text-emerald-600"
+                        : "text-red-600")
+                    }>
+                      {diff == null ? "—" : diff === 0 ? "0" : fmtINR(diff)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </CardBody>

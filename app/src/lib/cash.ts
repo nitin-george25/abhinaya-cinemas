@@ -93,7 +93,12 @@ export interface CashDenomination {
 
 export interface CashClosingPaymentMethod {
   paymentMethodId: string;
+  /** POS-reported amount for this mode. */
   amount:          number;
+  /** Actual settled amount (EDC machine / UPI app total). Autofilled
+   *  from `amount` by the closing form; edited when they differ.
+   *  Null/undefined = not recorded (pre-cash_17 rows). */
+  actualAmount?:   number | null;
 }
 
 export interface DailyCashClosing {
@@ -354,7 +359,11 @@ export function mapClosing(
       .map((d) => ({ denomination: Number(d.denomination), count: d.count })),
     paymentMethods: pms
       .filter((p) => p.closing_id === r.id)
-      .map((p) => ({ paymentMethodId: p.payment_method_id, amount: Number(p.amount) })),
+      .map((p) => ({
+        paymentMethodId: p.payment_method_id,
+        amount: Number(p.amount),
+        actualAmount: p.actual_amount == null ? null : Number(p.actual_amount),
+      })),
   };
 }
 
@@ -775,6 +784,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
         closing_id: id,
         payment_method_id: x.paymentMethodId,
         amount: x.amount,
+        actual_amount: x.actualAmount ?? null,
       })),
     );
   }

@@ -371,7 +371,12 @@ export interface CashClosingDenominationRow {
 export interface CashClosingPaymentMethodRow {
   closing_id:        string;
   payment_method_id: string;
+  /** What the POS reported for this mode. */
   amount:            number;
+  /** What the mode actually settled (EDC machine / UPI app total).
+   *  Autofilled from `amount` by the closing form; edited when they
+   *  differ. Null = saved before migration cash_17. */
+  actual_amount:     number | null;
 }
 
 export type PettyExpenseStatus = "pending" | "approved" | "rejected";
