@@ -169,9 +169,11 @@ export interface BoAggregate {
   totals: PeriodKpis;
 }
 
-/** Sum of seats across all class assignments on a screen. */
+/** Sum of seats across the ACTIVE class assignments on a screen (the current layout — historical-era classes don't count toward capacity). */
 export function screenSeatTotal(state: AppState, screen: Screen | undefined): number {
-  return screenClasses(state, screen).reduce((a, c) => a + N(c.seats), 0);
+  return screenClasses(state, screen)
+    .filter((c) => c.active)
+    .reduce((a, c) => a + N(c.seats), 0);
 }
 
 /**

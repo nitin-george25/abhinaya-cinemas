@@ -8,6 +8,11 @@
 //     documents and any drift breaks audit trail.
 //   • Refactor for readability is allowed ONLY if it leaves outputs
 //     unchanged for every input the legacy engine accepts.
+//   • ONE owner-approved exception (Nitin, 2026-06-06): when the same movie
+//     plays on more than one screen on the same date, entry-wide rep batta
+//     switches from the rep1/rep2/rep5 step lookup to per-show day/night
+//     batta summed per screen — see entryRepBatta(). Single-screen days
+//     remain bit-identical to the legacy engine.
 //
 // Differences from the legacy JS engine (intentional, behavior-preserving):
 //   • Pure functions: every entrypoint takes `state: AppState` instead of
@@ -91,11 +96,40 @@ export function screenClasses(
     .map((a): ResolvedClass | null => {
       const c = catClass(state, a.classId);
       return c
-        ? { classId: a.classId, name: c.name, gstPct: N(c.gstPct), seats: N(a.seats) }
+        ? {
+            classId: a.classId,
+            name: c.name,
+            gstPct: N(c.gstPct),
+            seats: N(a.seats),
+            active: a.active !== false,
+          }
         : null;
     })
     .filter((x): x is ResolvedClass => x !== null)
     .sort((x, y) => order.indexOf(x.classId) - order.indexOf(y.classId));
+}
+
+/**
+ * Classes relevant to a specific entry (or a new one when `entry` is omitted):
+ * the screen's ACTIVE assignments plus any inactive (historical-era) class
+ * that actually has tickets somewhere in this entry. Historical entries keep
+ * their era classes; new entries only see the current layout.
+ *
+ * Output-safe: excluded classes are zero-ticket by definition, so every money
+ * total computed over this list is identical to computing over all classes.
+ */
+export function entryClasses(
+  state: AppState,
+  screen: Screen | undefined,
+  entry?: Entry | null,
+): ResolvedClass[] {
+  const all = screenClasses(state, screen);
+  if (!entry) return all.filter((c) => c.active);
+  const hasTickets = (cid: UUID): boolean =>
+    (entry.shows || []).some(
+      (sh) => N(((sh.rows || {})[cid] || ({} as ShowRow)).tickets) > 0,
+    );
+  return all.filter((c) => c.active || hasTickets(c.classId));
 }
 
 export const cardsOf = (state: AppState, screenId: UUID): PriceCard[] => {
@@ -246,12 +280,64 @@ export function computeSerials(
 }
 
 /** A "real" show has either a showtime or at least one class with tickets > 0. */
+export const isRealShow = (sh: Show): boolean =>
+  Boolean(sh.showtime && sh.showtime !== "") ||
+  Object.values(sh.rows || {}).some((r) => N(r && r.tickets) > 0);
+
 export function realShowCount(e: Entry): number {
-  return (e.shows || []).filter(
-    (sh) =>
-      (sh.showtime && sh.showtime !== "") ||
-      Object.values(sh.rows || {}).some((r) => N(r && r.tickets) > 0),
-  ).length;
+  return (e.shows || []).filter(isRealShow).length;
+}
+
+/**
+ * Cross-screen pooling check: true when this entry's movie also has real
+ * shows on ANOTHER screen on the same date. Draft is merged the same way
+ * computeFund does, so an in-flight entry on screen B is seen by screen A.
+ */
+export function sharedScreenMovie(
+  state: AppState,
+  entry: Entry,
+  draft: Entry | null = state.draft,
+): boolean {
+  if (!entry || !entry.date || !entry.movieId || !entry.screenId) return false;
+  return mergedEntries(state, draft).some(
+    (e) =>
+      e.date === entry.date &&
+      e.movieId === entry.movieId &&
+      e.screenId !== entry.screenId &&
+      realShowCount(e) > 0,
+  );
+}
+
+/**
+ * Entry-wide rep batta.
+ *
+ *  • Movie on ONE screen that day → legacy step lookup (rep1/rep2/rep5).
+ *    Bit-identical to the locked legacy engine.
+ *  • Movie on MORE THAN ONE screen that day → per-show day/night batta
+ *    (repDay/repNight, ₹100 each at current config) summed over THIS
+ *    entry's real shows. Each screen carries rate × its own shows, so the
+ *    combined total across screens is rate × total shows of the movie:
+ *      1+1 → 100/100 (total 200), 1+2 → 100/200 (300), 1+3 → 100/300 (400).
+ *
+ * Owner-approved math change (Nitin, 2026-06-06) — the only intentional
+ * divergence from the legacy engine. The pooled TOTAL is the contract;
+ * the proportional split is the agreed deterministic default.
+ */
+export function entryRepBatta(
+  state: AppState,
+  entry: Entry,
+  tax: TaxConfig,
+  draft: Entry | null = state.draft,
+): number {
+  if (!sharedScreenMovie(state, entry, draft)) {
+    return repBattaFor(realShowCount(entry), tax);
+  }
+  return (entry.shows || [])
+    .filter(isRealShow)
+    .reduce(
+      (sum, sh) => sum + (isNight(sh.showtime) ? N(tax.repNight) : N(tax.repDay)),
+      0,
+    );
 }
 
 /**
@@ -322,7 +408,7 @@ export function computeShallow(
     // Matches legacy quirk: repBatta is recomputed each iteration to the same
     // value (depends only on `entry`, not `sh`). We preserve the assignment so
     // any future audit diff stays clean.
-    repBatta = repBattaFor(realShowCount(entry), tax);
+    repBatta = entryRepBatta(state, entry, tax, draft);
     for (const cl of cls) {
       const tickets = N(((sh.rows || {})[cl.classId] || {}).tickets);
       const b = breakdown(card ? N(card.prices[cl.classId]) : 0, tax);
@@ -371,7 +457,10 @@ export function computeEntry(
 ): ComputedEntry {
   const movie = state.movies.find((m) => m.id === entry.movieId);
   const screen = screenById(state, entry.screenId);
-  const cls = screenClasses(state, screen);
+  // entryClasses (not screenClasses): hides zero-ticket historical-era
+  // classes from rows/PDF. Money totals are unchanged — excluded classes
+  // have 0 tickets by definition.
+  const cls = entryClasses(state, screen, entry);
   const tax = state.tax;
   // Compute serials over (persisted ∪ {this entry as draft}) so the entry
   // sees its own tickets in the chronological roll.
@@ -445,8 +534,9 @@ export function computeEntry(
     { tickets: 0, grossColl: 0, totalPOA: 0, tmc: 0, cess: 0, etax: 0, total: 0, gst: 0, repBatta: 0 },
   );
   // Legacy quirk preserved: per-show repBatta is summed above, then OVERWRITTEN
-  // here with the entry-wide lookup. The sum is effectively discarded.
-  G.repBatta = repBattaFor(realShowCount(entry), tax);
+  // here with the entry-wide value. The sum is effectively discarded.
+  // entryRepBatta applies the owner-approved cross-screen pooling rule.
+  G.repBatta = entryRepBatta(state, entry, tax, draft);
 
   const fund = computeFund(state, entry, draft);
   const share = N(entry.share);

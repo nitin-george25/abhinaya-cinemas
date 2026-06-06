@@ -120,43 +120,77 @@ it out retroactively. Don't repeat.
    sidebar, reflow entry form, stack KPI grid 2-up.
 6. **Job openings admin UI** under `/admin/dcr/settings/careers` so
    adding/editing roles doesn't require Supabase Studio.
-7. **Real photography on the landing site** — hero film still, gallery
-   (auditorium, projector, ticket counter, concession bar), Coming-Soon
-   posters where missing.
-8. **Legal review** of `privacy.html` and `terms.html` before any real
+7. **Real photography on the landing site** — wire the 5 photos in
+   `photos/` (`Big Screen.jpg`, `Concession-1/2.jpg`, `DSC05554/05552.jpg`)
+   into the Hero backdrop + Gallery (currently `ImgSlot` placeholders).
+   `Big Screen.jpg` → default Hero backdrop; rest fill the 6-tile gallery
+   (one short — reflow or reuse). Move into `site/assets/`, swap
+   placeholders for real `<img>`. Coming-Soon posters where missing.
+8. **Per-movie trailers + hero film selection** — add `trailer_url` to the
+   `movies` table (next to `poster_url`, same dual-write + anon-read path).
+   Add a trailer-URL field to the movie row editor in settings → Movies
+   (paste a YouTube link). Expose `trailer_url` in the landing page's
+   `loadMovies` select so the existing "Watch Trailer" button plays it.
+   **Hero selection = hybrid:** add a single "Feature on homepage" toggle
+   (one movie at a time — selecting a new one clears the previous); the
+   landing Hero uses the featured movie's trailer if set, else falls back
+   to the `now_showing` film that has a trailer. Hero *backdrop* stays a
+   brand photo (`Big Screen.jpg`) — no landscape art per movie needed v1.
+9. **Calculated movie status (coming_soon / now_showing / past)** — turn the
+   one-time `cash_15` backfill math into an ongoing rule so the owner stops
+   hand-setting `status`. Rules (single screen, DCR entered daily):
+   - `coming_soon`: `release_date > current_date`.
+   - `now_showing`: latest `entries.entry_date` for the movie is
+     `>= current_date - 1` (entry today or yesterday). **Grace:** also
+     now_showing if `release_date >= current_date - 1` so opening day reads
+     correctly before its first DCR is entered.
+   - `past`: everything else (one full day with no entry → retire).
+   **Hybrid w/ pin:** add a `status_pinned boolean` (or `status_override`)
+   on `movies`; when set, the calc skips that row so the owner can lock a
+   status manually. Surface a pin toggle in settings → Movies next to the
+   status pill.
+   **Computation:** keep `status` a stored column (RLS/index/landing page
+   untouched). Recompute via (a) a trigger on `entries` insert/update that
+   promotes the movie to now_showing, plus (b) a daily `pg_cron` job that
+   demotes now_showing rows whose last entry < `current_date - 1` to past
+   (the "nothing happened" retire transition can't fire from a trigger).
+   Run the cron late in the IST day, after that day's DCR is in, so a tight
+   1-day window doesn't false-retire a film. Skip any pinned row.
+   Staging + prod parity; one feature, own branch.
+10. **Legal review** of `privacy.html` and `terms.html` before any real
    marketing push.
 
 ### Mid-term
 
-9. **Phase C1.1 — parity harness** for the DCR engine. Load legacy
+11. **Phase C1.1 — parity harness** for the DCR engine. Load legacy
    `01-box-office.js` in `vm.runInNewContext`, diff `computeEntry`
    against the TS engine on fixture inputs. Lands before deleting
    `/admin/dcr-legacy/`.
-10. **Phase C6.3 / C6.4** — F&B multi-day PDF bulk upload + BO bulk CSV
+12. **Phase C6.3 / C6.4** — F&B multi-day PDF bulk upload + BO bulk CSV
     upload; then retire `/admin/dcr-legacy/`.
-11. **WhatsApp integration** (`whatsapp-integration` branch) — finish
+13. **WhatsApp integration** (`whatsapp-integration` branch) — finish
     after-show messaging + YoY dashboard work; ship behind a flag.
-12. **Showtimes table** — replace the hard-coded 10:15 / 1:30 / 6:15 /
+14. **Showtimes table** — replace the hard-coded 10:15 / 1:30 / 6:15 /
     9:30 slate in the landing site with per-movie data fed from the DCR
     config or a new `screenings` table.
 
 ### Backlog (from `project_console_pipeline` memory)
 
-13. Mobile app (PWA install path or native shell).
-14. Zoho integration (CRM / books).
-15. Tally integration (accounts handoff).
-16. Ops management — checklists + owner audit (open/close routines,
+15. Mobile app (PWA install path or native shell).
+16. Zoho integration (CRM / books).
+17. Tally integration (accounts handoff).
+18. Ops management — checklists + owner audit (open/close routines,
     food-safety, projector booth).
 
 ### Cleanup / debt
 
-17. Delete `netlify.toml`, `netlify/functions/`, and the 410-Gone
+19. Delete `netlify.toml`, `netlify/functions/`, and the 410-Gone
     tombstone at `functions/api/contact.ts` after a confidence period.
-18. Licensed Pontiac font files when they arrive — drop in
+20. Licensed Pontiac font files when they arrive — drop in
     `site/fonts/` and remove `unicode-range:` lines from
     `colors_and_type.css`.
-19. WOFF2-compress the brand fonts.
-20. Replace Lucide icons with the brand's custom icon set when it lands.
+21. WOFF2-compress the brand fonts.
+22. Replace Lucide icons with the brand's custom icon set when it lands.
 
 ## 5. Where each domain lives
 
