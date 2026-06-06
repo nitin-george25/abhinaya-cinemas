@@ -247,6 +247,20 @@ export interface OperatingUnitRow {
   updated_by:             string | null;
 }
 
+/** POS counter (till) inside an operating unit. Migration 17. Managed by
+ *  the owner in Settings → Cash the same way screens are managed. */
+export interface PosCounterRow {
+  id:                     string;
+  cinema_id:              string;
+  operating_unit_id:      string;
+  name:                   string;
+  display_order:          number;
+  archived_at:            string | null;
+  created_at:             string | null;
+  updated_at:             string | null;
+  updated_by:             string | null;
+}
+
 export interface BankAccountRow {
   id:                    string;
   cinema_id:             string;
@@ -283,6 +297,9 @@ export type ClosingStatus = "draft" | "counted" | "signed" | "disputed" | "resol
 export interface DailyCashClosingRow {
   id:                       string;
   operating_unit_id:        string;
+  /** POS counter this closing belongs to. Migration 17 — the natural key
+   *  is now (pos_counter_id, business_date, shift). */
+  pos_counter_id:           string;
   business_date:            string;          // YYYY-MM-DD
   shift:                    ClosingShift;
   cashier_email:            string | null;
@@ -379,6 +396,8 @@ export type PettyExpenseStatus = "pending" | "approved" | "rejected";
 export interface PettyExpenseRow {
   id:                     string;
   operating_unit_id:      string;
+  /** POS counter the expense was paid from. Required from migration 17. */
+  pos_counter_id:         string;
   expense_date:           string;        // YYYY-MM-DD
   amount:                 number;
   category:               string | null;

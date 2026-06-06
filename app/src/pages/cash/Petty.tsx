@@ -24,6 +24,8 @@ export default function CashPettyPage() {
   const { state }             = useSync();
   const refs                  = useCashRefs();
   const [unitId, setUnitId]   = useState<string>("");
+  /** Counter filter — empty string = all counters in the unit. */
+  const [counterId, setCounterId] = useState<string>("");
   const [pending, setPending] = useState<PettyExpense[]>([]);
   const [recent,  setRecent]  = useState<PettyExpense[]>([]);
   const [err, setErr]         = useState<string | null>(null);
@@ -37,17 +39,30 @@ export default function CashPettyPage() {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
   }, [refs.units, unitId]);
 
+  // Counters in the selected unit. Reset the filter when the unit changes.
+  const unitCounters = refs.counters.filter((c) => c.operatingUnitId === unitId);
+  useEffect(() => { setCounterId(""); }, [unitId]);
+
+  // Counter id → name for the table (includes archived ids on old rows —
+  // refs only carries active counters, so fall back to a dash).
+  const counterName = (id: string) =>
+    refs.counters.find((c) => c.id === id)?.name ?? "—";
+
   async function reload() {
     if (!unitId) return;
+    const base = {
+      operatingUnitId: unitId,
+      ...(counterId ? { posCounterId: counterId } : {}),
+    };
     const [p, r] = await Promise.all([
-      listPettyExpenses({ operatingUnitId: unitId, status: "pending" }),
-      listPettyExpenses({ operatingUnitId: unitId }),
+      listPettyExpenses({ ...base, status: "pending" }),
+      listPettyExpenses(base),
     ]);
     setPending(p);
     setRecent(r.filter((x) => x.status !== "pending").slice(0, 50));
   }
 
-  useEffect(() => { void reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [unitId]);
+  useEffect(() => { void reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [unitId, counterId]);
 
   async function decide(id: string, action: "approve" | "reject") {
     if (!state.email) return;
@@ -72,6 +87,12 @@ export default function CashPettyPage() {
               {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           </Field>
+          <Field label="Counter">
+            <Select value={counterId} onChange={(e) => setCounterId(e.target.value)}>
+              <option value="">All counters</option>
+              {unitCounters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </Field>
         </CardBody>
       </Card>
 
@@ -83,14 +104,14 @@ export default function CashPettyPage() {
           <span className="text-xs text-ink-muted">{pending.length} pending</span>
         </CardHeader>
         <CardBody className="p-0 overflow-x-auto">
-          <PettyTable rows={pending} actions={canApprove} onDecide={decide} />
+          <PettyTable rows={pending} counterName={counterName} actions={canApprove} onDecide={decide} />
         </CardBody>
       </Card>
 
       <Card>
         <CardHeader><CardTitle>Recently decided</CardTitle></CardHeader>
         <CardBody className="p-0 overflow-x-auto">
-          <PettyTable rows={recent} />
+          <PettyTable rows={recent} counterName={counterName} />
         </CardBody>
       </Card>
     </div>
@@ -99,10 +120,12 @@ export default function CashPettyPage() {
 
 function PettyTable({
   rows,
+  counterName,
   actions,
   onDecide,
 }: {
   rows: PettyExpense[];
+  counterName: (id: string) => string;
   actions?: boolean;
   onDecide?: (id: string, action: "approve" | "reject") => void;
 }) {
@@ -111,6 +134,7 @@ function PettyTable({
       <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
         <tr>
           <th className="px-3 py-2 text-left">Date</th>
+          <th className="px-3 py-2 text-left">Counter</th>
           <th className="px-3 py-2 text-left">Description</th>
           <th className="px-3 py-2 text-left">Category</th>
           <th className="px-3 py-2 text-left">Requested by</th>
@@ -122,10 +146,11 @@ function PettyTable({
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={actions ? 8 : 7} className="px-3 py-6 text-center text-ink-muted">Nothing here.</td></tr>
+          <tr><td colSpan={actions ? 9 : 8} className="px-3 py-6 text-center text-ink-muted">Nothing here.</td></tr>
         ) : rows.map((r) => (
           <tr key={r.id} className="border-t border-line">
             <td className="px-3 py-2">{r.expenseDate}</td>
+            <td className="px-3 py-2">{counterName(r.posCounterId)}</td>
             <td className="px-3 py-2">
               <div>{r.description}</div>
               {r.paidTo ? <div className="text-xs text-ink-muted">to {r.paidTo}</div> : null}

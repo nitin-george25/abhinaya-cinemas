@@ -13,13 +13,17 @@ import { useSync } from "../../lib/hooks/SyncContext";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { getSupabase } from "../../lib/supabase";
 import {
+  archivePosCounter,
+  createPosCounter,
   listPaymentMethodsForUnit,
+  renamePosCounter,
   setOperatingUnitMethods,
   updateOperatingUnitFloat,
   updatePaymentMethodBank,
   type BankAccount,
   type OperatingUnit,
   type PaymentMethod,
+  type PosCounter,
 } from "../../lib/cash";
 import type { PaymentFlowType } from "../../lib/db-types";
 
@@ -32,6 +36,10 @@ export default function SettingsCashPage() {
   // Operating unit form
   const [uName, setUName] = useState("");
   const [uKind, setUKind] = useState<"box_office" | "food_beverage" | "other">("box_office");
+
+  // POS counter form
+  const [cUnit, setCUnit]   = useState("");
+  const [cName, setCName]   = useState("");
 
   // Bank account form
   const [bUnit, setBUnit]   = useState("");
@@ -48,6 +56,26 @@ export default function SettingsCashPage() {
   useEffect(() => {
     if (!bUnit && refs.units.length > 0) setBUnit(refs.units[0]?.id ?? "");
   }, [refs.units, bUnit]);
+  useEffect(() => {
+    if (!cUnit && refs.units.length > 0) setCUnit(refs.units[0]?.id ?? "");
+  }, [refs.units, cUnit]);
+
+  async function addCounter() {
+    if (!refs.cinemaId || !cUnit || !cName || !state.email) return;
+    setBusy(true); setErr(null);
+    try {
+      const siblings = refs.counters.filter((c) => c.operatingUnitId === cUnit);
+      await createPosCounter({
+        cinemaId: refs.cinemaId,
+        operatingUnitId: cUnit,
+        name: cName.trim(),
+        displayOrder: ((siblings.at(-1)?.displayOrder ?? 0) + 10),
+      }, state.email);
+      setCName("");
+      refs.reload();
+    } catch (e) { setErr((e as Error).message); }
+    finally    { setBusy(false); }
+  }
 
   async function addUnit() {
     if (!refs.cinemaId || !uName) return;
@@ -148,6 +176,59 @@ export default function SettingsCashPage() {
             </Field>
             <div className="flex items-end">
               <Button disabled={busy || !uName} onClick={() => void addUnit()}>Add unit</Button>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* POS counters — tills inside each unit. Closings + petty expenses
+          are recorded per counter (migration 17). Managed like screens. */}
+      <Card>
+        <CardHeader><CardTitle>POS counters</CardTitle></CardHeader>
+        <CardBody className="space-y-3">
+          <p className="text-xs text-ink-muted">
+            One row per till. The closing form and petty expenses ask which
+            counter they belong to. Archiving keeps history but removes the
+            counter from dropdowns.
+          </p>
+          <table className="w-full text-sm">
+            <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
+              <tr>
+                <th className="px-3 py-2 text-left">Unit</th>
+                <th className="px-3 py-2 text-left">Counter</th>
+                <th className="px-3 py-2 text-right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {refs.counters.map((c) => (
+                <CounterRow
+                  key={c.id}
+                  counter={c}
+                  unitName={refs.units.find((u) => u.id === c.operatingUnitId)?.name ?? "—"}
+                  email={state.email}
+                  onSaved={refs.reload}
+                  onError={setErr}
+                />
+              ))}
+            </tbody>
+          </table>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="Unit">
+              <Select value={cUnit} onChange={(e) => setCUnit(e.target.value)}>
+                {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Name">
+              <Input
+                value={cName}
+                placeholder="e.g. Counter 2"
+                onChange={(e) => setCName(e.target.value)}
+              />
+            </Field>
+            <div className="flex items-end">
+              <Button disabled={busy || !cUnit || !cName.trim()} onClick={() => void addCounter()}>
+                Add counter
+              </Button>
             </div>
           </div>
         </CardBody>
@@ -341,6 +422,67 @@ function UnitMethodsEditor({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline row for a POS counter: rename + archive. Archive is a soft
+ * delete — old closings keep their FK, the counter just leaves dropdowns.
+ */
+function CounterRow({
+  counter,
+  unitName,
+  email,
+  onSaved,
+  onError,
+}: {
+  counter: PosCounter;
+  unitName: string;
+  email: string | null;
+  onSaved: () => void;
+  onError: (m: string) => void;
+}) {
+  const [name, setName] = useState(counter.name);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (!email || !name.trim() || name.trim() === counter.name) return;
+    setBusy(true);
+    try {
+      await renamePosCounter(counter.id, name.trim(), email);
+      onSaved();
+    } catch (e) { onError((e as Error).message); }
+    finally    { setBusy(false); }
+  }
+
+  async function archive() {
+    if (!email) return;
+    if (!window.confirm(`Archive "${counter.name}"? Existing closings keep their history.`)) return;
+    setBusy(true);
+    try {
+      await archivePosCounter(counter.id, email);
+      onSaved();
+    } catch (e) { onError((e as Error).message); }
+    finally    { setBusy(false); }
+  }
+
+  return (
+    <tr className="border-t border-line">
+      <td className="px-3 py-2">{unitName}</td>
+      <td className="px-3 py-2">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => void save()}
+          className="w-44"
+        />
+      </td>
+      <td className="px-3 py-2 text-right">
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void archive()}>
+          {busy ? "…" : "Archive"}
+        </Button>
+      </td>
+    </tr>
   );
 }
 
