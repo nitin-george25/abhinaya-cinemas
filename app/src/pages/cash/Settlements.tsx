@@ -89,6 +89,7 @@ export default function CashSettlementsPage() {
           cinemaId={cinemaId}
           nonCashMethods={nonCashMethods}
           bankAccounts={refs.bankAccounts}
+          counters={refs.counters}
           onCreated={reload}
           onError={setErr}
         />
@@ -135,12 +136,14 @@ function NewSettlementForm({
   cinemaId,
   nonCashMethods,
   bankAccounts,
+  counters,
   onCreated,
   onError,
 }: {
   cinemaId: string;
   nonCashMethods: ReturnType<typeof useCashRefs>["paymentMethods"];
   bankAccounts: ReturnType<typeof useCashRefs>["bankAccounts"];
+  counters: ReturnType<typeof useCashRefs>["counters"];
   onCreated: () => void;
   onError: (m: string) => void;
 }) {
@@ -249,6 +252,7 @@ function NewSettlementForm({
             methodId={methodId}
             selected={closingIds}
             onChange={setClosingIds}
+            counterName={(id) => counters.find((c) => c.id === id)?.name ?? null}
           />
         </Field>
         <div className="flex justify-end">
@@ -266,11 +270,13 @@ function ClosingChecklist({
   methodId,
   selected,
   onChange,
+  counterName,
 }: {
   closings: DailyCashClosing[];
   methodId: string;
   selected: string[];
   onChange: (next: string[]) => void;
+  counterName: (id: string) => string | null;
 }) {
   const sel = new Set(selected);
   function toggle(id: string) {
@@ -296,7 +302,8 @@ function ClosingChecklist({
               onChange={() => toggle(c.id)}
             />
             <span className="flex-1">
-              {c.businessDate} · {c.shift}
+              {c.businessDate}
+              {counterName(c.posCounterId) ? ` · ${counterName(c.posCounterId)}` : ""} · {c.shift}
             </span>
             <span className="tabular-nums text-ink-muted text-xs">{fmtINR(amt)}</span>
           </label>

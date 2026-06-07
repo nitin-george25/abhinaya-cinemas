@@ -48,6 +48,8 @@ export default function CashClosingsPage() {
   const isOwnScope            = isCashier || role === "daily_manager";
 
   const [unitId, setUnitId]   = useState<string>("");
+  /** Counter filter — empty string = all counters in the unit. */
+  const [counterId, setCounterId] = useState<string>("");
   const [rows, setRows]       = useState<DailyCashClosing[]>([]);
   const [loading, setLoading] = useState(false);
   // Dialog state: when open, either a fresh draft (existingId = null) or
@@ -78,6 +80,15 @@ export default function CashClosingsPage() {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
   }, [refs.units, unitId]);
 
+  // Counters in the selected unit; reset the filter when the unit changes.
+  const unitCounters = refs.counters.filter((c) => c.operatingUnitId === unitId);
+  useEffect(() => { setCounterId(""); }, [unitId]);
+
+  // Counter id → name. Old rows can point at archived counters that refs
+  // (active-only) doesn't carry — fall back to a dash.
+  const counterName = (id: string) =>
+    refs.counters.find((c) => c.id === id)?.name ?? "—";
+
   async function reload() {
     if (isCashier) {
       // Cashiers don't pick a unit — they see every closing across the
@@ -90,13 +101,16 @@ export default function CashClosingsPage() {
     }
     if (!unitId) return;
     setLoading(true);
-    const list = await listClosings({ operatingUnitId: unitId });
+    const list = await listClosings({
+      operatingUnitId: unitId,
+      ...(counterId ? { posCounterId: counterId } : {}),
+    });
     setRows(list);
     setLoading(false);
   }
 
   useEffect(() => { void reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
-    [unitId, isCashier]);
+    [unitId, counterId, isCashier]);
 
   // What requires *this user's* attention right now.
   //
@@ -147,6 +161,12 @@ export default function CashClosingsPage() {
                 {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </Select>
             </Field>
+            <Field label="Counter">
+              <Select value={counterId} onChange={(e) => setCounterId(e.target.value)}>
+                <option value="">All counters</option>
+                {unitCounters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
           </CardBody>
         ) : null}
       </Card>
@@ -170,7 +190,7 @@ export default function CashClosingsPage() {
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-medium">
-                      {r.businessDate} · {r.shift}
+                      {r.businessDate} · {counterName(r.posCounterId)} · {r.shift}
                     </div>
                     <div className="text-xs text-ink-muted">
                       Cash counted {fmtINR(r.cashCounted)} · POS {fmtINR(r.posTotalSales)}
@@ -207,6 +227,7 @@ export default function CashClosingsPage() {
             <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-left">Counter</th>
                 <th className="px-3 py-2 text-left">Shift</th>
                 <th className="px-3 py-2 text-right">Sales</th>
                 <th className="px-3 py-2 text-right">Cash</th>
@@ -218,15 +239,16 @@ export default function CashClosingsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted">Loading…</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-ink-muted">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-ink-muted">No closings yet.</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-ink-muted">No closings yet.</td></tr>
               ) : rows.map((r) => (
                 <tr key={r.id} className="border-t border-line">
                   <td className="px-3 py-2">
                     <div>{r.businessDate}</div>
                     <div className="text-xs text-ink-muted">{weekday(r.businessDate)}</div>
                   </td>
+                  <td className="px-3 py-2">{counterName(r.posCounterId)}</td>
                   <td className="px-3 py-2">{r.shift}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.posTotalSales)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.cashCounted)}</td>
@@ -269,7 +291,7 @@ export default function CashClosingsPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold">
-                        {r.businessDate} · {r.shift}
+                        {r.businessDate} · {counterName(r.posCounterId)} · {r.shift}
                       </div>
                       <div className="text-xs text-ink-muted">{weekday(r.businessDate)}</div>
                     </div>

@@ -37,7 +37,8 @@ export default function CashClosingDetailPage() {
   }, [id]);
 
   if (!closing) return <div className="text-sm text-ink-muted">Loading…</div>;
-  const unit  = refs.units.find((u) => u.id === closing.operatingUnitId);
+  const unit    = refs.units.find((u) => u.id === closing.operatingUnitId);
+  const counter = refs.counters.find((c) => c.id === closing.posCounterId);
   const lkup  = new Map(refs.paymentMethods.map((m) => [m.id, m.displayName] as const));
   const flow  = new Map(refs.paymentMethods.map((m) => [m.id, m.flowType] as const));
 
@@ -54,7 +55,8 @@ export default function CashClosingDetailPage() {
           <div>
             <CardTitle>{closing.businessDate} · {closing.shift}</CardTitle>
             <div className="text-xs text-ink-muted mt-1">
-              {unit?.name ?? "Unknown unit"} · Closed by {closing.closedByEmail}
+              {unit?.name ?? "Unknown unit"}
+              {counter ? ` · ${counter.name}` : ""} · Closed by {closing.closedByEmail}
             </div>
           </div>
           <span className={

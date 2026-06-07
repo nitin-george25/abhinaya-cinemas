@@ -10,9 +10,11 @@ import {
   listBankAccounts,
   listOperatingUnits,
   listPaymentMethods,
+  listPosCounters,
   type BankAccount,
   type OperatingUnit,
   type PaymentMethod,
+  type PosCounter,
 } from "../cash";
 import { useSync } from "./SyncContext";
 
@@ -20,6 +22,8 @@ export interface CashRefs {
   loading:        boolean;
   cinemaId:       string | null;
   units:          OperatingUnit[];
+  /** Active POS counters across all units. Filter by unit where needed. */
+  counters:       PosCounter[];
   bankAccounts:   BankAccount[];
   paymentMethods: PaymentMethod[];
   /** Force a re-fetch (e.g. after a Settings change). */
@@ -32,6 +36,7 @@ export function useCashRefs(): CashRefs {
 
   const [loading, setLoading]               = useState(true);
   const [units, setUnits]                   = useState<OperatingUnit[]>([]);
+  const [counters, setCounters]             = useState<PosCounter[]>([]);
   const [bankAccounts, setBankAccounts]     = useState<BankAccount[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [tick, setTick]                     = useState(0);
@@ -45,12 +50,14 @@ export function useCashRefs(): CashRefs {
     setLoading(true);
     Promise.all([
       listOperatingUnits(cinemaId),
+      listPosCounters(cinemaId),
       listBankAccounts(cinemaId),
       listPaymentMethods(cinemaId),
     ])
-      .then(([u, b, p]) => {
+      .then(([u, c, b, p]) => {
         if (!alive) return;
         setUnits(u);
+        setCounters(c);
         setBankAccounts(b);
         setPaymentMethods(p);
       })
@@ -62,6 +69,7 @@ export function useCashRefs(): CashRefs {
     loading,
     cinemaId,
     units,
+    counters,
     bankAccounts,
     paymentMethods,
     reload: () => setTick((t) => t + 1),
