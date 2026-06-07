@@ -6,7 +6,7 @@
 // any past day without leaving this page.
 // ============================================================================
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { format, parseISO } from "date-fns";
 
 import { useSync } from "../lib/hooks/SyncContext";
@@ -43,6 +43,11 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { from: "", to: "", movieId: "", screenId: "" };
 
+/** Rows rendered per page. 50 keeps the DOM light now that the table
+ *  holds the whole 2019-26 backfill (thousands of entries). */
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
+
 interface Row {
   entry: Entry;
   computed: ComputedEntry;
@@ -54,6 +59,8 @@ export default function HistoryPage() {
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [openRow, setOpenRow] = useState<Row | null>(null);
+  const [page, setPage]         = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   const rows = useMemo<Row[]>(() => {
     if (!appState) return [];
@@ -65,6 +72,19 @@ export default function HistoryPage() {
     entries.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
     return entries.map((entry) => ({ entry, computed: safeCompute(appState, entry) }));
   }, [appState, filters]);
+
+  // Snap back to page 1 whenever the result set changes shape; clamp if
+  // a filter shrank the set below the current page.
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  useEffect(() => { setPage(1); }, [filters, pageSize]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const pageRows = useMemo<Row[]>(
+    () => rows.slice((page - 1) * pageSize, page * pageSize),
+    [rows, page, pageSize],
+  );
 
   if (!appState) {
     return (
@@ -104,7 +124,18 @@ export default function HistoryPage() {
 
       <ResultsCount count={rows.length} total={total} />
 
-      <HistoryTable rows={rows} onSelect={setOpenRow} appState={appState} />
+      <HistoryTable rows={pageRows} onSelect={setOpenRow} appState={appState} />
+
+      {rows.length > 0 ? (
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          totalRows={rows.length}
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      ) : null}
 
       {openRow ? (
         <DcrModal
@@ -209,6 +240,64 @@ function ResultsCount({
           <span><span className="text-ink-muted">Net Share:</span> <b>{fmtINR(total.netShare)}</b></span>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ── pagination bar ─────────────────────────────────────────────────────
+
+function Pagination({
+  page,
+  pageCount,
+  pageSize,
+  totalRows,
+  onPage,
+  onPageSize,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  totalRows: number;
+  onPage: (p: number) => void;
+  onPageSize: (s: number) => void;
+}) {
+  const first = (page - 1) * pageSize + 1;
+  const last  = Math.min(page * pageSize, totalRows);
+  return (
+    <div className="flex items-center justify-between flex-wrap gap-3 text-sm">
+      <div className="text-ink-muted tabular-nums">
+        Showing {fmtInt(first)}–{fmtInt(last)} of {fmtInt(totalRows)}
+      </div>
+      <div className="flex items-center gap-2">
+        <Select
+          value={String(pageSize)}
+          onChange={(e) => onPageSize(Number(e.target.value))}
+          aria-label="Rows per page"
+        >
+          {PAGE_SIZES.map((s) => (
+            <option key={s} value={s}>{s} / page</option>
+          ))}
+        </Select>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          ← Prev
+        </Button>
+        <span className="text-ink-muted tabular-nums whitespace-nowrap">
+          {page} / {pageCount}
+        </span>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={page >= pageCount}
+          onClick={() => onPage(page + 1)}
+        >
+          Next →
+        </Button>
+      </div>
     </div>
   );
 }
