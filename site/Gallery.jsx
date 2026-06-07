@@ -12,9 +12,9 @@ function Gallery() {
   return (
     <section id="gallery" style={{ maxWidth: 1280, margin: '0 auto', padding: '96px 32px' }}>
       <SectionHeader eyebrow="The experience" title="Inside Abhinaya" />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gridAutoRows: '180px', gap: 14 }}>
+      <div className="gallery-grid">
         {shots.map((s) => (
-          <figure key={s.src} style={{ margin: 0, position: 'relative', overflow: 'hidden', borderRadius: 'var(--r-md)', background: '#0a0a09', gridColumn: s.big ? 'span 2' : 'auto', gridRow: s.big ? 'span 2' : 'auto' }}>
+          <figure key={s.src} className={s.big ? 'gallery-big' : undefined} style={{ margin: 0, position: 'relative', overflow: 'hidden', borderRadius: 'var(--r-md)', background: '#0a0a09' }}>
             <img src={`/site/assets/photos/${s.src}`} alt={s.label} loading="lazy"
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transition: 'transform .5s var(--ease)' }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; }}

@@ -74,7 +74,7 @@ function Contact() {
 
   return (
     <section id="contact" style={{ background: 'var(--ink-950)', borderTop: '1px solid var(--border)' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '110px 32px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 64 }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '110px 32px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(320px,100%),1fr))', gap: 64 }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 14 }}>Get in touch</div>
           <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, textTransform: 'uppercase', fontSize: 'clamp(2rem,4vw,3.25rem)', lineHeight: 0.95 }}>
@@ -103,7 +103,7 @@ function Contact() {
 
         <form onSubmit={submit} style={{ display: 'grid', gap: 18 }}>
           <ContactInput label="Name" name="name" required value={form.name} onChange={set('name')} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(180px,100%),1fr))', gap: 18 }}>
             <ContactInput label="Email" name="email" type="email" required value={form.email} onChange={set('email')} />
             <ContactInput label="Phone (optional)" name="phone" type="tel" value={form.phone} onChange={set('phone')} />
           </div>
