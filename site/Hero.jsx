@@ -19,7 +19,7 @@ function Hero({ onPlay, onBook, heroMovie }) {
       <LensRings size={620} style={{ position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.5, pointerEvents: 'none' }} />
 
       <div style={{ position: 'relative', maxWidth: 1000 }}>
-        <h1 className="display" style={{ fontSize: 'clamp(3rem, 9vw, 7rem)', margin: 0 }}>
+        <h1 className="display" style={{ fontSize: 'clamp(2rem, 9vw, 7rem)', margin: 0 }}>
           History of Storytelling,<br /><span className="screen-text">Reimagined.</span>
         </h1>
         <p className="lead" style={{ maxWidth: 680, margin: '26px auto 0' }}>

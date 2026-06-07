@@ -9,7 +9,7 @@ function Legacy() {
     <section id="legacy" style={{ position: 'relative', background: 'var(--ink-950)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', overflow: 'hidden' }}>
       {/* beam motif: slim spine flush to the left edge */}
       <Beam width={16} skew={0} style={{ position: 'absolute', left: 0, top: 0, height: '100%' }} />
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '110px 32px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 56, alignItems: 'center' }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '110px 32px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(320px,100%),1fr))', gap: 56, alignItems: 'center' }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 16 }}>Our legacy</div>
           <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, textTransform: 'uppercase', fontSize: 'clamp(2.2rem,4.4vw,3.6rem)', lineHeight: 0.94 }}>

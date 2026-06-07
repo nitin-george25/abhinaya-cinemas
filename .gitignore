@@ -17,4 +17,4 @@ app/dist/
 .idea
 
 # Camera-original photos (heavy). Web-optimized copies live in site/assets/photos/.
-photos/
+/photos/
