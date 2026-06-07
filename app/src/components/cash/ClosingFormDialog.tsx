@@ -29,6 +29,7 @@ import {
   INR_DENOMINATIONS,
   cashTotalFromMethods,
   cashierSignClosing,
+  computeActualTotal,
   computeDiscrepancy,
   createCashDeposit,
   getClosing,
@@ -38,6 +39,7 @@ import {
   listPaymentMethodsForUnit,
   listPettyExpenses,
   markCashDepositCompleted,
+  nonCashActualFromMethods,
   signClosing,
   totalFromDenominations,
   totalFromPaymentMethods,
@@ -370,19 +372,31 @@ function DialogBody({
   }, [counterId, businessDate]);
 
   // ── derived ──────────────────────────────────────────────────────────
-  const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
-  const posTotal      = useMemo(() => totalFromPaymentMethods(methods), [methods]);
-  const cashInMethods = useMemo(
-    () => cashTotalFromMethods(methods, unitMethods.length > 0 ? unitMethods : refs.paymentMethods),
-    [methods, unitMethods, refs.paymentMethods],
-  );
-  const posNonCash    = useMemo(() => posTotal - cashInMethods, [posTotal, cashInMethods]);
-  const posCashExp    = posTotal - posNonCash;
-  const discrepancy   = computeDiscrepancy(posTotal, posNonCash, cashCounted, pettyTotal);
-
   const activeMethods  = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
   /** Cash needs no actual input — its actual is the denomination count. */
   const nonCashMethods = activeMethods.filter((m) => m.flowType !== "cash");
+
+  const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
+  const posTotal      = useMemo(() => totalFromPaymentMethods(methods), [methods]);
+  const cashInMethods = useMemo(
+    () => cashTotalFromMethods(methods, activeMethods),
+    [methods, activeMethods],
+  );
+  const posNonCash    = useMemo(() => posTotal - cashInMethods, [posTotal, cashInMethods]);
+  const posCashExp    = posTotal - posNonCash;
+  // Non-cash actual settlements: the per-mode actual (override or autofill
+  // from POS) summed across non-cash modes. Mirrors what handleSave persists.
+  const nonCashActual = useMemo(
+    () => nonCashActualFromMethods(
+      methods.map((m) => ({ ...m, actualAmount: actuals[m.paymentMethodId] ?? m.amount })),
+      activeMethods,
+    ),
+    [methods, actuals, activeMethods],
+  );
+  // cash_19: actual total = cash counted + petty paid + non-cash actual;
+  // discrepancy = actual total - POS report total.
+  const actualTotal   = computeActualTotal(cashCounted, pettyTotal, nonCashActual);
+  const discrepancy   = computeDiscrepancy(posTotal, cashCounted, pettyTotal, nonCashActual);
 
   function updateMethod(id: string, amount: number) {
     setMethods((curr) => curr.map((m) => (m.paymentMethodId === id ? { ...m, amount } : m)));
@@ -428,6 +442,7 @@ function DialogBody({
         closedByEmail: state.email,
         posTotalSales: posTotal,
         posNonCashTotal: posNonCash,
+        nonCashActualTotal: nonCashActual,
         cashCounted,
         cashDeposited: existing?.cashDeposited ?? 0,
         notes,
@@ -735,9 +750,11 @@ function DialogBody({
             </Field>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <Tile label="Cash counted"   value={fmtINR(cashCounted)} />
           <Tile label="Petty expenses" value={fmtINR(pettyTotal)} />
+          {/* cash_19 — cash + petty + non-cash actual, vs the POS total. */}
+          <Tile label="Actual total"   value={fmtINR(actualTotal)} />
           <Tile
             label="Discrepancy"
             value={fmtINR(discrepancy)}

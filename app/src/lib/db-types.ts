@@ -316,7 +316,9 @@ export interface DailyCashClosingRow {
   cash_counted:             number;
   petty_expenses_paid:      number;
   cash_deposited:           number;
-  discrepancy:              number;          // generated
+  non_cash_actual_total:    number;          // cash_19 — materialized by the form
+  actual_total:             number;          // generated (cash_19)
+  discrepancy:              number;          // generated — actual_total - pos_total_sales (cash_19)
 
   notes:                    string | null;
   status:                   ClosingStatus;

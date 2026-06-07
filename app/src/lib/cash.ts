@@ -129,6 +129,11 @@ export interface DailyCashClosing {
   cashCounted:             number;
   pettyExpensesPaid:       number;
   cashDeposited:           number;
+  /** Sum of actual settlements across non-cash modes (cash_19). */
+  nonCashActualTotal:      number;
+  /** cash counted + petty paid + non-cash actual (generated, cash_19). */
+  actualTotal:             number;
+  /** actualTotal - posTotalSales (generated, cash_19). */
   discrepancy:             number;
 
   notes:                   string | null;
@@ -373,6 +378,8 @@ export function mapClosing(
     cashCounted: Number(r.cash_counted ?? 0),
     pettyExpensesPaid: Number(r.petty_expenses_paid ?? 0),
     cashDeposited: Number(r.cash_deposited ?? 0),
+    nonCashActualTotal: Number(r.non_cash_actual_total ?? 0),
+    actualTotal: Number(r.actual_total ?? 0),
     discrepancy: Number(r.discrepancy ?? 0),
     notes: r.notes,
     status: r.status,
@@ -832,6 +839,8 @@ export interface ClosingDraft {
   closedByEmail:       string;
   posTotalSales:       number;
   posNonCashTotal:     number;
+  /** Sum of actual settlements across non-cash modes (cash_19). */
+  nonCashActualTotal:  number;
   cashCounted:         number;
   cashDeposited:       number;
   notes?:              string | null;
@@ -863,6 +872,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
       closed_by_email:      d.closedByEmail,
       pos_total_sales:      d.posTotalSales,
       pos_non_cash_total:   d.posNonCashTotal,
+      non_cash_actual_total: d.nonCashActualTotal,
       cash_counted:         d.cashCounted,
       cash_deposited:       d.cashDeposited,
       notes:                d.notes ?? null,
@@ -1358,17 +1368,28 @@ export function totalFromDenominations(rows: CashDenomination[]): number {
 }
 
 /**
- * Pure helper that returns the discrepancy for a closing draft.
- * Server-side this is a generated column; client-side we recompute to
- * preview the value while the user is typing.
+ * Pure helpers mirroring the cash_19 generated columns. Server-side these
+ * are generated; client-side we recompute to preview while the user types.
+ *
+ *   actual total = cash counted + petty paid + non-cash actual settlements
+ *   discrepancy  = actual total - POS report total
  */
-export function computeDiscrepancy(
-  posTotalSales: number,
-  posNonCashTotal: number,
+export function computeActualTotal(
   cashCounted: number,
   pettyExpensesPaid: number,
+  nonCashActualTotal: number,
 ): number {
-  return cashCounted + pettyExpensesPaid - (posTotalSales - posNonCashTotal);
+  return cashCounted + pettyExpensesPaid + nonCashActualTotal;
+}
+
+export function computeDiscrepancy(
+  posTotalSales: number,
+  cashCounted: number,
+  pettyExpensesPaid: number,
+  nonCashActualTotal: number,
+): number {
+  return computeActualTotal(cashCounted, pettyExpensesPaid, nonCashActualTotal)
+       - posTotalSales;
 }
 
 /**
@@ -1390,6 +1411,20 @@ export function cashTotalFromMethods(
   const cashIds = new Set(methods.filter((m) => m.flowType === "cash").map((m) => m.id));
   return rows.filter((r) => cashIds.has(r.paymentMethodId))
              .reduce((sum, r) => sum + (r.amount || 0), 0);
+}
+
+/**
+ * Sum of actual settlements across non-cash modes, falling back to the
+ * POS-reported amount when no actual was recorded. Used by the closing
+ * form to materialize non_cash_actual_total (cash_19).
+ */
+export function nonCashActualFromMethods(
+  rows: CashClosingPaymentMethod[],
+  methods: PaymentMethod[],
+): number {
+  const cashIds = new Set(methods.filter((m) => m.flowType === "cash").map((m) => m.id));
+  return rows.filter((r) => !cashIds.has(r.paymentMethodId))
+             .reduce((sum, r) => sum + (r.actualAmount ?? r.amount ?? 0), 0);
 }
 
 // ── Cash deposits ───────────────────────────────────────────────────────

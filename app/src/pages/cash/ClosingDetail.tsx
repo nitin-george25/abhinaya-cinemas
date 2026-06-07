@@ -77,6 +77,9 @@ export default function CashClosingDetailPage() {
           <Tile label="Cash counted"   value={fmtINR(closing.cashCounted)} />
           <Tile label="Petty expenses" value={fmtINR(closing.pettyExpensesPaid)} />
           <Tile label="Cash deposited" value={fmtINR(closing.cashDeposited)} />
+          {/* cash_19 — cash counted + petty + non-cash actual settlements;
+              discrepancy = actual total - POS total. */}
+          <Tile label="Actual total"   value={fmtINR(closing.actualTotal)} />
           <Tile
             label="Discrepancy"
             value={fmtINR(closing.discrepancy)}
