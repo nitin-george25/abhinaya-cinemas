@@ -11,6 +11,7 @@ import { format, parseISO } from "date-fns";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { computeEntry } from "../lib/engine";
+import { fetchEntriesPage } from "../lib/entriesApi";
 import { weekday } from "../lib/format";
 import { fmtINR, fmtInt } from "../lib/dashboard";
 import { downloadDcrPdf } from "../lib/pdf";
@@ -62,29 +63,37 @@ export default function HistoryPage() {
   const [page, setPage]         = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
-  const rows = useMemo<Row[]>(() => {
-    if (!appState) return [];
-    let entries = appState.entries.slice();
-    if (filters.from) entries = entries.filter((e) => (e.date ?? "") >= filters.from);
-    if (filters.to)   entries = entries.filter((e) => (e.date ?? "") <= filters.to);
-    if (filters.movieId)  entries = entries.filter((e) => e.movieId === filters.movieId);
-    if (filters.screenId) entries = entries.filter((e) => e.screenId === filters.screenId);
-    entries.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
-    return entries.map((entry) => ({ entry, computed: safeCompute(appState, entry) }));
-  }, [appState, filters]);
+  // Server-side pagination: only the visible page is fetched (and only
+  // the visible page goes through the engine). `total` is the matching
+  // row count across all pages, from PostgREST count: "exact".
+  const [pageEntries, setPageEntries] = useState<Entry[]>([]);
+  const [total, setTotal]             = useState(0);
+  const [loading, setLoading]         = useState(true);
 
-  // Snap back to page 1 whenever the result set changes shape; clamp if
-  // a filter shrank the set below the current page.
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    void fetchEntriesPage(filters, page, pageSize).then((res) => {
+      if (!alive) return;
+      setPageEntries(res.entries);
+      setTotal(res.total);
+      setLoading(false);
+    });
+    return () => { alive = false; };
+  }, [filters, page, pageSize]);
+
+  // Snap back to page 1 whenever the filters or page size change; clamp
+  // if a filter shrank the set below the current page.
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   useEffect(() => { setPage(1); }, [filters, pageSize]);
   useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
+    if (!loading && page > pageCount) setPage(pageCount);
+  }, [loading, page, pageCount]);
 
-  const pageRows = useMemo<Row[]>(
-    () => rows.slice((page - 1) * pageSize, page * pageSize),
-    [rows, page, pageSize],
-  );
+  const pageRows = useMemo<Row[]>(() => {
+    if (!appState) return [];
+    return pageEntries.map((entry) => ({ entry, computed: safeCompute(appState, entry) }));
+  }, [appState, pageEntries]);
 
   if (!appState) {
     return (
@@ -94,7 +103,10 @@ export default function HistoryPage() {
     );
   }
 
-  const total = rows.reduce(
+  // Totals cover the rows on this page only — the share math lives in the
+  // client-side engine (locked), so we don't aggregate the full filtered
+  // set server-side.
+  const pageTotal = pageRows.reduce(
     (a, r) => ({
       tickets: a.tickets + r.computed.today.audience,
       gross: a.gross + r.computed.today.grossColl,
@@ -122,16 +134,24 @@ export default function HistoryPage() {
         onReset={() => setFilters(EMPTY_FILTERS)}
       />
 
-      <ResultsCount count={rows.length} total={total} />
+      <ResultsCount count={total} loading={loading} total={pageTotal} />
 
-      <HistoryTable rows={pageRows} onSelect={setOpenRow} appState={appState} />
+      {loading && pageRows.length === 0 ? (
+        <Card>
+          <CardBody className="py-10 text-center text-sm text-ink-muted">
+            Loading entries…
+          </CardBody>
+        </Card>
+      ) : (
+        <HistoryTable rows={pageRows} onSelect={setOpenRow} appState={appState} />
+      )}
 
-      {rows.length > 0 ? (
+      {total > 0 ? (
         <Pagination
           page={page}
           pageCount={pageCount}
           pageSize={pageSize}
-          totalRows={rows.length}
+          totalRows={total}
           onPage={setPage}
           onPageSize={setPageSize}
         />
@@ -223,18 +243,25 @@ function FilterBar({
 
 function ResultsCount({
   count,
+  loading,
   total,
 }: {
   count: number;
+  loading: boolean;
   total: { tickets: number; gross: number; netShare: number };
 }) {
   return (
     <div className="flex items-center justify-between flex-wrap gap-3 text-sm">
       <div className="text-ink-muted">
-        {count === 0 ? "No entries match" : `${count} entr${count === 1 ? "y" : "ies"}`}
+        {loading && count === 0
+          ? "Loading…"
+          : count === 0
+          ? "No entries match"
+          : `${fmtInt(count)} entr${count === 1 ? "y" : "ies"}`}
       </div>
       {count > 0 ? (
         <div className="flex items-center gap-4 tabular-nums">
+          <span className="text-xs text-ink-muted uppercase tracking-wide">This page</span>
           <span><span className="text-ink-muted">Tickets:</span> <b>{fmtInt(total.tickets)}</b></span>
           <span><span className="text-ink-muted">Gross:</span>   <b>{fmtINR(total.gross)}</b></span>
           <span><span className="text-ink-muted">Net Share:</span> <b>{fmtINR(total.netShare)}</b></span>
