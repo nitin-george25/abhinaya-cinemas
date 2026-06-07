@@ -149,6 +149,7 @@ function FilterBar({
             <option value="fb">{TYPE_LABELS.fb}</option>
             <option value="cfg">{TYPE_LABELS.cfg}</option>
             <option value="cat">{TYPE_LABELS.cat}</option>
+            <option value="del">{TYPE_LABELS.del}</option>
           </Select>
         </Field>
         <Field label="From">
