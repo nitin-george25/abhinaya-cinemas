@@ -26,6 +26,8 @@ export default function CashPettyMinePage() {
   const refs                  = useCashRefs();
   const [rows, setRows]       = useState<PettyExpense[]>([]);
   const [unitId, setUnitId]   = useState<string>("");
+  /** POS counter the expense was paid from — required (migration 18). */
+  const [counterId, setCounterId] = useState<string>("");
   const [date, setDate]       = useState(todayIso());
   const [amount, setAmount]   = useState("");
   const [desc, setDesc]       = useState("");
@@ -42,6 +44,15 @@ export default function CashPettyMinePage() {
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
   }, [refs.units, unitId]);
+
+  // Counters scoped to the selected unit; snap selection when unit changes.
+  const unitCounters = refs.counters.filter((c) => c.operatingUnitId === unitId);
+  useEffect(() => {
+    if (!unitId) return;
+    if (counterId && unitCounters.some((c) => c.id === counterId)) return;
+    setCounterId(unitCounters[0]?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unitId, refs.counters]);
 
   async function reload() {
     if (!state.email) return;
@@ -63,6 +74,7 @@ export default function CashPettyMinePage() {
 
   async function submit() {
     if (!state.email || !unitId) return;
+    if (!counterId) { setErr("Pick the counter this was paid from."); return; }
     const amt = Number(amount);
     if (!amt || amt <= 0) { setErr("Enter an amount."); return; }
     if (!desc.trim())     { setErr("Enter a description."); return; }
@@ -81,6 +93,7 @@ export default function CashPettyMinePage() {
       const receiptUrl = noReceipt ? null : await uploadReceipt();
       await createPettyExpense({
         operatingUnitId: unitId,
+        posCounterId: counterId,
         expenseDate: date,
         amount: amt,
         category: category || null,
@@ -110,6 +123,12 @@ export default function CashPettyMinePage() {
             <Field label="Unit">
               <Select value={unitId} onChange={(e) => setUnitId(e.target.value)}>
                 {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Counter">
+              <Select value={counterId} onChange={(e) => setCounterId(e.target.value)}>
+                {unitCounters.length === 0 ? <option value="">— no counters —</option> : null}
+                {unitCounters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
             </Field>
             <Field label="Date">

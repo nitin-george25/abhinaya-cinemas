@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { SyncProvider, useSync } from "./lib/hooks/SyncContext";
 import { AppShell } from "./components/layout/AppShell";
 import { BootingScreen } from "./components/auth/BootingScreen";
+import { ChangePinScreen } from "./components/auth/ChangePinScreen";
 import { SignInScreen } from "./components/auth/SignInScreen";
 import { Button } from "./components/ui/Button";
 
@@ -18,6 +19,7 @@ import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
 import SettingsCashPage from "./pages/settings/Cash";
+import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
 import DcrPage from "./pages/Dcr";
@@ -88,6 +90,10 @@ function AppGate() {
 
     case "ready":
       if (!state.role) return <SignInScreen />;
+      // Forced PIN change — username+PIN users whose PIN was issued by
+      // the owner/manager (create or reset) must pick their own before
+      // they reach the app. Google users never carry the flag.
+      if (state.mustChangePin && state.username) return <ChangePinScreen />;
       {
         const role = state.role;
         const expiredOverlay = state.sessionExpired ? (
@@ -175,6 +181,10 @@ function AppGate() {
                       enforced inside the UsersSection + admin-users Edge
                       Function — they can only manage cashier + daily_manager. */}
                   <Route path="/settings/users" element={<SettingsUsersPage />} />
+                  {/* WhatsApp settings — owner only. */}
+                  {role === "owner" ? (
+                    <Route path="/settings/whatsapp" element={<SettingsWhatsappPage />} />
+                  ) : null}
                 </>
               ) : null}
 

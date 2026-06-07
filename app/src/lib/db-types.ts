@@ -45,6 +45,10 @@ export interface AuthorizedUserRow {
   full_name: string | null;
   /** Set when the user signs in via username + PIN. Null for Google users. */
   username: string | null;
+  /** True when the PIN was issued by the owner/manager and the user
+   *  hasn't replaced it yet. The app blocks on a Change-PIN screen
+   *  while true. Always false for Google users. */
+  must_change_pin: boolean;
 }
 
 /** `public.fb_entries` — one row per date. Single-screen cinema, no
@@ -247,6 +251,20 @@ export interface OperatingUnitRow {
   updated_by:             string | null;
 }
 
+/** POS counter (till) inside an operating unit. Migration 18. Managed by
+ *  the owner in Settings → Cash the same way screens are managed. */
+export interface PosCounterRow {
+  id:                     string;
+  cinema_id:              string;
+  operating_unit_id:      string;
+  name:                   string;
+  display_order:          number;
+  archived_at:            string | null;
+  created_at:             string | null;
+  updated_at:             string | null;
+  updated_by:             string | null;
+}
+
 export interface BankAccountRow {
   id:                    string;
   cinema_id:             string;
@@ -283,6 +301,9 @@ export type ClosingStatus = "draft" | "counted" | "signed" | "disputed" | "resol
 export interface DailyCashClosingRow {
   id:                       string;
   operating_unit_id:        string;
+  /** POS counter this closing belongs to. Migration 18 — the natural key
+   *  is now (pos_counter_id, business_date, shift). */
+  pos_counter_id:           string;
   business_date:            string;          // YYYY-MM-DD
   shift:                    ClosingShift;
   cashier_email:            string | null;
@@ -371,7 +392,12 @@ export interface CashClosingDenominationRow {
 export interface CashClosingPaymentMethodRow {
   closing_id:        string;
   payment_method_id: string;
+  /** What the POS reported for this mode. */
   amount:            number;
+  /** What the mode actually settled (EDC machine / UPI app total).
+   *  Autofilled from `amount` by the closing form; edited when they
+   *  differ. Null = saved before migration cash_17. */
+  actual_amount:     number | null;
 }
 
 export type PettyExpenseStatus = "pending" | "approved" | "rejected";
@@ -379,6 +405,8 @@ export type PettyExpenseStatus = "pending" | "approved" | "rejected";
 export interface PettyExpenseRow {
   id:                     string;
   operating_unit_id:      string;
+  /** POS counter the expense was paid from. Required from migration 18. */
+  pos_counter_id:         string;
   expense_date:           string;        // YYYY-MM-DD
   amount:                 number;
   category:               string | null;

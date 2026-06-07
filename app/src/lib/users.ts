@@ -69,6 +69,36 @@ export async function signInWithUsername(
   return { ok: true };
 }
 
+// ── change own PIN (forced on first login) ─────────────────────────────
+
+/**
+ * Replace the signed-in user's PIN with one they chose themselves, then
+ * clear the `must_change_pin` flag. PIN-auth users only — the PIN is the
+ * Supabase password, so this is a plain password update on the current
+ * session. The flag is cleared via a SECURITY DEFINER RPC because
+ * authorized_users has no self-UPDATE policy (and shouldn't — it would
+ * let users edit their own role).
+ */
+export async function changeOwnPin(pin: string): Promise<SignInResult> {
+  if (!PIN_RE.test(pin)) {
+    return { ok: false, error: "PIN must be exactly 6 digits." };
+  }
+  const sb = getSupabase();
+  const { error } = await sb.auth.updateUser({ password: pin });
+  if (error) {
+    // Supabase rejects a password identical to the current one — surface
+    // that case in PIN vocabulary instead of "New password should be
+    // different from the old password."
+    const msg = /different from the old/i.test(error.message)
+      ? "New PIN must be different from the one you were given."
+      : error.message;
+    return { ok: false, error: msg };
+  }
+  const { error: rpcErr } = await sb.rpc("fn_clear_must_change_pin");
+  if (rpcErr) return { ok: false, error: rpcErr.message };
+  return { ok: true };
+}
+
 // ── admin API (owner-only on the server) ───────────────────────────────
 
 export interface CreatePayload {

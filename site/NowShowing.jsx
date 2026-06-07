@@ -100,7 +100,7 @@ function NowShowing({ tab, setTab, onBook }) {
           <Pill active={tab === 'Coming Soon'} onClick={() => setTab('Coming Soon')}>Coming Soon</Pill>
         </div>
       } />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(248px,1fr))', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(248px,100%),1fr))', gap: 24 }}>
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
           : list.length === 0

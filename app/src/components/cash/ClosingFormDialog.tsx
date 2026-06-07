@@ -128,6 +128,9 @@ function DialogBody({
     role === "owner" || role === "manager" || role === "daily_manager";
 
   const [unitId, setUnitId]         = useState<string>(defaultUnitId ?? "");
+  /** POS counter being closed — required (migration 18). Defaults to the
+   *  selected unit's first counter. */
+  const [counterId, setCounterId]   = useState<string>("");
   const [businessDate, setDate]     = useState<string>(defaultDate ?? todayIso());
   const [shift, setShift]           = useState<ClosingShift>(defaultShift);
   const [existing, setExisting]     = useState<DailyCashClosing | null>(null);
@@ -135,6 +138,10 @@ function DialogBody({
   const [cashierEmail, setCashier]  = useState<string>("");
 
   const [methods, setMethods] = useState<CashClosingPaymentMethod[]>([]);
+  /** Per-mode actual-settlement overrides, keyed by paymentMethodId.
+   *  No key = the actual follows the POS figure (autofill). A key is set
+   *  the moment the user edits an actual input, breaking the follow. */
+  const [actuals, setActuals] = useState<Record<string, number>>({});
   /** Payment methods that apply to the selected operating unit. Falls
    *  back to all cinema methods when the unit has no mapping yet. */
   const [unitMethods, setUnitMethods] = useState<PaymentMethod[]>([]);
@@ -171,6 +178,24 @@ function DialogBody({
     }
   }, [refs.units, unitId]);
 
+  // Counters that belong to the selected unit.
+  const unitCounters = useMemo(
+    () => refs.counters.filter((c) => c.operatingUnitId === unitId),
+    [refs.counters, unitId],
+  );
+
+  // Keep the counter selection consistent with the unit: when the unit
+  // changes (or counters load), snap to the unit's first counter unless
+  // the current selection already belongs to it. An existing closing may
+  // reference an archived counter (absent from refs) — never snap away
+  // from it, or re-saving would silently move the closing to another till.
+  useEffect(() => {
+    if (!unitId) return;
+    if (counterId && unitCounters.some((c) => c.id === counterId)) return;
+    if (counterId && counterId === existing?.posCounterId) return;
+    setCounterId(unitCounters[0]?.id ?? "");
+  }, [unitId, unitCounters, counterId, existing]);
+
   // "Cashier on till" dropdown. We list every authorized user, not just
   // role='cashier' — at this scale the owner / manager often physically
   // runs the till, so the field is "who is sitting at the till today",
@@ -201,6 +226,7 @@ function DialogBody({
   // Reset method rows whenever the unit-scoped method list changes.
   useEffect(() => {
     setMethods(unitMethods.map((m) => ({ paymentMethodId: m.id, amount: 0 })));
+    setActuals({});
   }, [unitMethods]);
 
   // Hydrate from existingId when the parent passed one.
@@ -210,6 +236,7 @@ function DialogBody({
     void getClosing(existingId).then((found) => {
       if (!alive || !found) return;
       setUnitId(found.operatingUnitId);
+      setCounterId(found.posCounterId);
       setDate(found.businessDate);
       setShift(found.shift);
       setExisting(found);
@@ -226,6 +253,7 @@ function DialogBody({
           amount: found.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
         })),
       );
+      setActuals(actualOverridesFrom(found.paymentMethods));
       if (found.denominations.length > 0) {
         setDenoms(
           INR_DENOMINATIONS.map((d) => ({
@@ -275,18 +303,18 @@ function DialogBody({
   }, [deposit, existing, refs.units, depositAmount, retainedAmount]);
 
   // For new-closing flow, surface a non-blocking conflict notice when the
-  // current (unit, date, shift) tuple already has a closing — but do NOT
+  // current (counter, date, shift) tuple already has a closing — but do NOT
   // auto-hydrate the form from it. The previous version pre-loaded the
   // existing row, which made "+ New cash closing" look like it was always
-  // re-opening today's draft. The user picks a different shift/date or
-  // explicitly clicks "Open existing" from the banner.
+  // re-opening today's draft. The user picks a different counter/shift/date
+  // or explicitly clicks "Open existing" from the banner.
   const [conflict, setConflict] = useState<DailyCashClosing | null>(null);
   useEffect(() => {
     if (existingId) return;
-    if (!unitId) return;
+    if (!counterId) return;
     let alive = true;
     void listClosings({
-      operatingUnitId: unitId,
+      posCounterId: counterId,
       from: businessDate,
       to: businessDate,
     }).then((rows) => {
@@ -295,12 +323,13 @@ function DialogBody({
       setConflict(found);
     });
     return () => { alive = false; };
-  }, [existingId, unitId, businessDate, shift]);
+  }, [existingId, counterId, businessDate, shift]);
 
   /** Switch the dialog into edit mode for the conflicting closing. */
   function openConflict() {
     if (!conflict) return;
     setExisting(conflict);
+    setCounterId(conflict.posCounterId);
     setCashier(conflict.cashierEmail ?? "");
     setNotes(conflict.notes ?? "");
     const methodList = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
@@ -310,6 +339,7 @@ function DialogBody({
         amount: conflict.paymentMethods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0,
       })),
     );
+    setActuals(actualOverridesFrom(conflict.paymentMethods));
     if (conflict.denominations.length > 0) {
       setDenoms(
         INR_DENOMINATIONS.map((d) => ({
@@ -322,11 +352,13 @@ function DialogBody({
   }
 
   // Pull approved petty totals (used to validate the cash count).
+  // Counter-scoped from migration 18 — each till only answers for the
+  // expenses paid out of its own drawer.
   useEffect(() => {
-    if (!unitId) return;
+    if (!counterId) return;
     let alive = true;
     void listPettyExpenses({
-      operatingUnitId: unitId,
+      posCounterId: counterId,
       from: businessDate,
       to:   businessDate,
       status: "approved",
@@ -335,7 +367,7 @@ function DialogBody({
       setPettyTotal(rows.reduce((s, r) => s + r.amount, 0));
     });
     return () => { alive = false; };
-  }, [unitId, businessDate]);
+  }, [counterId, businessDate]);
 
   // ── derived ──────────────────────────────────────────────────────────
   const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
@@ -348,8 +380,15 @@ function DialogBody({
   const posCashExp    = posTotal - posNonCash;
   const discrepancy   = computeDiscrepancy(posTotal, posNonCash, cashCounted, pettyTotal);
 
+  const activeMethods  = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
+  /** Cash needs no actual input — its actual is the denomination count. */
+  const nonCashMethods = activeMethods.filter((m) => m.flowType !== "cash");
+
   function updateMethod(id: string, amount: number) {
     setMethods((curr) => curr.map((m) => (m.paymentMethodId === id ? { ...m, amount } : m)));
+  }
+  function updateActual(id: string, amount: number) {
+    setActuals((curr) => ({ ...curr, [id]: amount }));
   }
   function updateDenom(denom: number, count: number) {
     setDenoms((curr) => curr.map((d) => (d.denomination === denom ? { ...d, count } : d)));
@@ -357,13 +396,17 @@ function DialogBody({
 
   async function handleSave(signAfter = false) {
     if (!unitId || !state.email) return;
+    if (!counterId) {
+      setErr("Pick the POS counter being closed. Counters are managed in Settings → Cash.");
+      return;
+    }
     // If a conflicting closing exists and the user hasn't opened it, block
     // the save and ask them what to do. Without this guard upsertClosing
     // would silently overwrite the existing row.
     if (!existing && conflict) {
       setErr(
-        "A closing already exists for this date and shift. Open it from " +
-          "the banner above or pick a different date/shift.",
+        "A closing already exists for this counter, date and shift. Open it " +
+          "from the banner above or pick a different counter/date/shift.",
       );
       return;
     }
@@ -378,6 +421,7 @@ function DialogBody({
       }
       const id = await upsertClosing({
         operatingUnitId: unitId,
+        posCounterId: counterId,
         businessDate,
         shift,
         cashierEmail: cashierEmail || null,
@@ -389,7 +433,14 @@ function DialogBody({
         notes,
         edcSlipUrl: nextEdcUrl,
         denominations: denoms.filter((d) => d.count > 0),
-        paymentMethods: methods.filter((m) => m.amount > 0),
+        // Keep rows the POS reported on *or* where an actual was recorded —
+        // the manual-EDC case is exactly "POS says 0, machine says money".
+        paymentMethods: methods
+          .filter((m) => m.amount > 0 || (actuals[m.paymentMethodId] ?? 0) > 0)
+          .map((m) => ({
+            ...m,
+            actualAmount: actuals[m.paymentMethodId] ?? m.amount,
+          })),
       });
       // Manager sign-after — moves draft → counted (not signed). The
       // cashier still needs to confirm before the ledger row writes.
@@ -518,7 +569,7 @@ function DialogBody({
       {!existing && conflict ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2">
           <span>
-            A closing already exists for {conflict.businessDate} · {conflict.shift}
+            A closing already exists for this counter on {conflict.businessDate} · {conflict.shift}
             {" "}(<span className="font-medium">{conflict.status === "counted" ? "awaiting cashier" : conflict.status}</span>).
           </span>
           <Button size="sm" variant="secondary" onClick={openConflict}>
@@ -527,13 +578,32 @@ function DialogBody({
         </div>
       ) : null}
 
-      {/* Header — unit / date / shift / cashier selectors */}
+      {/* Header — unit / counter / date / shift / cashier selectors */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Field label="Unit">
           <Select value={unitId} disabled={lockedForManager} onChange={(e) => setUnitId(e.target.value)}>
             {refs.units.map((u) => (
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
+          </Select>
+        </Field>
+        <Field label="Counter">
+          <Select
+            value={counterId}
+            disabled={lockedForManager}
+            onChange={(e) => setCounterId(e.target.value)}
+          >
+            {unitCounters.length === 0 ? (
+              <option value="">— no counters —</option>
+            ) : null}
+            {unitCounters.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+            {/* Existing closing on a since-archived counter: keep it
+                selectable so the row renders truthfully. */}
+            {counterId && !unitCounters.some((c) => c.id === counterId) ? (
+              <option value={counterId}>(archived counter)</option>
+            ) : null}
           </Select>
         </Field>
         <Field label="Business date">
@@ -600,6 +670,51 @@ function DialogBody({
           <Tile label="Cash expected" value={fmtINR(posCashExp)} />
         </div>
       </div>
+
+      {/* Actuals — what each non-cash mode really settled (EDC machine /
+          UPI app totals). Autofilled from the POS figures above; editable
+          for the manual-EDC case where a sale never went through the POS.
+          Cash needs no row here — its actual is the denomination count
+          below. Per-mode discrepancy renders under each input. */}
+      {nonCashMethods.length > 0 ? (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-ink-muted mb-1">
+            Actual settlements
+          </div>
+          <p className="text-xs text-ink-muted mb-2">
+            From the EDC machine / UPI app totals. Autofilled from the POS
+            figures — edit when they differ (e.g. a sale keyed manually on
+            the EDC machine).
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {nonCashMethods.map((m) => {
+              const pos    = methods.find((x) => x.paymentMethodId === m.id)?.amount ?? 0;
+              const actual = actuals[m.id] ?? pos;
+              const diff   = actual - pos;
+              return (
+                <Field key={m.id} label={m.displayName}>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    disabled={lockedForManager}
+                    value={actual}
+                    onChange={(e) => updateActual(m.id, Number(e.target.value) || 0)}
+                  />
+                  <div
+                    className={`text-xs mt-1 tabular-nums ${
+                      diff === 0 ? "text-ink-muted" : "text-red-600"
+                    }`}
+                  >
+                    {diff === 0
+                      ? "matches POS"
+                      : `${diff > 0 ? "+" : "−"}${fmtINR(Math.abs(diff))} vs POS`}
+                  </div>
+                </Field>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {/* Denomination grid */}
       <div>
@@ -876,6 +991,23 @@ function DepositPanel({
       )}
     </div>
   );
+}
+
+/**
+ * Build the actual-override map from saved payment rows. Rows where the
+ * saved actual is null (pre-cash_17) or equal to the POS figure stay in
+ * "follow POS" mode (no key); only true divergences become overrides.
+ */
+function actualOverridesFrom(
+  pms: CashClosingPaymentMethod[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of pms) {
+    if (p.actualAmount != null && p.actualAmount !== p.amount) {
+      out[p.paymentMethodId] = p.actualAmount;
+    }
+  }
+  return out;
 }
 
 function Tile({

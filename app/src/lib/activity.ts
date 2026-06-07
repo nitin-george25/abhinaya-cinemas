@@ -13,7 +13,7 @@
 import { getSupabase } from "./supabase";
 import type { AppState, DateISO, UUID } from "./types";
 
-export type ActivityType = "bo" | "fb" | "cfg" | "cat";
+export type ActivityType = "bo" | "fb" | "cfg" | "cat" | "del";
 
 export interface ActivityEvent {
   type: ActivityType;
@@ -45,14 +45,16 @@ export const TYPE_LABELS: Record<ActivityType, string> = {
   fb:  "F&B day",
   cfg: "Cinema config",
   cat: "Catalog",
+  del: "Deleted",
 };
 
 /** Tailwind tone for the Badge primitive — keep in sync with TYPE_LABELS. */
-export const TYPE_TONES: Record<ActivityType, "blue" | "amber" | "neutral" | "green"> = {
+export const TYPE_TONES: Record<ActivityType, "blue" | "amber" | "neutral" | "green" | "red"> = {
   bo:  "blue",
   fb:  "amber",
   cfg: "neutral",
   cat: "green",
+  del: "red",
 };
 
 const cinemaName = (state: AppState): string => state.cinema?.name || "Cinema";
@@ -68,13 +70,14 @@ const screenName = (state: AppState, id: UUID): string =>
  */
 export async function fetchActivity(
   state: AppState,
-  limit = { entries: 200, fb: 200, products: 50 },
+  limit: { entries: number; fb: number; products: number; deletions?: number } =
+    { entries: 200, fb: 200, products: 50, deletions: 50 },
 ): Promise<ActivityEvent[]> {
   const sb = getSupabase();
   const loc = cinemaName(state);
 
   try {
-    const [entriesRes, fbRes, cfgRes, productsRes] = await Promise.all([
+    const [entriesRes, fbRes, cfgRes, productsRes, deletionsRes] = await Promise.all([
       sb.from("entries")
         .select("entry_date,movie_id,screen_id,updated_by,updated_at")
         .order("updated_at", { ascending: false })
@@ -90,6 +93,14 @@ export async function fetchActivity(
         .select("name,updated_at")
         .order("updated_at", { ascending: false })
         .limit(limit.products),
+      // Hard deletes vanish from the tables above; deletion_log is the
+      // only remaining trace (RLS: manager-or-owner read; daily managers
+      // can't open this page anyway). Before the migration runs the
+      // select errors → data is null → no "del" events, nothing throws.
+      sb.from("deletion_log")
+        .select("table_name,record_key,deleted_by,deleted_at")
+        .order("deleted_at", { ascending: false })
+        .limit(limit.deletions ?? 50),
     ]);
 
     const events: ActivityEvent[] = [];
@@ -159,6 +170,43 @@ export async function fetchActivity(
         date: "",
         text: `Catalog product: ${r.name || "?"}`,
       });
+    }
+
+    for (const r of (deletionsRes.data ?? []) as Array<{
+      table_name: string;
+      record_key: Record<string, unknown> | null;
+      deleted_by: string | null;
+      deleted_at: string | null;
+    }>) {
+      if (!r.deleted_at) continue;
+      const key = r.record_key ?? {};
+      if (r.table_name === "entries") {
+        const movie  = movieName(state, String(key["movie_id"] ?? "") as UUID);
+        const screen = screenName(state, String(key["screen_id"] ?? "") as UUID);
+        const d      = String(key["entry_date"] ?? "");
+        events.push({
+          type: "del",
+          when: r.deleted_at,
+          who: r.deleted_by || "?",
+          location: loc,
+          screen,
+          movie,
+          date: (d as DateISO) || "",
+          text: `Deleted BO entry: ${movie} on ${screen} (${d})`,
+        });
+      } else {
+        // Future tables that adopt deletion_log render generically.
+        events.push({
+          type: "del",
+          when: r.deleted_at,
+          who: r.deleted_by || "?",
+          location: loc,
+          screen: "—",
+          movie: "—",
+          date: "",
+          text: `Deleted ${r.table_name} record`,
+        });
+      }
     }
 
     events.sort((a, b) => b.when.localeCompare(a.when));

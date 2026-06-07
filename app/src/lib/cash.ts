@@ -28,6 +28,7 @@ import type {
   PaymentRequestStatus,
   PettyExpenseRow,
   PettyExpenseStatus,
+  PosCounterRow,
   PosSettlementClosingRow,
   PosSettlementRow,
   PosSettlementStatus,
@@ -62,6 +63,16 @@ export interface OperatingUnit {
   defaultFloatAmount:  number;
 }
 
+/** POS counter (till) inside an operating unit. Migration 18. */
+export interface PosCounter {
+  id:               string;
+  cinemaId:         string;
+  operatingUnitId:  string;
+  name:             string;
+  displayOrder:     number;
+  archivedAt:       string | null;
+}
+
 export interface BankAccount {
   id:                  string;
   cinemaId:            string;
@@ -93,12 +104,19 @@ export interface CashDenomination {
 
 export interface CashClosingPaymentMethod {
   paymentMethodId: string;
+  /** POS-reported amount for this mode. */
   amount:          number;
+  /** Actual settled amount (EDC machine / UPI app total). Autofilled
+   *  from `amount` by the closing form; edited when they differ.
+   *  Null/undefined = not recorded (pre-cash_17 rows). */
+  actualAmount?:   number | null;
 }
 
 export interface DailyCashClosing {
   id:                      string;
   operatingUnitId:         string;
+  /** POS counter this closing belongs to. Migration 18. */
+  posCounterId:            string;
   businessDate:            DateISO;
   shift:                   ClosingShift;
   cashierEmail:            string | null;
@@ -183,6 +201,8 @@ export interface Party {
 export interface PettyExpense {
   id:                   string;
   operatingUnitId:      string;
+  /** POS counter the expense was paid from. Required from migration 18. */
+  posCounterId:         string;
   expenseDate:          DateISO;
   amount:               number;
   category:             string | null;
@@ -248,6 +268,17 @@ export function mapOperatingUnit(r: OperatingUnitRow): OperatingUnit {
     displayOrder: r.display_order,
     archivedAt: r.archived_at,
     defaultFloatAmount: Number(r.default_float_amount ?? 0),
+  };
+}
+
+export function mapPosCounter(r: PosCounterRow): PosCounter {
+  return {
+    id: r.id,
+    cinemaId: r.cinema_id,
+    operatingUnitId: r.operating_unit_id,
+    name: r.name,
+    displayOrder: r.display_order,
+    archivedAt: r.archived_at,
   };
 }
 
@@ -331,6 +362,7 @@ export function mapClosing(
   return {
     id: r.id,
     operatingUnitId: r.operating_unit_id,
+    posCounterId: r.pos_counter_id,
     businessDate: r.business_date,
     shift: r.shift,
     cashierEmail: r.cashier_email,
@@ -354,7 +386,11 @@ export function mapClosing(
       .map((d) => ({ denomination: Number(d.denomination), count: d.count })),
     paymentMethods: pms
       .filter((p) => p.closing_id === r.id)
-      .map((p) => ({ paymentMethodId: p.payment_method_id, amount: Number(p.amount) })),
+      .map((p) => ({
+        paymentMethodId: p.payment_method_id,
+        amount: Number(p.amount),
+        actualAmount: p.actual_amount == null ? null : Number(p.actual_amount),
+      })),
   };
 }
 
@@ -381,6 +417,7 @@ export function mapPettyExpense(r: PettyExpenseRow): PettyExpense {
   return {
     id: r.id,
     operatingUnitId: r.operating_unit_id,
+    posCounterId: r.pos_counter_id,
     expenseDate: r.expense_date,
     amount: Number(r.amount ?? 0),
     category: r.category,
@@ -455,6 +492,77 @@ export async function listOperatingUnits(cinemaId: string): Promise<OperatingUni
     return [];
   }
   return (data as OperatingUnitRow[] | null ?? []).map(mapOperatingUnit);
+}
+
+/** Active POS counters for the cinema, ordered for dropdowns. Filter by
+ *  operating unit client-side (`c.operatingUnitId === unitId`). */
+export async function listPosCounters(cinemaId: string): Promise<PosCounter[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("pos_counters")
+    .select("*")
+    .eq("cinema_id", cinemaId)
+    .is("archived_at", null)
+    .order("display_order")
+    .order("created_at");
+  if (error) {
+    console.warn("[cash] listPosCounters", error.message);
+    return [];
+  }
+  return (data as PosCounterRow[] | null ?? []).map(mapPosCounter);
+}
+
+export interface PosCounterDraft {
+  cinemaId:         string;
+  operatingUnitId:  string;
+  name:             string;
+  displayOrder?:    number;
+}
+
+/** Owner-only per RLS — mirrors operating_units write policy. */
+export async function createPosCounter(d: PosCounterDraft, updatedBy: string): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("pos_counters")
+    .insert({
+      cinema_id:         d.cinemaId,
+      operating_unit_id: d.operatingUnitId,
+      name:              d.name,
+      display_order:     d.displayOrder ?? 10,
+      updated_by:        updatedBy,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "createPosCounter failed");
+  return (data as { id: string }).id;
+}
+
+export async function renamePosCounter(id: string, name: string, updatedBy: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("pos_counters")
+    .update({ name, updated_at: new Date().toISOString(), updated_by: updatedBy })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/** Soft-delete. Closings/expenses keep their FK; the counter just stops
+ *  showing up in dropdowns. */
+export async function archivePosCounter(id: string, updatedBy: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("pos_counters")
+    .update({
+      archived_at: new Date().toISOString(),
+      updated_at:  new Date().toISOString(),
+      updated_by:  updatedBy,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function listBankAccounts(cinemaId: string): Promise<BankAccount[]> {
@@ -578,6 +686,7 @@ export async function setOperatingUnitMethods(
 
 export interface ClosingListFilter {
   operatingUnitId?: string;
+  posCounterId?: string;
   from?: DateISO;
   to?: DateISO;
   status?: ClosingStatus;
@@ -588,6 +697,7 @@ export async function listClosings(filter: ClosingListFilter = {}): Promise<Dail
   if (!sb) return [];
   let q = sb.from("daily_cash_closings").select("*").order("business_date", { ascending: false });
   if (filter.operatingUnitId) q = q.eq("operating_unit_id", filter.operatingUnitId);
+  if (filter.posCounterId) q = q.eq("pos_counter_id", filter.posCounterId);
   if (filter.from) q = q.gte("business_date", filter.from);
   if (filter.to) q = q.lte("business_date", filter.to);
   if (filter.status) q = q.eq("status", filter.status);
@@ -627,6 +737,7 @@ export async function getClosing(id: string): Promise<DailyCashClosing | null> {
 
 export interface PettyFilter {
   operatingUnitId?: string;
+  posCounterId?:     string;
   status?:           PettyExpenseStatus;
   requestedByEmail?: string;
   from?:             DateISO;
@@ -638,6 +749,7 @@ export async function listPettyExpenses(filter: PettyFilter = {}): Promise<Petty
   if (!sb) return [];
   let q = sb.from("petty_expenses").select("*").order("expense_date", { ascending: false });
   if (filter.operatingUnitId) q = q.eq("operating_unit_id", filter.operatingUnitId);
+  if (filter.posCounterId) q = q.eq("pos_counter_id", filter.posCounterId);
   if (filter.status) q = q.eq("status", filter.status);
   if (filter.requestedByEmail) q = q.eq("requested_by_email", filter.requestedByEmail);
   if (filter.from) q = q.gte("expense_date", filter.from);
@@ -712,6 +824,8 @@ export function runningBalance(
 
 export interface ClosingDraft {
   operatingUnitId:     string;
+  /** Required — closings are per POS counter from migration 18. */
+  posCounterId:        string;
   businessDate:        DateISO;
   shift:               ClosingShift;
   cashierEmail?:       string | null;
@@ -728,18 +842,21 @@ export interface ClosingDraft {
 }
 
 /**
- * Upsert a closing + its children. Treats (operating_unit_id, business_date,
- * shift) as the natural key — uses the unique constraint to dedupe.
+ * Upsert a closing + its children. Treats (pos_counter_id, business_date,
+ * shift) as the natural key (migration 18) — uses the unique constraint
+ * to dedupe.
  */
 export async function upsertClosing(d: ClosingDraft): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
+  if (!d.posCounterId) throw new Error("Pick the POS counter being closed.");
 
   // 1) Upsert the parent.
   const { data, error } = await sb
     .from("daily_cash_closings")
     .upsert({
       operating_unit_id:    d.operatingUnitId,
+      pos_counter_id:       d.posCounterId,
       business_date:        d.businessDate,
       shift:                d.shift,
       cashier_email:        d.cashierEmail ?? null,
@@ -751,7 +868,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
       notes:                d.notes ?? null,
       edc_slip_url:         d.edcSlipUrl ?? null,
       updated_at:           new Date().toISOString(),
-    }, { onConflict: "operating_unit_id,business_date,shift" })
+    }, { onConflict: "pos_counter_id,business_date,shift" })
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "upsertClosing failed");
@@ -775,6 +892,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
         closing_id: id,
         payment_method_id: x.paymentMethodId,
         amount: x.amount,
+        actual_amount: x.actualAmount ?? null,
       })),
     );
   }
@@ -853,6 +971,8 @@ export async function disputeClosing(id: string, notes: string): Promise<void> {
 
 export interface PettyDraft {
   operatingUnitId:    string;
+  /** Required — petty expenses are per POS counter from migration 18. */
+  posCounterId:       string;
   expenseDate:        DateISO;
   amount:             number;
   category?:          string | null;
@@ -874,10 +994,14 @@ export async function createPettyExpense(d: PettyDraft): Promise<string> {
   if (!hasReceipt && !hasReason) {
     throw new Error("Attach a receipt or explain why one isn't available.");
   }
+  if (!d.posCounterId) {
+    throw new Error("Pick the POS counter this expense was paid from.");
+  }
   const { data, error } = await sb
     .from("petty_expenses")
     .insert({
       operating_unit_id:  d.operatingUnitId,
+      pos_counter_id:     d.posCounterId,
       expense_date:       d.expenseDate,
       amount:             d.amount,
       category:           d.category ?? null,

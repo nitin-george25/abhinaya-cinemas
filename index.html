@@ -27,6 +27,14 @@
   ::-webkit-scrollbar-thumb{background:var(--ink-700);border-radius:99px;border:3px solid var(--cod-gray);}
   @media (max-width:1080px){ .kit-desktop-nav{display:none !important;} }
 
+  /* Gallery mosaic - 2x2 anchor tile on wide screens, single column on phones. */
+  .gallery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));grid-auto-rows:180px;gap:14px;}
+  .gallery-big{grid-column:span 2;grid-row:span 2;}
+  @media (max-width:520px){
+    .gallery-grid{grid-template-columns:1fr;grid-auto-rows:200px;}
+    .gallery-big{grid-column:auto;}
+  }
+
   /* Boot splash — visible until React mounts. Keeps first paint on-brand. */
   #boot{position:fixed;inset:0;display:grid;place-items:center;background:var(--cod-gray);z-index:1000;transition:opacity .4s ease-out;}
   #boot.gone{opacity:0;pointer-events:none;}

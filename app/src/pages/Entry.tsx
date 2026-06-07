@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { todayIso } from "../lib/dates";
@@ -13,6 +13,7 @@ import {
   upsertEntry,
 } from "../lib/entry";
 import { computeEntry } from "../lib/engine";
+import { sendShowMessage } from "../lib/whatsapp";
 import { downloadDcrPdf } from "../lib/pdf";
 import { LOGO_DATA_URL } from "../assets/logo";
 import {
@@ -27,6 +28,7 @@ import type { AppState, DateISO, Entry, UUID } from "../lib/types";
 import { Card, CardBody } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
 import { EntryPreview } from "../components/entry/EntryPreview";
@@ -43,6 +45,9 @@ export default function EntryPage() {
   const [movieId, setMovieId] = useState<UUID | "">("");
   const [screenId, setScreenId] = useState<UUID | "">("");
   const [shareOverride, setShareOverride] = useState<number | null>(null);
+  /** Owner-only delete confirmation dialog. Declared here (not next to
+   *  onDelete) so the hook runs before the `!appState` early return. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Default movie / screen to the first available so the form isn't empty
   // on first load.
@@ -53,6 +58,57 @@ export default function EntryPage() {
     if (!movieId && firstMovie) setMovieId(firstMovie.id);
     if (!screenId && firstScreen) setScreenId(firstScreen.id);
   }, [appState, movieId, screenId]);
+
+  // Auto-send hook: any saved show with lastShow=true && !whatsappSentAt
+  // fires the WhatsApp Cloud API send, then stamps whatsappSentAt so we
+  // don't re-send. sendingRef dedupes against rapid re-renders.
+  const sendingRef = useRef<Set<string>>(new Set());
+  const existingForHook =
+    appState && movieId && screenId
+      ? findEntry(appState, date, movieId, screenId)
+      : undefined;
+  useEffect(() => {
+    if (!appState || !existingForHook) return;
+    const wa = appState.cinema?.whatsapp;
+    if (!wa?.autoSendOnLastShow || !wa.recipient) return;
+
+    (existingForHook.shows ?? []).forEach((sh, idx) => {
+      if (!sh.lastShow || sh.whatsappSentAt) return;
+      const key = `${existingForHook.id}__${idx}`;
+      if (sendingRef.current.has(key)) return;
+      sendingRef.current.add(key);
+
+      const computed = computeEntry(appState, existingForHook);
+      sendShowMessage({ state: appState, entry: existingForHook, showIdx: idx, computed })
+        .then((res) => {
+          sendingRef.current.delete(key);
+          if (!res.ok) {
+            console.error("WhatsApp auto-send failed:", res.error);
+            return;
+          }
+          // Stamp whatsappSentAt on the saved show. Read the latest entry
+          // from appState (in case it was edited mid-send) and patch by index.
+          const fresh = findEntry(
+            appState,
+            existingForHook.date!,
+            existingForHook.movieId,
+            existingForHook.screenId,
+          );
+          if (!fresh) return;
+          const patched: Entry = {
+            ...fresh,
+            shows: (fresh.shows ?? []).map((s, i) =>
+              i === idx ? { ...s, whatsappSentAt: new Date().toISOString() } : s,
+            ),
+          };
+          setAppState(upsertEntry(appState, patched));
+        })
+        .catch((err) => {
+          sendingRef.current.delete(key);
+          console.error("WhatsApp auto-send error:", err);
+        });
+    });
+  }, [appState, existingForHook, setAppState]);
 
   if (!appState) {
     return (
@@ -104,9 +160,19 @@ export default function EntryPage() {
     }
   }
 
+  // Owner-only delete with an explicit confirmation dialog. RLS enforces
+  // the same rule server-side (ent_delete policy, migration 20260606150000)
+  // and an AFTER DELETE trigger writes the deletion_log row the Activity
+  // page surfaces.
+  const canDelete = state.role === "owner";
+
   function onDelete() {
-    if (!existing) return;
-    if (!confirm("Delete this entry? This removes it from the cloud.")) return;
+    if (!existing || !canDelete) return;
+    setConfirmingDelete(true);
+  }
+
+  function confirmDelete() {
+    setConfirmingDelete(false);
     setAppState(deleteEntry(appState!, date, movieId as UUID, screenId as UUID));
   }
 
@@ -124,10 +190,30 @@ export default function EntryPage() {
           <EntryActions
             entry={existing}
             appState={appState}
+            canDelete={canDelete}
             onDelete={onDelete}
           />
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this entry?"
+        confirmLabel="Delete entry"
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={confirmDelete}
+      >
+        <p>
+          {appState.movies.find((m) => m.id === movieId)?.name ?? "?"} on{" "}
+          {appState.screens.find((s) => s.id === screenId)?.name ?? "?"} ·{" "}
+          {date}
+        </p>
+        <p>
+          This permanently removes the entry and all its shows from the
+          cloud. The deletion is recorded in the Activity log, but the
+          figures cannot be recovered.
+        </p>
+      </ConfirmDialog>
 
       <EntryHeader
         state={appState}
@@ -241,10 +327,14 @@ function EntryBody({
 function EntryActions({
   entry,
   appState,
+  canDelete,
   onDelete,
 }: {
   entry: Entry;
   appState: AppState;
+  /** Owner only — delete is a legal-record action (see migration
+   *  20260606150000). Others don't even see the button. */
+  canDelete: boolean;
   onDelete: () => void;
 }) {
   const computed = useMemo(
@@ -284,7 +374,9 @@ function EntryActions({
         <Button variant="secondary" size="sm" onClick={dlCsv}>CSV</Button>
         <Button variant="secondary" size="sm" onClick={dlTally}>Tally CSV</Button>
         <Button size="sm" onClick={dlPdf}>Download PDF</Button>
-        <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
+        {canDelete ? (
+          <Button variant="ghost" size="sm" onClick={onDelete}>Delete</Button>
+        ) : null}
       </div>
 
       <DcrModal

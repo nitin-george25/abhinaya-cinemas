@@ -74,6 +74,10 @@ export interface SyncState {
   username: string | null;
   fullName: string | null;
   role: Role | null;
+  /** True while the user is still on the PIN the owner/manager issued
+   *  them (create or reset). The app gate blocks on a Change-PIN screen
+   *  until it's cleared. Always false for Google users. */
+  mustChangePin: boolean;
   appState: AppState | null;
   /** Resolved at boot once the cinemas table is reachable. Required for
    *  cinema-scoped writes (fb_products.create, future direct-table edits). */
@@ -106,6 +110,10 @@ export interface SyncApi {
   signOut: () => Promise<void>;
   /** Dismiss the session-expired dialog → sign out → land on sign-in. */
   dismissSessionExpired: () => Promise<void>;
+  /** Flip mustChangePin off after a successful PIN change (the DB flag
+   *  is cleared by changeOwnPin; this updates the in-memory state so the
+   *  gate releases without a re-boot). */
+  markPinChanged: () => void;
 }
 
 const PUSH_DEBOUNCE_MS = 900;
@@ -125,6 +133,7 @@ export function useSupabaseSync(): SyncApi {
     username: null,
     fullName: null,
     role: null,
+    mustChangePin: false,
     appState: null,
     cinemaId: null,
     error: null,
@@ -373,7 +382,7 @@ export function useSupabaseSync(): SyncApi {
       const email = (user.email ?? "").toLowerCase();
       const lookup = await sb
         .from("authorized_users")
-        .select("email,role,full_name,username")
+        .select("email,role,full_name,username,must_change_pin")
         .eq("email", email)
         .maybeSingle();
       if (lookup.error) console.error(lookup.error);
@@ -398,6 +407,7 @@ export function useSupabaseSync(): SyncApi {
         username: row.username,
         fullName: row.full_name,
         role: row.role,
+        mustChangePin: row.must_change_pin === true,
         appState,
         cinemaId: synced.current.cinemaId,
         saveState: "saved",
@@ -562,11 +572,16 @@ export function useSupabaseSync(): SyncApi {
       username: null,
       fullName: null,
       role: null,
+      mustChangePin: false,
       appState: null,
       sessionExpired: false,
     }));
     try { await sb.auth.signOut(); } catch { /* ignore */ }
   }, [sb]);
 
-  return { state, setAppState, refresh, signIn, signOut, dismissSessionExpired };
+  const markPinChanged = useCallback(() => {
+    setState((p) => ({ ...p, mustChangePin: false }));
+  }, []);
+
+  return { state, setAppState, refresh, signIn, signOut, dismissSessionExpired, markPinChanged };
 }

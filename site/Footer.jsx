@@ -3,7 +3,7 @@ function Footer({ onNav }) {
   return (
     <footer style={{ background: 'var(--cod-gray)', paddingTop: 80 }}>
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 32px 40px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 48, paddingBottom: 56, borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))', gap: 48, paddingBottom: 56, borderBottom: '1px solid var(--border)' }}>
           <div>
             <LogoLockup size={32} />
             <p style={{ fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: 14, color: 'var(--fg-muted)', marginTop: 20, lineHeight: 1.5, maxWidth: 260 }}>
