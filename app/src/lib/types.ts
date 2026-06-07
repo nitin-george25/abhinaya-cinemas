@@ -16,6 +16,22 @@ export type TimeHHMM = string;    // HH:MM in 24-hour, e.g. "13:30"
 export interface Cinema {
   name: string;
   gstin: string;
+  /** WhatsApp integration config (Cloud API). Optional — when unset the
+   *  Send via WhatsApp button is hidden and auto-send is a no-op. */
+  whatsapp?: WhatsappConfig;
+}
+
+/** WhatsApp Cloud API integration config. Stored in `config.cinema.whatsapp`. */
+export interface WhatsappConfig {
+  /** E.164 recipient number, e.g. "+919876543210". */
+  recipient?: string;
+  /** When true, the entry-save hook fires send for any show with
+   *  lastShow=true that has no whatsappSentAt yet. */
+  autoSendOnLastShow?: boolean;
+  /** Approved template name registered with Meta. */
+  templateName?: string;
+  /** Language code for the template — defaults to "en". */
+  templateLang?: string;
 }
 
 /** Slab-specific eTax / GST percentages. */
@@ -139,6 +155,9 @@ export interface Show {
   lastShow?: boolean;
   /** Optional online ticket sales (₹), used in the after-show message card. */
   online?: number;
+  /** ISO timestamp recording when this show's WhatsApp message was sent.
+   *  Used by the auto-send hook to avoid duplicate fires. */
+  whatsappSentAt?: string;
 }
 
 export interface Entry {

@@ -19,6 +19,7 @@ import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
 import SettingsCashPage from "./pages/settings/Cash";
+import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
 import DcrPage from "./pages/Dcr";
@@ -180,6 +181,10 @@ function AppGate() {
                       enforced inside the UsersSection + admin-users Edge
                       Function — they can only manage cashier + daily_manager. */}
                   <Route path="/settings/users" element={<SettingsUsersPage />} />
+                  {/* WhatsApp settings — owner only. */}
+                  {role === "owner" ? (
+                    <Route path="/settings/whatsapp" element={<SettingsWhatsappPage />} />
+                  ) : null}
                 </>
               ) : null}
 
