@@ -20,7 +20,8 @@ function Hero({ onPlay, onBook, heroMovie }) {
 
       <div style={{ position: 'relative', maxWidth: 1000 }}>
         <h1 className="display" style={{ fontSize: 'clamp(2rem, 9vw, 7rem)', margin: 0 }}>
-          History of Storytelling,<br /><span className="screen-text">Reimagined.</span>
+          <span style={{ display: 'block', fontSize: 'clamp(1.1rem, 4vw, 2.6rem)', whiteSpace: 'nowrap', marginBottom: '0.35em' }}>History of Storytelling,</span>
+          <span className="screen-text">Reimagined.</span>
         </h1>
         <p className="lead" style={{ maxWidth: 680, margin: '26px auto 0' }}>
           For over 50 years, more than just a theatre - a cultural landmark where stories
