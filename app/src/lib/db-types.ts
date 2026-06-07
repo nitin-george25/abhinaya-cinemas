@@ -45,6 +45,10 @@ export interface AuthorizedUserRow {
   full_name: string | null;
   /** Set when the user signs in via username + PIN. Null for Google users. */
   username: string | null;
+  /** True when the PIN was issued by the owner/manager and the user
+   *  hasn't replaced it yet. The app blocks on a Change-PIN screen
+   *  while true. Always false for Google users. */
+  must_change_pin: boolean;
 }
 
 /** `public.fb_entries` — one row per date. Single-screen cinema, no
