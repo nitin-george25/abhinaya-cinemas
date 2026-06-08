@@ -15,6 +15,8 @@ export interface EntryRow {
   screen_id: string;
   share: number | null;
   shows: Show[] | null;
+  /** cash_20 — shows scheduled but cancelled that day (status engine input). */
+  cancelled_shows: number | null;
   updated_by: string | null;
   updated_at: string | null; // ISO timestamp
 }
@@ -383,6 +385,12 @@ export interface PosSettlementRow {
 export interface PosSettlementClosingRow {
   settlement_id: string;
   closing_id:    string;
+}
+
+/** cash_20 — m:1 closings → deposit. PK on closing_id. */
+export interface CashDepositClosingRow {
+  closing_id: string;
+  deposit_id: string;
 }
 
 export interface CashClosingDenominationRow {

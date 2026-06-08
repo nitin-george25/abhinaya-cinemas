@@ -28,6 +28,7 @@ import type { AppState, DateISO, Entry, UUID } from "../lib/types";
 import { Card, CardBody } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { Input } from "../components/ui/Input";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { EntryHeader } from "../components/entry/EntryHeader";
 import { ShowCard } from "../components/entry/ShowCard";
@@ -303,6 +304,37 @@ function EntryBody({
       <Button variant="secondary" onClick={() => persist(addShow(appState, entry))}>
         + Add show
       </Button>
+
+      {/* cash_20 — cancelled shows. Recorded OUTSIDE the shows array so the
+          locked DCR engine (isRealShow, batta, fund) never sees them; only
+          the server-side movie-status engine reads the count. */}
+      <Card>
+        <CardBody className="flex flex-wrap items-center gap-4">
+          <div className="grow min-w-60">
+            <div className="text-sm font-medium">Cancelled shows</div>
+            <p className="text-xs text-ink-muted mt-1">
+              Shows scheduled today but not run (strike, power cut, no
+              audience…). Recording them keeps the movie listed as Now
+              Showing on the website — a day with no tickets and no
+              cancelled shows does not count as played.
+            </p>
+          </div>
+          <Input
+            type="number"
+            min={0}
+            max={12}
+            className="w-24 shrink-0"
+            aria-label="Cancelled shows"
+            value={entry.cancelledShows ?? 0}
+            onChange={(e) =>
+              persist({
+                ...entry,
+                cancelledShows: Math.max(0, Math.min(12, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </CardBody>
+      </Card>
 
       <EntryPreview computed={computed} />
 
