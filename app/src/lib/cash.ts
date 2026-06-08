@@ -12,6 +12,7 @@ import type {
   BankLedgerEntryRow,
   CashClosingDenominationRow,
   CashClosingPaymentMethodRow,
+  CashDepositClosingRow,
   CashDepositRow,
   CashDepositStatus,
   ClosingShift,
@@ -129,6 +130,11 @@ export interface DailyCashClosing {
   cashCounted:             number;
   pettyExpensesPaid:       number;
   cashDeposited:           number;
+  /** Sum of actual settlements across non-cash modes (cash_19). */
+  nonCashActualTotal:      number;
+  /** cash counted + petty paid + non-cash actual (generated, cash_19). */
+  actualTotal:             number;
+  /** actualTotal - posTotalSales (generated, cash_19). */
   discrepancy:             number;
 
   notes:                   string | null;
@@ -146,7 +152,11 @@ export interface DailyCashClosing {
 
 export interface CashDeposit {
   id:                  string;
+  /** DEPRECATED since cash_20 — single-closing legacy link. Use closingIds. */
   closingId:           string | null;
+  /** Closings this deposit covers (cash_20 join table). Includes the
+   *  legacy closingId when present. */
+  closingIds:          string[];
   operatingUnitId:     string;
   bankAccountId:       string;
   depositDate:         DateISO;
@@ -282,10 +292,17 @@ export function mapPosCounter(r: PosCounterRow): PosCounter {
   };
 }
 
-export function mapCashDeposit(r: CashDepositRow): CashDeposit {
+export function mapCashDeposit(
+  r: CashDepositRow,
+  links: CashDepositClosingRow[] = [],
+): CashDeposit {
+  const fromJoin = links.filter((l) => l.deposit_id === r.id).map((l) => l.closing_id);
   return {
     id: r.id,
     closingId: r.closing_id,
+    closingIds: fromJoin.length > 0
+      ? fromJoin
+      : (r.closing_id ? [r.closing_id] : []),
     operatingUnitId: r.operating_unit_id,
     bankAccountId: r.bank_account_id,
     depositDate: r.deposit_date,
@@ -373,6 +390,8 @@ export function mapClosing(
     cashCounted: Number(r.cash_counted ?? 0),
     pettyExpensesPaid: Number(r.petty_expenses_paid ?? 0),
     cashDeposited: Number(r.cash_deposited ?? 0),
+    nonCashActualTotal: Number(r.non_cash_actual_total ?? 0),
+    actualTotal: Number(r.actual_total ?? 0),
     discrepancy: Number(r.discrepancy ?? 0),
     notes: r.notes,
     status: r.status,
@@ -832,6 +851,8 @@ export interface ClosingDraft {
   closedByEmail:       string;
   posTotalSales:       number;
   posNonCashTotal:     number;
+  /** Sum of actual settlements across non-cash modes (cash_19). */
+  nonCashActualTotal:  number;
   cashCounted:         number;
   cashDeposited:       number;
   notes?:              string | null;
@@ -863,6 +884,7 @@ export async function upsertClosing(d: ClosingDraft): Promise<string> {
       closed_by_email:      d.closedByEmail,
       pos_total_sales:      d.posTotalSales,
       pos_non_cash_total:   d.posNonCashTotal,
+      non_cash_actual_total: d.nonCashActualTotal,
       cash_counted:         d.cashCounted,
       cash_deposited:       d.cashDeposited,
       notes:                d.notes ?? null,
@@ -1358,17 +1380,28 @@ export function totalFromDenominations(rows: CashDenomination[]): number {
 }
 
 /**
- * Pure helper that returns the discrepancy for a closing draft.
- * Server-side this is a generated column; client-side we recompute to
- * preview the value while the user is typing.
+ * Pure helpers mirroring the cash_19 generated columns. Server-side these
+ * are generated; client-side we recompute to preview while the user types.
+ *
+ *   actual total = cash counted + petty paid + non-cash actual settlements
+ *   discrepancy  = actual total - POS report total
  */
-export function computeDiscrepancy(
-  posTotalSales: number,
-  posNonCashTotal: number,
+export function computeActualTotal(
   cashCounted: number,
   pettyExpensesPaid: number,
+  nonCashActualTotal: number,
 ): number {
-  return cashCounted + pettyExpensesPaid - (posTotalSales - posNonCashTotal);
+  return cashCounted + pettyExpensesPaid + nonCashActualTotal;
+}
+
+export function computeDiscrepancy(
+  posTotalSales: number,
+  cashCounted: number,
+  pettyExpensesPaid: number,
+  nonCashActualTotal: number,
+): number {
+  return computeActualTotal(cashCounted, pettyExpensesPaid, nonCashActualTotal)
+       - posTotalSales;
 }
 
 /**
@@ -1390,6 +1423,20 @@ export function cashTotalFromMethods(
   const cashIds = new Set(methods.filter((m) => m.flowType === "cash").map((m) => m.id));
   return rows.filter((r) => cashIds.has(r.paymentMethodId))
              .reduce((sum, r) => sum + (r.amount || 0), 0);
+}
+
+/**
+ * Sum of actual settlements across non-cash modes, falling back to the
+ * POS-reported amount when no actual was recorded. Used by the closing
+ * form to materialize non_cash_actual_total (cash_19).
+ */
+export function nonCashActualFromMethods(
+  rows: CashClosingPaymentMethod[],
+  methods: PaymentMethod[],
+): number {
+  const cashIds = new Set(methods.filter((m) => m.flowType === "cash").map((m) => m.id));
+  return rows.filter((r) => !cashIds.has(r.paymentMethodId))
+             .reduce((sum, r) => sum + (r.actualAmount ?? r.amount ?? 0), 0);
 }
 
 // ── Cash deposits ───────────────────────────────────────────────────────
@@ -1425,9 +1472,20 @@ export interface CashDepositFilter {
 export async function listCashDeposits(filter: CashDepositFilter = {}): Promise<CashDeposit[]> {
   const sb = getSupabase();
   if (!sb) return [];
+  // closingId filter goes through the cash_20 join table (legacy
+  // closing_id rows were backfilled into it, so one lookup suffices).
+  let depositIdFilter: string[] | null = null;
+  if (filter.closingId) {
+    const { data: linkRows } = await sb
+      .from("cash_deposit_closings")
+      .select("*")
+      .eq("closing_id", filter.closingId);
+    depositIdFilter = ((linkRows as CashDepositClosingRow[] | null) ?? []).map((l) => l.deposit_id);
+    if (depositIdFilter.length === 0) return [];
+  }
   let q = sb.from("cash_deposits").select("*").order("deposit_date", { ascending: false });
   if (filter.operatingUnitId) q = q.eq("operating_unit_id", filter.operatingUnitId);
-  if (filter.closingId) q = q.eq("closing_id", filter.closingId);
+  if (depositIdFilter) q = q.in("id", depositIdFilter);
   if (filter.status) q = q.eq("status", filter.status);
   if (filter.from) q = q.gte("deposit_date", filter.from);
   if (filter.to) q = q.lte("deposit_date", filter.to);
@@ -1436,11 +1494,22 @@ export async function listCashDeposits(filter: CashDepositFilter = {}): Promise<
     console.warn("[cash] listCashDeposits", error.message);
     return [];
   }
-  return (data as CashDepositRow[] | null ?? []).map(mapCashDeposit);
+  const rows = (data as CashDepositRow[] | null) ?? [];
+  if (rows.length === 0) return [];
+  const { data: links } = await sb
+    .from("cash_deposit_closings")
+    .select("*")
+    .in("deposit_id", rows.map((r) => r.id));
+  const linkRows = (links as CashDepositClosingRow[] | null) ?? [];
+  return rows.map((r) => mapCashDeposit(r, linkRows));
 }
 
 export interface CashDepositDraft {
+  /** DEPRECATED since cash_20 — use closingIds. */
   closingId?:         string | null;
+  /** Closings this deposit covers. Validated app-side:
+   *  depositedAmount + retainedAmount = Σ cash_counted of these closings. */
+  closingIds?:        string[];
   operatingUnitId:    string;
   bankAccountId:      string;
   depositDate:        DateISO;
@@ -1479,7 +1548,63 @@ export async function createCashDeposit(d: CashDepositDraft): Promise<string> {
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "createCashDeposit failed");
-  return (data as { id: string }).id;
+  const id = (data as { id: string }).id;
+
+  // cash_20 — link the covered closings. PK on closing_id rejects a closing
+  // already covered by another deposit; roll the parent back so the user
+  // can retry cleanly rather than leaving an orphan deposit.
+  const closingIds = [
+    ...new Set([...(d.closingIds ?? []), ...(d.closingId ? [d.closingId] : [])]),
+  ];
+  if (closingIds.length > 0) {
+    const { error: linkErr } = await sb
+      .from("cash_deposit_closings")
+      .insert(closingIds.map((cid) => ({ closing_id: cid, deposit_id: id })));
+    if (linkErr) {
+      await sb.from("cash_deposits").delete().eq("id", id);
+      throw new Error(
+        linkErr.code === "23505"
+          ? "One of the selected closings is already covered by another deposit."
+          : linkErr.message,
+      );
+    }
+  }
+  return id;
+}
+
+/**
+ * Closings with counted cash that no active deposit covers yet — the
+ * pick-list for the next-day "Record deposit" flow. Looks back `days`
+ * (default 14) from today.
+ */
+export async function listUndepositedClosings(
+  operatingUnitId: string,
+  days = 14,
+): Promise<DailyCashClosing[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const from = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
+  const { data, error } = await sb
+    .from("daily_cash_closings")
+    .select("*")
+    .eq("operating_unit_id", operatingUnitId)
+    .gte("business_date", from)
+    .gt("cash_counted", 0)
+    .order("business_date", { ascending: true });
+  if (error) {
+    console.warn("[cash] listUndepositedClosings", error.message);
+    return [];
+  }
+  const rows = (data as DailyCashClosingRow[] | null) ?? [];
+  if (rows.length === 0) return [];
+  const { data: links } = await sb
+    .from("cash_deposit_closings")
+    .select("*")
+    .in("closing_id", rows.map((r) => r.id));
+  const covered = new Set(
+    (((links as CashDepositClosingRow[] | null) ?? [])).map((l) => l.closing_id),
+  );
+  return rows.filter((r) => !covered.has(r.id)).map((r) => mapClosing(r));
 }
 
 /**

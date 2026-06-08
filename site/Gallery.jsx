@@ -15,7 +15,7 @@ function Gallery() {
       <div className="gallery-grid">
         {shots.map((s) => (
           <figure key={s.src} className={s.big ? 'gallery-big' : undefined} style={{ margin: 0, position: 'relative', overflow: 'hidden', borderRadius: 'var(--r-md)', background: '#0a0a09' }}>
-            <img src={`/site/assets/photos/${s.src}`} alt={s.label} loading="lazy"
+            <img src={`/site/assets/photos/${s.src}?v=2`} alt={s.label} loading="lazy"
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transition: 'transform .5s var(--ease)' }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }} />

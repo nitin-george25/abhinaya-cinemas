@@ -167,6 +167,12 @@ export interface Entry {
   screenId: UUID;
   share: number;                  // distributor share % for this run
   shows?: Show[];
+  /** Count of shows scheduled but NOT run that day (strike, power cut,
+   *  festival closure…). Lets the calculated movie status (cash_20) tell
+   *  a genuine cancelled day (still "now showing") apart from an
+   *  accidental empty entry (0 tickets, 0 cancelled → ignored). Never
+   *  read by the DCR math engine. */
+  cancelledShows?: number;
 }
 
 // ── Top-level app state (engine input) ───────────────────────────────────

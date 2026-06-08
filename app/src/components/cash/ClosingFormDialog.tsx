@@ -29,15 +29,15 @@ import {
   INR_DENOMINATIONS,
   cashTotalFromMethods,
   cashierSignClosing,
+  computeActualTotal,
   computeDiscrepancy,
-  createCashDeposit,
   getClosing,
   listAuthorizedUsers,
   listCashDeposits,
   listClosings,
   listPaymentMethodsForUnit,
   listPettyExpenses,
-  markCashDepositCompleted,
+  nonCashActualFromMethods,
   signClosing,
   totalFromDenominations,
   totalFromPaymentMethods,
@@ -159,17 +159,10 @@ function DialogBody({
   const [edcFile, setEdcFile]       = useState<File | null>(null);
   const [edcSlipUrl, setEdcSlipUrl] = useState<string | null>(null);
 
-  /** Existing cash deposit attached to this closing, if any. */
+  /** Deposit covering this closing, if any — read-only since cash_20.
+   *  Deposits are recorded next-day from the Closings page and can span
+   *  multiple closings (both shifts in one bank deposit). */
   const [deposit, setDeposit]               = useState<CashDeposit | null>(null);
-  /** Deposit-form inputs. Default amounts back-fill from the closing
-   *  numbers + the unit's recommended float. */
-  const [depositDate, setDepositDate]       = useState<string>(todayIso());
-  const [depositAmount, setDepositAmount]   = useState<string>("");
-  const [retainedAmount, setRetainedAmount] = useState<string>("");
-  const [depositBankId, setDepositBankId]   = useState<string>("");
-  const [depositRef, setDepositRef]         = useState<string>("");
-  const [depositFile, setDepositFile]       = useState<File | null>(null);
-  const [depositSaving, setDepositSaving]   = useState(false);
 
   // Default unit once refs load.
   useEffect(() => {
@@ -280,28 +273,6 @@ function DialogBody({
     return () => { alive = false; };
   }, [existing]);
 
-  // Default deposit bank to the unit's primary account once refs load.
-  useEffect(() => {
-    if (depositBankId) return;
-    const primary = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
-    if (primary) setDepositBankId(primary.id);
-  }, [refs.bankAccounts, depositBankId]);
-
-  // Pre-fill deposit + retained amounts based on the closing's cash count
-  // and the operating unit's recommended float. Runs once per closing
-  // (or never if the form is in the cashier-confirm-only path).
-  useEffect(() => {
-    if (deposit) return;            // existing deposit overrides defaults
-    if (!existing) return;
-    if (depositAmount !== "" || retainedAmount !== "") return;
-    const unit = refs.units.find((u) => u.id === existing.operatingUnitId);
-    const recommendedFloat = unit?.defaultFloatAmount ?? 0;
-    const cashInTill = existing.cashCounted ?? 0;
-    const toDeposit = Math.max(cashInTill - recommendedFloat - existing.pettyExpensesPaid, 0);
-    setDepositAmount(String(toDeposit || ""));
-    setRetainedAmount(String(recommendedFloat || ""));
-  }, [deposit, existing, refs.units, depositAmount, retainedAmount]);
-
   // For new-closing flow, surface a non-blocking conflict notice when the
   // current (counter, date, shift) tuple already has a closing — but do NOT
   // auto-hydrate the form from it. The previous version pre-loaded the
@@ -370,19 +341,31 @@ function DialogBody({
   }, [counterId, businessDate]);
 
   // ── derived ──────────────────────────────────────────────────────────
-  const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
-  const posTotal      = useMemo(() => totalFromPaymentMethods(methods), [methods]);
-  const cashInMethods = useMemo(
-    () => cashTotalFromMethods(methods, unitMethods.length > 0 ? unitMethods : refs.paymentMethods),
-    [methods, unitMethods, refs.paymentMethods],
-  );
-  const posNonCash    = useMemo(() => posTotal - cashInMethods, [posTotal, cashInMethods]);
-  const posCashExp    = posTotal - posNonCash;
-  const discrepancy   = computeDiscrepancy(posTotal, posNonCash, cashCounted, pettyTotal);
-
   const activeMethods  = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;
   /** Cash needs no actual input — its actual is the denomination count. */
   const nonCashMethods = activeMethods.filter((m) => m.flowType !== "cash");
+
+  const cashCounted   = useMemo(() => totalFromDenominations(denoms), [denoms]);
+  const posTotal      = useMemo(() => totalFromPaymentMethods(methods), [methods]);
+  const cashInMethods = useMemo(
+    () => cashTotalFromMethods(methods, activeMethods),
+    [methods, activeMethods],
+  );
+  const posNonCash    = useMemo(() => posTotal - cashInMethods, [posTotal, cashInMethods]);
+  const posCashExp    = posTotal - posNonCash;
+  // Non-cash actual settlements: the per-mode actual (override or autofill
+  // from POS) summed across non-cash modes. Mirrors what handleSave persists.
+  const nonCashActual = useMemo(
+    () => nonCashActualFromMethods(
+      methods.map((m) => ({ ...m, actualAmount: actuals[m.paymentMethodId] ?? m.amount })),
+      activeMethods,
+    ),
+    [methods, actuals, activeMethods],
+  );
+  // cash_19: actual total = cash counted + petty paid + non-cash actual;
+  // discrepancy = actual total - POS report total.
+  const actualTotal   = computeActualTotal(cashCounted, pettyTotal, nonCashActual);
+  const discrepancy   = computeDiscrepancy(posTotal, cashCounted, pettyTotal, nonCashActual);
 
   function updateMethod(id: string, amount: number) {
     setMethods((curr) => curr.map((m) => (m.paymentMethodId === id ? { ...m, amount } : m)));
@@ -428,6 +411,7 @@ function DialogBody({
         closedByEmail: state.email,
         posTotalSales: posTotal,
         posNonCashTotal: posNonCash,
+        nonCashActualTotal: nonCashActual,
         cashCounted,
         cashDeposited: existing?.cashDeposited ?? 0,
         notes,
@@ -455,54 +439,6 @@ function DialogBody({
       setErr((e as Error).message);
     } finally {
       setSaving(false);
-    }
-  }
-
-  // ── Deposit handlers ─────────────────────────────────────────────────
-  async function handleSaveDeposit() {
-    if (!state.email || !existing || !depositBankId) return;
-    const amt = Number(depositAmount);
-    if (!amt || amt <= 0) { setErr("Enter the deposit amount."); return; }
-    const retained = Number(retainedAmount) || 0;
-    setDepositSaving(true); setErr(null);
-    try {
-      let url: string | null = null;
-      if (depositFile) url = await uploadCashSlip(depositFile, state.email);
-      const id = await createCashDeposit({
-        closingId:        existing.id,
-        operatingUnitId:  existing.operatingUnitId,
-        bankAccountId:    depositBankId,
-        depositDate:      depositDate || todayIso(),
-        depositedAmount:  amt,
-        retainedAmount:   retained,
-        slipUrl:          url,
-        slipReference:    depositRef || null,
-        depositedByEmail: state.email,
-        status:           "pending",
-      });
-      const rows = await listCashDeposits({ closingId: existing.id });
-      setDeposit(rows.find((r) => r.id === id) ?? rows[0] ?? null);
-      setDepositFile(null);
-      onSaved?.();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setDepositSaving(false);
-    }
-  }
-
-  async function handleMarkDeposited() {
-    if (!deposit) return;
-    setDepositSaving(true); setErr(null);
-    try {
-      await markCashDepositCompleted(deposit.id);
-      const rows = await listCashDeposits({ closingId: deposit.closingId ?? "" });
-      setDeposit(rows[0] ?? null);
-      onSaved?.();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setDepositSaving(false);
     }
   }
 
@@ -735,9 +671,11 @@ function DialogBody({
             </Field>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <Tile label="Cash counted"   value={fmtINR(cashCounted)} />
           <Tile label="Petty expenses" value={fmtINR(pettyTotal)} />
+          {/* cash_19 — cash + petty + non-cash actual, vs the POS total. */}
+          <Tile label="Actual total"   value={fmtINR(actualTotal)} />
           <Tile
             label="Discrepancy"
             value={fmtINR(discrepancy)}
@@ -768,22 +706,23 @@ function DialogBody({
         ) : null}
       </Field>
 
-      {/* Bank deposit sub-panel — only relevant once the closing exists. */}
+      {/* Deposit coverage — read-only since cash_20. Deposits are recorded
+          next-day from the Closings page ("Record deposit") and can cover
+          both shifts' closings in one bank deposit. */}
       {existing && isManager ? (
-        <DepositPanel
-          existing={existing}
-          deposit={deposit}
-          bankAccounts={refs.bankAccounts}
-          depositDate={depositDate}    setDepositDate={setDepositDate}
-          depositAmount={depositAmount} setDepositAmount={setDepositAmount}
-          retainedAmount={retainedAmount} setRetainedAmount={setRetainedAmount}
-          depositBankId={depositBankId} setDepositBankId={setDepositBankId}
-          depositRef={depositRef}      setDepositRef={setDepositRef}
-          depositFile={depositFile}    setDepositFile={setDepositFile}
-          saving={depositSaving}
-          onSave={() => void handleSaveDeposit()}
-          onMarkDeposited={() => void handleMarkDeposited()}
-        />
+        deposit ? (
+          <div className="text-xs rounded border border-line bg-paper px-3 py-2">
+            Covered by {deposit.status === "completed" ? "completed" : deposit.status}
+            {" "}deposit of {fmtINR(deposit.depositedAmount)} on {deposit.depositDate}
+            {deposit.closingIds.length > 1
+              ? ` (covers ${deposit.closingIds.length} closings)` : ""}.
+          </div>
+        ) : (
+          <div className="text-xs text-ink-muted">
+            No bank deposit covers this closing yet — record it from the
+            Closings page once the cash goes to the bank.
+          </div>
+        )
       ) : null}
 
       {/* Notes */}
@@ -840,155 +779,6 @@ function DialogBody({
           </Button>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-/**
- * Bank deposit sub-panel. Shown to manager-tier roles when a closing
- * exists. Two states:
- *
- *   • No deposit yet — form to record amount/retained/slip/reference.
- *     Save creates a row with status='pending'.
- *   • Pending deposit exists — show the saved values and a
- *     "Mark deposited" button which flips status to completed and
- *     triggers the bank-ledger write.
- *   • Completed — read-only summary.
- */
-function DepositPanel({
-  existing,
-  deposit,
-  bankAccounts,
-  depositDate, setDepositDate,
-  depositAmount, setDepositAmount,
-  retainedAmount, setRetainedAmount,
-  depositBankId, setDepositBankId,
-  depositRef, setDepositRef,
-  depositFile, setDepositFile,
-  saving,
-  onSave,
-  onMarkDeposited,
-}: {
-  existing: DailyCashClosing;
-  deposit: CashDeposit | null;
-  bankAccounts: Array<{ id: string; name: string; isPrimary: boolean }>;
-  depositDate: string;     setDepositDate: (v: string) => void;
-  depositAmount: string;   setDepositAmount: (v: string) => void;
-  retainedAmount: string;  setRetainedAmount: (v: string) => void;
-  depositBankId: string;   setDepositBankId: (v: string) => void;
-  depositRef: string;      setDepositRef: (v: string) => void;
-  depositFile: File | null; setDepositFile: (f: File | null) => void;
-  saving: boolean;
-  onSave: () => void;
-  onMarkDeposited: () => void;
-}) {
-  const _ = existing; void _;            // referenced for future cash-counted hints
-  const completed = deposit?.status === "completed";
-  const pending   = deposit?.status === "pending";
-
-  return (
-    <div className="rounded-lg border border-line p-3 sm:p-4 space-y-3 bg-paper">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="text-sm font-semibold">Bank deposit</div>
-        {deposit ? (
-          <span className={
-            "text-xs px-2 py-0.5 rounded " +
-            (completed ? "bg-emerald-100 text-emerald-700"
-              : pending ? "bg-amber-100 text-amber-700"
-              : "bg-paper-card text-ink-muted")
-          }>
-            {deposit.status}
-          </span>
-        ) : null}
-      </div>
-
-      {deposit ? (
-        // Saved deposit view (pending or completed).
-        <div className="space-y-2 text-sm">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            <span className="text-ink-muted">Date</span>
-            <span className="text-right">{deposit.depositDate}</span>
-            <span className="text-ink-muted">Deposited</span>
-            <span className="text-right tabular-nums">₹ {deposit.depositedAmount.toLocaleString("en-IN")}</span>
-            <span className="text-ink-muted">Retained</span>
-            <span className="text-right tabular-nums">₹ {deposit.retainedAmount.toLocaleString("en-IN")}</span>
-            {deposit.slipReference ? (
-              <>
-                <span className="text-ink-muted">Reference</span>
-                <span className="text-right truncate">{deposit.slipReference}</span>
-              </>
-            ) : null}
-            {deposit.slipUrl ? (
-              <>
-                <span className="text-ink-muted">Slip</span>
-                <span className="text-right">
-                  <a className="text-amber-600 underline" href={deposit.slipUrl} target="_blank" rel="noreferrer">
-                    view
-                  </a>
-                </span>
-              </>
-            ) : null}
-          </div>
-          {pending ? (
-            <div className="flex justify-end pt-1">
-              <Button size="sm" disabled={saving} onClick={onMarkDeposited}>
-                {saving ? "Marking…" : "Mark deposited at bank"}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        // New-deposit form.
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Deposit date">
-              <Input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} />
-            </Field>
-            <Field label="Bank account">
-              <Select value={depositBankId} onChange={(e) => setDepositBankId(e.target.value)}>
-                {bankAccounts.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}{b.isPrimary ? " · primary" : ""}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Amount to deposit (₹)">
-              <Input
-                type="number" inputMode="decimal"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-              />
-            </Field>
-            <Field label="Retained as float (₹)">
-              <Input
-                type="number" inputMode="decimal"
-                value={retainedAmount}
-                onChange={(e) => setRetainedAmount(e.target.value)}
-              />
-            </Field>
-            <Field label="Slip reference">
-              <Input value={depositRef} onChange={(e) => setDepositRef(e.target.value)} />
-            </Field>
-            <Field label="Slip upload">
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                onChange={(e) => setDepositFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm"
-              />
-              {depositFile ? (
-                <div className="text-xs text-ink-muted mt-1 truncate">{depositFile.name}</div>
-              ) : null}
-            </Field>
-          </div>
-          <div className="flex justify-end pt-1">
-            <Button size="sm" disabled={saving} onClick={onSave}>
-              {saving ? "Saving…" : "Save deposit (pending)"}
-            </Button>
-          </div>
-        </>
-      )}
     </div>
   );
 }

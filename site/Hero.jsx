@@ -10,7 +10,7 @@ function Hero({ onPlay, onBook, heroMovie }) {
     <section style={{ position: 'relative', minHeight: 'min(92vh, 760px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', textAlign: 'center', padding: '120px 24px 80px' }}>
       {/* film-still backdrop - real auditorium photo, full bleed */}
       <div style={{ position: 'absolute', inset: 0 }}>
-        <img src="/site/assets/photos/big-screen.jpg" alt="" aria-hidden="true"
+        <img src="/site/assets/photos/big-screen.jpg?v=2" alt="" aria-hidden="true"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 90% at 50% 30%, rgba(21,21,21,0.42), rgba(21,21,21,0.94) 78%)' }} />
       </div>

@@ -32,6 +32,7 @@ export function rowToEntry(r: EntryRow): Entry {
     screenId: r.screen_id,
     share: r.share ?? 0,
     shows: (r.shows ?? []) as Show[],
+    cancelledShows: r.cancelled_shows ?? 0,
   };
 }
 
@@ -51,6 +52,7 @@ export function entryToRow(
     cinema_id: cinemaId,
     share: e.share === undefined || (e.share as unknown) === "" ? null : e.share,
     shows: e.shows ?? [],
+    cancelled_shows: e.cancelledShows ?? 0,
     updated_by: updatedBy,
     updated_at: new Date().toISOString(),
   };
@@ -103,7 +105,11 @@ export const entryKey = (e: Entry): string =>
 
 /** Cheap content signature for delta detection (matches legacy entSig). */
 export const entrySignature = (e: Entry): string =>
-  JSON.stringify({ share: e.share, shows: e.shows ?? [] });
+  JSON.stringify({
+    share: e.share,
+    shows: e.shows ?? [],
+    cancelledShows: e.cancelledShows ?? 0,
+  });
 
 // ── F&B ────────────────────────────────────────────────────────────────
 

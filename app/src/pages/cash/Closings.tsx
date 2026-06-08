@@ -25,6 +25,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Button } from "../../components/ui/Button";
 import { Field, Select } from "../../components/ui/Input";
 import { ClosingFormDialog } from "../../components/cash/ClosingFormDialog";
+import { RecordDepositDialog } from "../../components/cash/RecordDepositDialog";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { fmtINR } from "../../lib/dashboard";
@@ -56,6 +57,8 @@ export default function CashClosingsPage() {
   // hydrated from an existing closing's id.
   const [dialogOpen, setDialogOpen]       = useState(false);
   const [editingId, setEditingId]         = useState<string | undefined>(undefined);
+  /** cash_20 — next-day deposit covering one or more closings. */
+  const [depositOpen, setDepositOpen]     = useState(false);
 
   // Email → name lookup so we can render "Manager: Nitin" in the signoff
   // column instead of full email addresses. Loaded once per mount.
@@ -151,7 +154,16 @@ export default function CashClosingsPage() {
         <CardHeader className="flex-wrap gap-2">
           <CardTitle>Cash closing</CardTitle>
           {isManager ? (
-            <Button onClick={openNew} className="whitespace-nowrap">+ New cash closing</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setDepositOpen(true)}
+                className="whitespace-nowrap"
+              >
+                Record deposit
+              </Button>
+              <Button onClick={openNew} className="whitespace-nowrap">+ New cash closing</Button>
+            </div>
           ) : null}
         </CardHeader>
         {isManager ? (
@@ -333,6 +345,13 @@ export default function CashClosingsPage() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         existingId={editingId}
+        defaultUnitId={unitId || undefined}
+        onSaved={reload}
+      />
+
+      <RecordDepositDialog
+        open={depositOpen}
+        onClose={() => setDepositOpen(false)}
         defaultUnitId={unitId || undefined}
         onSaved={reload}
       />
