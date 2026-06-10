@@ -1,0 +1,28 @@
+# ============================================================================
+# Cloudflare Workers Static Assets — custom response headers (admin console).
+#
+# Deployed project: abhinaya-cinemas-admin  →  admin.abhinayacinemas.com
+# This file is copied from app/public/ into app/dist/ by the Vite build and
+# parsed by Workers at deploy time. It is NOT served as an asset itself.
+#
+# Why only /assets/* is listed
+# ----------------------------
+# Workers Static Assets ALREADY sends the correct default for the SPA shell
+# and every client-side route:
+#     Cache-Control: public, max-age=0, must-revalidate   (+ ETag)
+# i.e. index.html is always revalidated, so new builds ship immediately and a
+# device can never get permanently stuck on an old shell. We deliberately do
+# NOT restate that here: Cloudflare JOINS the values of every matching rule
+# with a comma, so a catch-all "/*" rule would collide with the rule below and
+# emit a malformed "max-age=0 ... , max-age=31536000" Cache-Control. Listing
+# only the non-overlapping /assets/* path keeps the header clean.
+#
+# Vite emits content-hashed, immutable bundles (and sourcemaps) into /assets/
+# — the filename changes on every meaningful edit — so these are safe to cache
+# for a year. This both speeds up repeat loads and lets the edge serve them
+# without revalidation, while the always-revalidated shell still controls which
+# asset hashes a client requests.
+# ============================================================================
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

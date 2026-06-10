@@ -521,6 +521,40 @@ describe("computeSerials via computeEntry — ticket-serial bookkeeping", () => 
   });
 });
 
+// ── regression: a viewed entry whose id differs from the persisted copy ──
+//
+// rowToEntry assigns a fresh uid() on every DB read, so the SAME persisted
+// row carries different ids in state.entries (pullAll) vs the History page
+// fetch. computeEntry must still recognise the viewed entry as that persisted
+// row and NOT double-count its shows in the serial roll. mergedEntries keys on
+// (date, movieId, screenId) to make this safe. Before the fix this produced
+// show 1 = 11–20 / show 2 = 21–25 (each show counted twice).
+
+describe("computeSerials — viewed entry with a mismatched id is not duplicated", () => {
+  const s = makeDefaultState();
+  const slot = { date: "2025-04-15", movieId: "mov_empuraan", screenId: "scr_abhinaya" };
+  const shows = [
+    { showtime: "13:00", priceCardId: "pc_1", rows: { cls_royale: { tickets: 10 }, cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } } },
+    { showtime: "16:00", priceCardId: "pc_1", rows: { cls_royale: { tickets: 5 },  cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } } },
+  ];
+  // Persisted copy (as loaded by pullAll) carries id "persisted_id".
+  s.entries = [{ id: "persisted_id", share: 60, ...slot, shows }];
+  // The History page re-fetched the same row, giving it a different id.
+  const viewed: Entry = { id: "viewed_different_id", share: 60, ...slot, shows };
+  const c = computeEntry(s, viewed);
+
+  it("show 1 Royale uses serials 1–10 (not doubled to 11–20)", () => {
+    const r = c.shows[0]?.rows.find((x) => x.cls === "Royale");
+    expect(r?.from).toBe(1);
+    expect(r?.to).toBe(10);
+  });
+  it("show 2 Royale uses serials 11–15 (continuous, not 21–25)", () => {
+    const r = c.shows[1]?.rows.find((x) => x.cls === "Royale");
+    expect(r?.from).toBe(11);
+    expect(r?.to).toBe(15);
+  });
+});
+
 // ── cross-screen rep batta pooling (owner-approved change, 2026-06-06) ──
 //
 // When the SAME movie has real shows on more than one screen on the same
