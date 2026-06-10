@@ -184,8 +184,18 @@ export const repBattaFor = (n: unknown, tax: TaxConfig): number => {
 /** Persisted entries with the in-flight draft merged in (added or replaced). */
 export function mergedEntries(state: AppState, draft: Entry | null): Entry[] {
   if (!draft) return state.entries.slice();
-  const list = state.entries.map((e) => (e.id === draft.id ? draft : e));
-  if (!state.entries.some((e) => e.id === draft.id)) list.push(draft);
+  // Identity is (date, movieId, screenId) — the same key findEntry/upsertEntry
+  // and the DB's unique constraint use. Matching on `id` is unsafe because
+  // rowToEntry assigns a fresh uid() on every read, so the same persisted row
+  // has different ids across fetches (e.g. pullAll vs the History page fetch).
+  // Keying on id let a viewed/edited entry be pushed as a phantom duplicate,
+  // double-counting its shows in the serial roll. Match on the slot instead.
+  const sameSlot = (e: Entry) =>
+    e.date === draft.date &&
+    e.movieId === draft.movieId &&
+    e.screenId === draft.screenId;
+  const list = state.entries.map((e) => (sameSlot(e) ? draft : e));
+  if (!state.entries.some(sameSlot)) list.push(draft);
   return list;
 }
 
