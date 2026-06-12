@@ -21,7 +21,7 @@ import { Field, Input, Select } from "../../components/ui/Input";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { fmtINR } from "../../lib/dashboard";
-import { todayIso } from "../../lib/dates";
+import { todayIso, addDaysIso } from "../../lib/dates";
 import {
   createPosSettlement,
   listClosings,
@@ -150,6 +150,7 @@ function NewSettlementForm({
   const [methodId, setMethodId]   = useState<string>("");
   const [bankId, setBankId]       = useState<string>("");
   const [date, setDate]           = useState<string>(todayIso());
+  const [dateTouched, setDateTouched] = useState(false);
   const [expected, setExpected]   = useState<string>("");
   const [reference, setRef]       = useState<string>("");
   const [closingIds, setClosingIds] = useState<string[]>([]);
@@ -194,6 +195,22 @@ function NewSettlementForm({
     if (sum > 0) setExpected(String(sum));
   }, [closingIds, closings, methodId]);
 
+  // Autofill the expected payout date = latest selected closing's business
+  // date + the method's settlement lag (T+N). Editable; stops overwriting
+  // once the accountant changes the date by hand.
+  useEffect(() => {
+    if (dateTouched || !methodId) return;
+    const selected = closings.filter((c) => closingIds.includes(c.id));
+    if (selected.length === 0) return;
+    const method = nonCashMethods.find((m) => m.id === methodId);
+    if (!method) return;
+    const latest = selected.reduce(
+      (a, c) => (c.businessDate > a ? c.businessDate : a),
+      selected[0]!.businessDate,
+    );
+    setDate(addDaysIso(latest, method.settlementDays ?? 0));
+  }, [closingIds, closings, methodId, nonCashMethods, dateTouched]);
+
   async function submit() {
     if (!methodId || !bankId || !date) { onError("Fill method, bank, and date."); return; }
     const amt = Number(expected);
@@ -209,7 +226,7 @@ function NewSettlementForm({
         bankReference:   reference || null,
         closingIds,
       });
-      setExpected(""); setRef(""); setClosingIds([]);
+      setExpected(""); setRef(""); setClosingIds([]); setDateTouched(false);
       onCreated();
     } catch (e) { onError((e as Error).message); }
     finally    { setBusy(false); }
@@ -228,7 +245,11 @@ function NewSettlementForm({
             </Select>
           </Field>
           <Field label="Settlement date">
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => { setDate(e.target.value); setDateTouched(true); }}
+            />
           </Field>
           <Field label="Bank account">
             <Select value={bankId} onChange={(e) => setBankId(e.target.value)}>

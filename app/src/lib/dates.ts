@@ -22,3 +22,14 @@ export function localIso(d: Date): DateISO {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/**
+ * Add N calendar days to a local YYYY-MM-DD string, returning a local
+ * YYYY-MM-DD. Parsed as a local date (not UTC) so month/year rollover and
+ * IST stay correct. Used for T+N settlement projections.
+ */
+export function addDaysIso(iso: DateISO, n: number): DateISO {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return localIso(new Date(y, m - 1, d + n));
+}

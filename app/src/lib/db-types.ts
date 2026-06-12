@@ -293,6 +293,7 @@ export interface PaymentMethodRow {
   flow_type:           PaymentFlowType;
   receives_into_bank:  string | null;
   display_order:       number;
+  settlement_days:     number;
   archived_at:         string | null;
   created_at:          string | null;
 }
