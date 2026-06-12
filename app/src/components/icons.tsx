@@ -66,3 +66,7 @@ export const IconChevronDown = svg("M5 8l5 5 5-5");
 export const IconCash = svg(
   "M2 6h16v8H2zM2 9h16M10 12.5a2 2 0 1 0 0-3 2 2 0 0 0 0 3z",
 );
+// Bank / finance — pillared building (payments, settlements, ledger, cashflow).
+export const IconFinance = svg(
+  "M3 8l7-4 7 4M4 8v7M8 8v7M12 8v7M16 8v7M3 16h14",
+);
