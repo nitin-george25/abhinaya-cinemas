@@ -14,15 +14,18 @@ import { Field, Input, Select } from "../../components/ui/Input";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { fmtINR } from "../../lib/dashboard";
 import { downloadCsv } from "../../lib/csv";
+import { addDaysIso, todayIso } from "../../lib/dates";
 import {
   listClosings,
   listLedgerEntries,
   listPaymentRequests,
   listPettyExpenses,
+  listPosSettlements,
   type BankLedgerEntry,
   type DailyCashClosing,
   type PaymentRequest,
   type PettyExpense,
+  type PosSettlement,
 } from "../../lib/cash";
 
 export default function CashReportsPage() {
@@ -33,6 +36,7 @@ export default function CashReportsPage() {
   const [petty, setPetty]       = useState<PettyExpense[]>([]);
   const [reqs, setReqs]         = useState<PaymentRequest[]>([]);
   const [ledger, setLedger]     = useState<BankLedgerEntry[]>([]);
+  const [settlements, setSettlements] = useState<PosSettlement[]>([]);
 
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
@@ -50,9 +54,13 @@ export default function CashReportsPage() {
       refs.bankAccounts[0]
         ? listLedgerEntries(refs.bankAccounts[0].id, range.from, range.to)
         : Promise.resolve([] as BankLedgerEntry[]),
-    ]).then(([c, p, r, l]) => {
+      // Settlements landing within the month + a tail window, so we can tell
+      // which closings' non-cash money is already accounted for (T+N pushes
+      // some payout dates past the month end).
+      listPosSettlements({ from: range.from, to: addDaysIso(range.to, 10) }),
+    ]).then(([c, p, r, l, s]) => {
       if (!alive) return;
-      setClosings(c); setPetty(p); setReqs(r); setLedger(l);
+      setClosings(c); setPetty(p); setReqs(r); setLedger(l); setSettlements(s);
     });
     return () => { alive = false; };
   }, [unitId, range.from, range.to, refs.bankAccounts]);
@@ -68,6 +76,45 @@ export default function CashReportsPage() {
     const discrepancySum = closings.reduce((s, c) => s + c.discrepancy, 0);
     return { sales, cashIn, pettyOk, paidOut, pendingOut, discrepancySum };
   }, [closings, petty, reqs]);
+
+  // ── Projected incoming settlements ──────────────────────────────────────
+  // Each closing's non-cash money lands in the bank T+N days later (per the
+  // method's settlement_days). Project the expected payout date for money
+  // that isn't already covered by a recorded settlement, so the accountant
+  // can see what's still due in. Gross of processor fees.
+  const projected = useMemo(() => {
+    const methodById = new Map(refs.paymentMethods.map((m) => [m.id, m]));
+    // (closingId|methodId) pairs already covered by a settlement row
+    // (pending or received) — exclude them; they're being tracked already.
+    const handled = new Set<string>();
+    for (const s of settlements) {
+      for (const cid of s.closingIds) handled.add(`${cid}|${s.paymentMethodId}`);
+    }
+    type Line = { date: string; methodName: string; amount: number; overdue: boolean };
+    const lines: Line[] = [];
+    const today = todayIso();
+    for (const c of closings) {
+      for (const pm of c.paymentMethods) {
+        if (!pm.amount) continue;
+        const method = methodById.get(pm.paymentMethodId);
+        if (!method || method.flowType === "cash") continue;       // cash isn't a payout
+        if (handled.has(`${c.id}|${pm.paymentMethodId}`)) continue; // already recorded
+        const date = addDaysIso(c.businessDate, method.settlementDays ?? 0);
+        lines.push({ date, methodName: method.displayName, amount: pm.amount, overdue: date < today });
+      }
+    }
+    // Roll up to one row per (date, method).
+    const byKey = new Map<string, Line>();
+    for (const l of lines) {
+      const k = `${l.date}|${l.methodName}`;
+      const cur = byKey.get(k);
+      if (cur) cur.amount += l.amount;
+      else byKey.set(k, { ...l });
+    }
+    const rows = Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date));
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    return { rows, total };
+  }, [closings, settlements, refs.paymentMethods]);
 
   function exportCsv() {
     type Line = { kind: string; date: string; ref: string; narration: string; amount: number };
@@ -127,6 +174,46 @@ export default function CashReportsPage() {
           accent={kpis.discrepancySum === 0 ? "good" : "bad"}
         />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Projected incoming ({projected.rows.length})</CardTitle>
+          <span className="text-sm font-semibold tabular-nums">{fmtINR(projected.total)}</span>
+        </CardHeader>
+        <CardBody className="p-0 overflow-x-auto">
+          <p className="px-3 pt-3 text-xs text-ink-muted">
+            Non-cash money expected in the bank, by settlement date (closing
+            date + T+N). Excludes payouts already recorded as settlements.
+            Gross of processor fees. Overdue dates are flagged.
+          </p>
+          {projected.rows.length === 0 ? (
+            <p className="px-3 py-4 text-sm text-ink-muted">
+              Nothing outstanding — every non-cash payout this month is recorded.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2 text-left">Expected date</th>
+                  <th className="px-3 py-2 text-left">Method</th>
+                  <th className="px-3 py-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projected.rows.map((r) => (
+                  <tr key={`${r.date}|${r.methodName}`} className="border-t border-line">
+                    <td className={`px-3 py-2 ${r.overdue ? "text-red-600 font-medium" : ""}`}>
+                      {r.date}{r.overdue ? " · overdue" : ""}
+                    </td>
+                    <td className="px-3 py-2">{r.methodName}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtINR(r.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader>

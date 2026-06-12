@@ -95,6 +95,8 @@ export interface PaymentMethod {
   flowType:           PaymentFlowType;
   receivesIntoBank:   string | null;
   displayOrder:       number;
+  /** Settlement lag in days (T+N). 0 = same-day / direct to bank. */
+  settlementDays:     number;
   archivedAt:         string | null;
 }
 
@@ -367,6 +369,7 @@ export function mapPaymentMethod(r: PaymentMethodRow): PaymentMethod {
     flowType: r.flow_type,
     receivesIntoBank: r.receives_into_bank,
     displayOrder: r.display_order,
+    settlementDays: r.settlement_days ?? 0,
     archivedAt: r.archived_at,
   };
 }
@@ -1777,6 +1780,21 @@ export async function updatePaymentMethodBank(
   const { error } = await sb
     .from("payment_methods")
     .update({ receives_into_bank: bankAccountId })
+    .eq("id", methodId);
+  if (error) throw new Error(error.message);
+}
+
+/** Owner-only: set a method's settlement lag (T+N days). */
+export async function updatePaymentMethodSettlementDays(
+  methodId: string,
+  settlementDays: number,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const days = Math.max(0, Math.round(settlementDays || 0));
+  const { error } = await sb
+    .from("payment_methods")
+    .update({ settlement_days: days })
     .eq("id", methodId);
   if (error) throw new Error(error.message);
 }

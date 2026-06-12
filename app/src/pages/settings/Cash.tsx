@@ -20,6 +20,7 @@ import {
   setOperatingUnitMethods,
   updateOperatingUnitFloat,
   updatePaymentMethodBank,
+  updatePaymentMethodSettlementDays,
   type BankAccount,
   type OperatingUnit,
   type PaymentMethod,
@@ -283,6 +284,7 @@ export default function SettingsCashPage() {
                 <th className="px-3 py-2 text-left">Code</th>
                 <th className="px-3 py-2 text-left">Name</th>
                 <th className="px-3 py-2 text-left">Flow</th>
+                <th className="px-3 py-2 text-right">Settles T+</th>
                 <th className="px-3 py-2 text-left">Settles into</th>
               </tr>
             </thead>
@@ -550,6 +552,7 @@ function MethodBankRow({
   onError: (m: string) => void;
 }) {
   const [value, setValue] = useState<string>(method.receivesIntoBank ?? "");
+  const [days, setDays]   = useState<string>(String(method.settlementDays ?? 0));
   const [busy, setBusy]   = useState(false);
   async function save(next: string) {
     setValue(next);
@@ -560,11 +563,33 @@ function MethodBankRow({
     } catch (e) { onError((e as Error).message); }
     finally    { setBusy(false); }
   }
+  async function saveDays(next: string) {
+    setDays(next);
+    const n = Math.max(0, Math.round(Number(next) || 0));
+    setBusy(true);
+    try {
+      await updatePaymentMethodSettlementDays(method.id, n);
+      onSaved();
+    } catch (e) { onError((e as Error).message); }
+    finally    { setBusy(false); }
+  }
   return (
     <tr className="border-t border-line">
       <td className="px-3 py-2">{method.code}</td>
       <td className="px-3 py-2">{method.displayName}</td>
       <td className="px-3 py-2">{method.flowType}</td>
+      <td className="px-3 py-2 text-right">
+        <Input
+          type="number"
+          min={0}
+          step={1}
+          value={days}
+          disabled={busy}
+          onChange={(e) => setDays(e.target.value)}
+          onBlur={(e) => void saveDays(e.target.value)}
+          className="w-16 text-right"
+        />
+      </td>
       <td className="px-3 py-2">
         <Select
           value={value}
