@@ -6,7 +6,7 @@ import { useMemo, useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../ui/cn";
 import { IconChevronDown } from "../icons";
-import { NAV, filterForRole, roleLabel, type NavGroup, type NavLeaf } from "../../lib/nav";
+import { NAV, filterForRole, groupLeafTos, roleLabel, type NavGroup, type NavLeaf, type NavSubGroup } from "../../lib/nav";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
 
 export function Sidebar({ role }: { role: Role }) {
@@ -15,7 +15,7 @@ export function Sidebar({ role }: { role: Role }) {
 
   const activeGroupId = useMemo(() => {
     for (const item of visible) {
-      if (item.kind === "group" && item.children.some((c) => location.pathname.startsWith(c.to))) {
+      if (item.kind === "group" && groupLeafTos(item).some((to) => location.pathname.startsWith(to))) {
         return item.id;
       }
     }
@@ -97,8 +97,8 @@ function Group({
   onToggle: () => void;
 }) {
   const location = useLocation();
-  const isAnyChildActive = group.children.some((c) =>
-    location.pathname.startsWith(c.to),
+  const isAnyChildActive = groupLeafTos(group).some((to) =>
+    location.pathname.startsWith(to),
   );
   return (
     <div className="mb-0.5">
@@ -122,21 +122,64 @@ function Group({
       </button>
       {open ? (
         <div className="mt-0.5 pl-7 pr-2 space-y-0.5">
-          {group.children.map((c) => (
-            <NavLink
-              key={c.to}
-              to={c.to}
-              className={({ isActive }) =>
-                cn(
-                  "block px-3 py-1.5 rounded-md text-[13px] transition-colors",
-                  isActive
-                    ? "bg-amber-400/15 text-amber-300"
-                    : "text-white/60 hover:text-white hover:bg-white/5",
-                )
-              }
-            >
-              {c.label}
-            </NavLink>
+          {group.children.map((c) =>
+            c.kind === "subgroup" ? (
+              <SubGroup key={c.id} sub={c} />
+            ) : (
+              <SubLink key={c.to} to={c.to} label={c.label} />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SubLink({ to, label }: { to: string; label: string }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          "block px-3 py-1.5 rounded-md text-[13px] transition-colors",
+          isActive
+            ? "bg-amber-400/15 text-amber-300"
+            : "text-white/60 hover:text-white hover:bg-white/5",
+        )
+      }
+    >
+      {label}
+    </NavLink>
+  );
+}
+
+function SubGroup({ sub }: { sub: NavSubGroup }) {
+  const location = useLocation();
+  const anyActive = sub.children.some((c) => location.pathname.startsWith(c.to));
+  const [open, setOpen] = useState(anyActive);
+  useEffect(() => {
+    if (anyActive) setOpen(true);
+  }, [anyActive]);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        aria-expanded={open}
+        className={cn(
+          "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors text-left",
+          anyActive ? "text-amber-300" : "text-white/55 hover:text-white hover:bg-white/5",
+        )}
+      >
+        <span className="flex-1">{sub.label}</span>
+        <IconChevronDown
+          className={cn("w-3 h-3 transition-transform", open ? "rotate-0" : "-rotate-90")}
+        />
+      </button>
+      {open ? (
+        <div className="mt-0.5 pl-3 space-y-0.5">
+          {sub.children.map((c) => (
+            <SubLink key={c.to} to={c.to} label={c.label} />
           ))}
         </div>
       ) : null}

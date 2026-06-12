@@ -1,26 +1,28 @@
 -- =============================================================================
--- Repair: live entries overwritten by the DCR historical backfill, plus
--- duplicate backfill entries inserted alongside live rows.
+-- Repair v3: undo the DCR backfill's intrusion into the LIVE console window
+-- (2026-04-30 onward) AND reset ticket serial numbering to start fresh from 1
+-- on 2026-04-30, per owner decision.
 --
--- The backfill (20260606110001..9) upserts on (entry_date, movie_id, screen_id).
--- Where it carried LIVE movie ids it collided with and REPLACED live entries:
---   * 26ammug (Drishyam 3) x 7gwkvh9 (Audi 1)  2026-05-21..30  -> era class keys
---     a1_rc_lng/a1_rc_prm instead of cls_lounge/cls_prime => Prime/Lounge read 0
---   * uhxgzpr (Athiradi)   x 7gwkvh9 (Audi 1)  2026-05-13..20  -> same era-key zeros
---   * uhxgzpr (Athiradi)   x oxnv3cw (Audi 2)  2026-05-14..27  -> live class keys kept
---     but hist price cards substituted and online amounts wiped
--- Where it carried its own mh* ids (mh + 8 hex) it INSERTED duplicates next to
--- live rows for the same screen-day (live window starts ~2026-03-18) => double
--- counting in reports.
+-- Backfill (20260606110001..9) upserts on (entry_date, movie_id, screen_id):
+--   * carried LIVE movie ids -> overwrote live entries:
+--       26ammug x 7gwkvh9 2026-05-21..30  (Prime/Lounge -> 0, era keys)
+--       uhxgzpr x 7gwkvh9 2026-05-13..20  (same era-key zeros)
+--       uhxgzpr x oxnv3cw 2026-05-14..27  (hist price cards, online wiped)
+--   * carried its own mh* ids -> inserted duplicate/phantom rows next to live
+--     data (e.g. mh7f6343df "Dridam" on Audi 2 2026-05-12..13, a screen-day the
+--     live console has no entry for). Both inflate the serial counter, which is
+--     computed as a running per-class total over every show on a screen.
 --
--- Source of truth: staging_seed_from_prod_2026-05-30.sql (prod export taken
--- 2026-05-30 00:56 UTC, before the backfill reached prod). 2026-05-30 itself
--- post-dates the seed and is remapped in place (price parity verified).
--- Idempotent; guards ensure manually-corrected rows are never touched.
+-- The live console is the sole source of truth from 2026-04-30. So: restore the
+-- overwritten rows from the pre-backfill prod snapshot, delete EVERY backfill
+-- (mh*) row dated >= 2026-04-30, and rebase serialStarts to 2026-04-30 = 1.
+--
+-- Source of truth: staging_seed_from_prod_2026-05-30.sql (prod export
+-- 2026-05-30 00:56 UTC, pre-backfill). 2026-05-30 post-dates it and is remapped
+-- in place. Idempotent; guards make re-runs and manual edits safe.
 -- =============================================================================
 
--- 1) Restore every collided (date, movie, screen) present in the seed,
---    exactly as it was pre-overwrite. Guard: only rows the backfill last wrote.
+-- 1) Restore every collided (date, movie, screen) from the pre-backfill snapshot
 update public.entries e
 set share = v.share,
     shows = v.shows,
@@ -65,10 +67,10 @@ where e.entry_date = v.entry_date
        or e.shows::text like '%a1_rc_%'
        or e.shows::text ~ '"(h159175|h61c20e|hed0d4a|hba8c16)"');
 
--- 2) 2026-05-30 (26ammug x Audi 1) post-dates the seed: remap era keys and
+-- 2) 2026-05-30 (26ammug x Audi 1) post-dates the snapshot: remap era keys and
 --    hist cards in place. Price parity: hec1e84=qs31yg4 (390/180/160),
---    h90aa57=18a8omq (390/180/150). NOTE: online amounts for 2026-05-30 were
---    lost in the overwrite and must be re-entered from the book.
+--    h90aa57=18a8omq (390/180/150). NOTE: 2026-05-30 online amounts were lost in
+--    the overwrite and must be re-entered from the book.
 update public.entries
 set shows = replace(replace(replace(replace(shows::text,
               '"a1_rc_lng"', '"cls_lounge"'),
@@ -82,40 +84,41 @@ where entry_date = date '2026-05-30'
   and screen_id = '7gwkvh9'
   and shows::text like '%a1_rc_%';
 
--- 3) Delete duplicate backfill rows wherever a live entry exists for the same
---    screen-day. Backfill ids are 'mh' + 8 hex (10 chars); live ids are 7-char.
---    Every mh* movie in the live window was verified to be a rename-duplicate
---    of a live movie (Patriot, Vaazha 2, Aadu 3, Drishyam 3, Dhurandhar, ...).
---    Pre-go-live dates have no live rows, so history is untouched. No date
---    floor: live entries exist back to ~2026-03-18 (Dhurandhar).
-delete from public.entries e
-where e.movie_id ~ '^mh[0-9a-f]{8}$'
-  and exists (
-    select 1 from public.entries l
-    where l.entry_date = e.entry_date
-      and l.screen_id  = e.screen_id
-      and l.movie_id !~ '^mh[0-9a-f]{8}$'
-  );
+-- 3) Delete EVERY backfill row in the live window. Live console owns 2026-04-30+;
+--    backfill ids are 'mh' + 8 hex. This also clears the mh7f6343df Audi 2
+--    phantom days (2026-05-12..13). Pre-go-live history (< 2026-04-30) is kept.
+delete from public.entries
+where movie_id ~ '^mh[0-9a-f]{8}$'
+  and entry_date >= date '2026-04-30';
 
--- 4) Fail loudly if anything survives in the affected windows
+-- 4) Rebase ticket serial numbering: single starting point per screen on the
+--    first live date (2026-04-30) = 1 for every class. Replaces the old
+--    mid-stream May anchors. Serials now run continuously over live data only.
+update public.config
+set data = jsonb_set(data, '{serialStarts}', '[{"id": "e4ujqqp", "date": "2026-04-30", "starts": {"cls_royale": 1, "cls_lounge": 1, "cls_prime": 1}, "screenId": "7gwkvh9"}, {"id": "m8xbwh8", "date": "2026-04-30", "starts": {"1u1lpa4": 1, "lp9hi7s": 1, "bsl9hd8": 1}, "screenId": "oxnv3cw"}]'::jsonb),
+    updated_by = 'backfill-overwrite-repair',
+    updated_at = now()
+where id = 1;
+
+-- 5) Guards — abort if anything survives
 do $$
 declare n int;
 begin
-  select count(*) into n
-  from public.entries
-  where screen_id = '7gwkvh9'
-    and entry_date between date '2026-05-13' and date '2026-05-31'
-    and shows::text like '%a1_rc_%';
-  if n > 0 then
-    raise exception 'repair incomplete: % Audi 1 rows still carry era class keys', n;
-  end if;
+  select count(*) into n from public.entries
+   where screen_id='7gwkvh9' and entry_date between date '2026-05-13' and date '2026-05-31'
+     and shows::text like '%a1_rc_%';
+  if n>0 then raise exception 'repair incomplete: % Audi 1 rows still carry era class keys', n; end if;
 
-  select count(*) into n
-  from public.entries
-  where screen_id = 'oxnv3cw'
-    and entry_date between date '2026-05-14' and date '2026-05-27'
-    and shows::text ~ '"(h159175|h61c20e)"';
-  if n > 0 then
-    raise exception 'repair incomplete: % Audi 2 rows still carry hist price cards', n;
-  end if;
+  select count(*) into n from public.entries
+   where screen_id='oxnv3cw' and entry_date between date '2026-05-14' and date '2026-05-27'
+     and shows::text ~ '"(h159175|h61c20e)"';
+  if n>0 then raise exception 'repair incomplete: % Audi 2 rows still carry hist price cards', n; end if;
+
+  select count(*) into n from public.entries
+   where movie_id ~ '^mh[0-9a-f]{8}$' and entry_date >= date '2026-04-30';
+  if n>0 then raise exception 'repair incomplete: % backfill rows remain in the live window', n; end if;
+
+  if (select data->'serialStarts' from public.config where id=1)
+     <> '[{"id": "e4ujqqp", "date": "2026-04-30", "starts": {"cls_royale": 1, "cls_lounge": 1, "cls_prime": 1}, "screenId": "7gwkvh9"}, {"id": "m8xbwh8", "date": "2026-04-30", "starts": {"1u1lpa4": 1, "lp9hi7s": 1, "bsl9hd8": 1}, "screenId": "oxnv3cw"}]'::jsonb
+  then raise exception 'serialStarts rebase did not apply'; end if;
 end $$;
