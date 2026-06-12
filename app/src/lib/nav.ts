@@ -14,6 +14,7 @@ import {
   IconSettings,
   IconHistory,
   IconCash,
+  IconFinance,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -26,13 +27,22 @@ export interface NavLeaf {
   Icon?: IconCmp;
   roles: Role[];
 }
+// A labelled, collapsible cluster of leaves *inside* a group (one level deep).
+export interface NavSubGroup {
+  kind: "subgroup";
+  id: string;
+  label: string;
+  roles: Role[];
+  children: NavLeaf[];
+}
+export type NavChild = NavLeaf | NavSubGroup;
 export interface NavGroup {
   kind: "group";
   id: string;
   label: string;
   Icon: IconCmp;
   roles: Role[];
-  children: NavLeaf[];
+  children: NavChild[];
 }
 export type NavItem = NavLeaf | NavGroup;
 
@@ -88,9 +98,23 @@ export const NAV: NavItem[] = [
     children: [
       { kind: "leaf", to: "/reports/box-office", label: "Box Office", roles: REPORT_ROLES },
       { kind: "leaf", to: "/reports/fb",         label: "F&B",        roles: REPORT_ROLES },
+      {
+        // Finance reports — read-only views over the bank-side money.
+        // Routes stay under /cash/* ; only the menu placement changed.
+        kind: "subgroup",
+        id: "reports-finance",
+        label: "Finance",
+        roles: REPORT_ROLES,
+        children: [
+          { kind: "leaf", to: "/cash/reports", label: "Cashflow",    roles: CASH_LEDGER_ROLES },
+          { kind: "leaf", to: "/cash/ledger",  label: "Bank Ledger", roles: CASH_LEDGER_ROLES },
+        ],
+      },
     ],
   },
   {
+    // Floor cash — the till and petty cash handled daily at the cinema.
+    // Visible to cashier/daily_manager; back-office money lives under Finance.
     kind: "group",
     id: "cash",
     label: "Cash",
@@ -102,10 +126,19 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
       { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: [...PETTY_QUEUE_ROLES, "accountant"] },
       { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
-      { kind: "leaf", to: "/cash/payments",    label: "Payments",       roles: CASH_PAYMENTS_ROLES },
-      { kind: "leaf", to: "/cash/settlements", label: "Settlements",    roles: CASH_PAYMENTS_ROLES },
-      { kind: "leaf", to: "/cash/ledger",      label: "Bank Ledger",    roles: CASH_LEDGER_ROLES },
-      { kind: "leaf", to: "/cash/reports",     label: "Cashflow",       roles: CASH_LEDGER_ROLES },
+    ],
+  },
+  {
+    // Finance — back-office money movement and reporting (bank-side).
+    // Routes stay under /cash/* ; only the menu grouping changed.
+    kind: "group",
+    id: "finance",
+    label: "Finance",
+    Icon: IconFinance,
+    roles: REPORT_ROLES,
+    children: [
+      { kind: "leaf", to: "/cash/payments",    label: "Payments",    roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
     ],
   },
   {
@@ -132,7 +165,17 @@ export function filterForRole(items: NavItem[], role: Role): NavItem[] {
   for (const item of items) {
     if (!item.roles.includes(role)) continue;
     if (item.kind === "group") {
-      const kids = item.children.filter((c) => c.roles.includes(role));
+      const kids: NavChild[] = [];
+      for (const child of item.children) {
+        if (!child.roles.includes(role)) continue;
+        if (child.kind === "subgroup") {
+          const subKids = child.children.filter((c) => c.roles.includes(role));
+          if (subKids.length === 0) continue;
+          kids.push({ ...child, children: subKids });
+        } else {
+          kids.push(child);
+        }
+      }
       if (kids.length === 0) continue;
       out.push({ ...item, children: kids });
     } else {
@@ -140,6 +183,16 @@ export function filterForRole(items: NavItem[], role: Role): NavItem[] {
     }
   }
   return out;
+}
+
+/** Flatten a group's leaf routes, descending one level into subgroups. */
+export function groupLeafTos(group: NavGroup): string[] {
+  const tos: string[] = [];
+  for (const c of group.children) {
+    if (c.kind === "subgroup") tos.push(...c.children.map((l) => l.to));
+    else tos.push(c.to);
+  }
+  return tos;
 }
 
 /** Human-readable label for the user's role (used in chrome footers, badges). */
@@ -162,7 +215,13 @@ export function titleForPath(pathname: string): string {
     } else {
       candidates.push([`/${item.id}`, item.label]);
       for (const child of item.children) {
-        candidates.push([child.to, `${item.label} · ${child.label}`]);
+        if (child.kind === "subgroup") {
+          for (const leaf of child.children) {
+            candidates.push([leaf.to, `${item.label} · ${leaf.label}`]);
+          }
+        } else {
+          candidates.push([child.to, `${item.label} · ${child.label}`]);
+        }
       }
     }
   }
