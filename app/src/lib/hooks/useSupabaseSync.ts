@@ -181,19 +181,43 @@ export function useSupabaseSync(): SyncApi {
       // Phase 3: pull catalog from the normalized tables. If that fails
       // (empty tables, RLS, etc.) fall back to public.config.data so the
       // app stays usable while the migration is in flight.
+      // Entries exceed PostgREST's 1000-row cap (5k+ rows). An unpaginated
+      // select silently truncates to 1000 with no ORDER BY, so the kept rows
+      // are arbitrary and shift between loads — which corrupts the ticket-serial
+      // roll (computed over the WHOLE set) and made DCR serials read low and
+      // non-deterministic. Page through every row, ordered for determinism.
+      const fetchAllEntries = async (): Promise<EntryRow[]> => {
+        const PAGE = 1000;
+        const out: EntryRow[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await sb
+            .from("entries")
+            .select("*")
+            .order("entry_date", { ascending: true })
+            .order("movie_id")
+            .order("screen_id")
+            .range(from, from + PAGE - 1);
+          if (error) { console.error("pullAll: entries page failed", error); break; }
+          const batch = (data as EntryRow[]) ?? [];
+          out.push(...batch);
+          if (batch.length < PAGE) break;
+        }
+        return out;
+      };
+
       const [catalogRes, cfgRes, entRes, fbRes, prodRes] = await Promise.all([
         readCatalog(sb).catch((err) => {
           console.error("readCatalog failed; falling back to config.data", err);
           return null;
         }),
         sb.from("config").select("data").eq("id", 1).maybeSingle(),
-        sb.from("entries").select("*"),
+        fetchAllEntries(),
         sb.from("fb_entries").select("*"),
         sb.from("fb_products").select("*"),
       ]);
 
       const cfg = (cfgRes.data as Pick<ConfigRow, "data"> | null)?.data ?? null;
-      const rows = ((entRes.data as EntryRow[]) || []);
+      const rows = entRes ?? [];
       const entries: Entry[] = rows.map(rowToEntry);
 
       const fbRows = ((fbRes.data as FbEntryRow[]) || []);
