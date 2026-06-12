@@ -19,9 +19,9 @@
 project_id = "abhinaya-cinemas"
 
 [db]
-# Match the Postgres major version of your Supabase project. Supabase
-# Cloud currently provisions Postgres 15; bump this if you upgrade.
-major_version = 15
+# Match the Postgres major version of your Supabase project (staging and
+# prod both run Postgres 17). Bump this if you upgrade.
+major_version = 17
 
 # Per-function options. Add a block per Edge Function as the list grows.
 # `verify_jwt` defaults to true, so we'd only set it explicitly for
