@@ -18,7 +18,7 @@ import { Input, Select } from "../ui/Input";
 import { ShowCard } from "./ShowCard";
 
 import { useSync } from "../../lib/hooks/SyncContext";
-import { todayIso } from "../../lib/dates";
+import { todayIso, addDaysIso } from "../../lib/dates";
 import {
   blankEntry, blankShow, findEntry, upsertEntry,
 } from "../../lib/entry";
@@ -85,8 +85,13 @@ export function BoQuickAddModal({ open, onClose }: Props) {
   );
   const computedShow = computed?.shows[computed.shows.length - 1];
 
+  // DCR edit lock — non-owners cannot add/edit a show for a date older than
+  // 2 days (editable on D, D+1, D+2 IST). RLS enforces it server-side too
+  // (migration 20260613140000); this keeps the UI honest.
+  const editLocked = state.role !== "owner" && date < addDaysIso(todayIso(), -2);
+
   function save() {
-    if (!preview || !appState) return;
+    if (!preview || !appState || editLocked) return;
     setAppState(upsertEntry(appState, preview));
     onClose();
   }
@@ -132,7 +137,12 @@ export function BoQuickAddModal({ open, onClose }: Props) {
           </label>
         </div>
 
-        {existing ? (
+        {editLocked ? (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-ink-soft">
+            {date} is more than 2 days old. Entries lock after 2 days — ask the
+            owner if a correction is needed.
+          </div>
+        ) : existing ? (
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-ink-soft">
             A day already exists for {date}. This show will be appended as
             Show #{(existing.shows ?? []).length + 1}.
@@ -163,7 +173,7 @@ export function BoQuickAddModal({ open, onClose }: Props) {
 
         <div className="flex items-center justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={!preview || !movieId || !screenId}>
+          <Button onClick={save} disabled={!preview || !movieId || !screenId || editLocked}>
             Save show
           </Button>
         </div>
