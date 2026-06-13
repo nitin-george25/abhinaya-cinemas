@@ -125,6 +125,8 @@ export interface ProjectBundle {
   tasks: ProjectTask[];
   subtasks: ProjectSubtask[];
   files: ProjectTaskFile[];
+  budgetItems: ProjectBudgetItem[];
+  invoices: ProjectInvoice[];
 }
 
 // ── row mappers (snake → camel) ───────────────────────────────────────────
@@ -497,14 +499,16 @@ export async function listAudit(projectId: string, limit = 100): Promise<Project
 export async function loadProjectBundle(projectId: string): Promise<ProjectBundle | null> {
   const project = await getProject(projectId);
   if (!project) return null;
-  const [members, phases, tasks, subtasks, files] = await Promise.all([
+  const [members, phases, tasks, subtasks, files, budgetItems, invoices] = await Promise.all([
     listMembers(projectId),
     listPhases(projectId),
     listTasks(projectId),
     listSubtasks(projectId),
     listTaskFiles(projectId),
+    listBudgetItems(projectId),
+    listInvoices(projectId),
   ]);
-  return { project, members, phases, tasks, subtasks, files };
+  return { project, members, phases, tasks, subtasks, files, budgetItems, invoices };
 }
 
 // ── progress helpers ───────────────────────────────────────────────────────
@@ -523,4 +527,232 @@ export function projectProgressPct(tasks: ProjectTask[], subtasks: ProjectSubtas
   if (tasks.length === 0) return 0;
   const sum = tasks.reduce((acc, t) => acc + taskCompletion(t, subtasks), 0);
   return Math.round((sum / tasks.length) * 100);
+}
+
+// ── finances: budget items + invoices ──────────────────────────────────────
+export interface ProjectBudgetItem {
+  id: string;
+  projectId: string;
+  seq: number;
+  name: string;
+  category: string | null;
+  estimate: number;
+  notes: string | null;
+}
+
+export interface ProjectInvoice {
+  id: string;
+  projectId: string;
+  budgetItemId: string | null;
+  vendor: string | null;
+  invoiceNo: string | null;
+  invoiceDate: DateISO | null;
+  amount: number;
+  notes: string | null;
+  fileUrl: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  contentType: string | null;
+  uploadedBy: string | null;
+  uploadedAt: string;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const toBudgetItem = (r: any): ProjectBudgetItem => ({
+  id: r.id,
+  projectId: r.project_id,
+  seq: r.seq,
+  name: r.name,
+  category: r.category ?? null,
+  estimate: Number(r.estimate ?? 0),
+  notes: r.notes ?? null,
+});
+
+const toInvoice = (r: any): ProjectInvoice => ({
+  id: r.id,
+  projectId: r.project_id,
+  budgetItemId: r.budget_item_id ?? null,
+  vendor: r.vendor ?? null,
+  invoiceNo: r.invoice_no ?? null,
+  invoiceDate: r.invoice_date ?? null,
+  amount: Number(r.amount ?? 0),
+  notes: r.notes ?? null,
+  fileUrl: r.file_url ?? null,
+  fileName: r.file_name ?? null,
+  fileSize: r.file_size ?? null,
+  contentType: r.content_type ?? null,
+  uploadedBy: r.uploaded_by ?? null,
+  uploadedAt: r.uploaded_at,
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export async function listBudgetItems(projectId: string): Promise<ProjectBudgetItem[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("project_budget_items").select("*").eq("project_id", projectId)
+    .order("seq", { ascending: true });
+  if (error) { console.warn("[projects] listBudgetItems", error.message); return []; }
+  return ((data as unknown[]) ?? []).map(toBudgetItem);
+}
+
+export interface BudgetItemInput {
+  name: string;
+  category?: string | null;
+  estimate?: number;
+  notes?: string | null;
+}
+
+export async function createBudgetItem(
+  projectId: string, input: BudgetItemInput, createdBy: string, seq = 0,
+): Promise<ProjectBudgetItem> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("project_budget_items")
+    .insert({
+      project_id: projectId,
+      name: input.name,
+      category: input.category ?? null,
+      estimate: input.estimate ?? 0,
+      notes: input.notes ?? null,
+      seq,
+      created_by: createdBy,
+      updated_by: createdBy,
+    })
+    .select("*").single();
+  if (error) throw new Error(error.message);
+  return toBudgetItem(data);
+}
+
+export async function updateBudgetItem(
+  id: string, patch: BudgetItemInput, updatedBy: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const row: Record<string, unknown> = { updated_by: updatedBy };
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.category !== undefined) row.category = patch.category;
+  if (patch.estimate !== undefined) row.estimate = patch.estimate;
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  const { error } = await sb.from("project_budget_items").update(row).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteBudgetItem(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.from("project_budget_items").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function listInvoices(projectId: string): Promise<ProjectInvoice[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("project_invoices").select("*").eq("project_id", projectId)
+    .order("invoice_date", { ascending: false });
+  if (error) { console.warn("[projects] listInvoices", error.message); return []; }
+  return ((data as unknown[]) ?? []).map(toInvoice);
+}
+
+export interface InvoiceInput {
+  budgetItemId?: string | null;
+  vendor?: string | null;
+  invoiceNo?: string | null;
+  invoiceDate?: DateISO | null;
+  amount: number;
+  notes?: string | null;
+}
+
+/** Create an invoice row, optionally uploading a bill file to project-files. */
+export async function createInvoice(
+  projectId: string, input: InvoiceInput, uploadedBy: string, file?: File | null,
+): Promise<ProjectInvoice> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  let fileMeta: { url: string; name: string; size: number; type: string } | null = null;
+  if (file) {
+    const ext = file.name.split(".").pop() ?? "bin";
+    const path = `${projectId}/invoices/${Date.now()}.${ext}`;
+    const up = await sb.storage.from("project-files").upload(path, file, { upsert: false });
+    if (up.error) throw new Error(up.error.message);
+    const { data: pub } = sb.storage.from("project-files").getPublicUrl(path);
+    fileMeta = { url: pub.publicUrl, name: file.name, size: file.size, type: file.type || "" };
+  }
+  const { data, error } = await sb
+    .from("project_invoices")
+    .insert({
+      project_id: projectId,
+      budget_item_id: input.budgetItemId ?? null,
+      vendor: input.vendor ?? null,
+      invoice_no: input.invoiceNo ?? null,
+      invoice_date: input.invoiceDate ?? null,
+      amount: input.amount,
+      notes: input.notes ?? null,
+      file_url: fileMeta?.url ?? null,
+      file_name: fileMeta?.name ?? null,
+      file_size: fileMeta?.size ?? null,
+      content_type: fileMeta?.type ?? null,
+      uploaded_by: uploadedBy,
+    })
+    .select("*").single();
+  if (error) throw new Error(error.message);
+  return toInvoice(data);
+}
+
+export async function deleteInvoice(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.from("project_invoices").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// ── finance summary ─────────────────────────────────────────────────────────
+export interface BudgetItemRollup extends ProjectBudgetItem {
+  actual: number;       // sum of allocated invoices
+  variance: number;     // estimate − actual (positive = under budget)
+  invoiceCount: number;
+}
+
+export interface FinanceSummary {
+  items: BudgetItemRollup[];
+  unallocatedActual: number;   // invoices not tied to a budget line
+  unallocatedCount: number;
+  totalEstimate: number;
+  totalActual: number;
+  variance: number;            // totalEstimate − totalActual
+  spentPct: number;            // totalActual / totalEstimate × 100
+}
+
+export function financeSummary(
+  items: ProjectBudgetItem[], invoices: ProjectInvoice[],
+): FinanceSummary {
+  const byItem = new Map<string, { sum: number; count: number }>();
+  let unallocatedActual = 0;
+  let unallocatedCount = 0;
+  for (const inv of invoices) {
+    if (inv.budgetItemId) {
+      const cur = byItem.get(inv.budgetItemId) ?? { sum: 0, count: 0 };
+      cur.sum += inv.amount; cur.count += 1;
+      byItem.set(inv.budgetItemId, cur);
+    } else {
+      unallocatedActual += inv.amount; unallocatedCount += 1;
+    }
+  }
+  const rolled: BudgetItemRollup[] = items.map((it) => {
+    const agg = byItem.get(it.id) ?? { sum: 0, count: 0 };
+    return { ...it, actual: agg.sum, variance: it.estimate - agg.sum, invoiceCount: agg.count };
+  });
+  const totalEstimate = items.reduce((a, b) => a + b.estimate, 0);
+  const totalActual = invoices.reduce((a, b) => a + b.amount, 0);
+  return {
+    items: rolled,
+    unallocatedActual,
+    unallocatedCount,
+    totalEstimate,
+    totalActual,
+    variance: totalEstimate - totalActual,
+    spentPct: totalEstimate > 0 ? Math.round((totalActual / totalEstimate) * 100) : 0,
+  };
 }

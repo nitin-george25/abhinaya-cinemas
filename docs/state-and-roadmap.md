@@ -206,7 +206,12 @@ it out retroactively. Don't repeat.
     assigns a project manager; PM/owner assign members; only owner +
     assigned members tick (RLS) with an audit trail; per-task attachments
     required to complete a task; PM-created subtasks drive % completion.
-    Audi 1 Dolby Atmos project seeded. Original spec below.
+    Audi 1 Dolby Atmos project seeded. Detail view is a vertical-tab layout
+    (Timeline / Checklist / Finances / Team). Finances (migration
+    `20260613110000_project_finances.sql`: project_budget_items +
+    project_invoices) = itemwise budget-vs-actual + invoice uploads, with
+    estimate/actual/variance summary. ClickUp API was considered and declined
+    in favour of staying native (one backend, cf. #15). Original spec below.
     Captured 2026-06-13. New top-level nav group **"Project Management"** with a
     **"Renovations"** sub-item. Renovations shows a grid of project
     **cards** (e.g. "Location: HQ · Audi 1 · Type: Technical Upgrade")

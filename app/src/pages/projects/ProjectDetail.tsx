@@ -19,6 +19,7 @@ import { Input } from "../../components/ui/Input";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { ProjectGantt } from "../../components/projects/ProjectGantt";
 import { MembersPanel } from "../../components/projects/MembersPanel";
+import { FinancesPanel } from "../../components/projects/FinancesPanel";
 import {
   addSubtask, deleteSubtask, deleteTaskFile, listAudit, loadProjectBundle,
   projectProgressPct, setSubtaskDone, setTaskDone, taskCompletion, uploadTaskFile,
@@ -40,6 +41,14 @@ const AUDIT_VERB: Record<string, string> = {
   subtask_unchecked: "reopened subtask",
 };
 
+type TabKey = "timeline" | "checklist" | "finances" | "team";
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "timeline", label: "Timeline" },
+  { key: "checklist", label: "Checklist" },
+  { key: "finances", label: "Finances" },
+  { key: "team", label: "Team" },
+];
+
 export default function ProjectDetailPage() {
   const { id = "" } = useParams();
   const { state } = useSync();
@@ -50,6 +59,7 @@ export default function ProjectDetailPage() {
   const [audit, setAudit] = useState<ProjectAuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabKey>("timeline");
 
   const reload = useCallback(async () => {
     try {
@@ -83,7 +93,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, members, phases, tasks, subtasks, files } = bundle;
+  const { project, members, phases, tasks, subtasks, files, budgetItems, invoices } = bundle;
   const pct = projectProgressPct(tasks, subtasks);
   const meta = [project.location, project.area, project.projectType ? `Type: ${project.projectType}` : null]
     .filter(Boolean).join(" · ");
@@ -114,80 +124,117 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle>Timeline</CardTitle></CardHeader>
-        <CardBody>
-          <ProjectGantt
-            phases={phases}
-            tasks={tasks}
-            startDate={project.startDate}
-            targetFinish={project.targetFinish}
-          />
-        </CardBody>
-      </Card>
+      {/* View tabs */}
+      <div className="flex flex-col gap-5 md:flex-row">
+        <nav className="flex gap-1 overflow-x-auto md:w-44 md:shrink-0 md:flex-col md:gap-0.5">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                tab === t.key
+                  ? "bg-amber-400/15 font-medium text-amber-700"
+                  : "text-ink-muted hover:bg-paper hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        {/* Checklist */}
-        <div className="space-y-4 lg:col-span-2">
-          {phases.map((ph) => (
-            <PhaseChecklist
-              key={ph.id}
-              phase={ph}
-              tasks={tasks.filter((t) => t.phaseId === ph.id).sort((a, b) => a.seq - b.seq)}
-              subtasks={subtasks}
-              files={files}
+        <div className="min-w-0 flex-1">
+          {tab === "timeline" ? (
+            <Card>
+              <CardHeader><CardTitle>Timeline</CardTitle></CardHeader>
+              <CardBody>
+                <ProjectGantt
+                  phases={phases}
+                  tasks={tasks}
+                  startDate={project.startDate}
+                  targetFinish={project.targetFinish}
+                />
+              </CardBody>
+            </Card>
+          ) : null}
+
+          {tab === "checklist" ? (
+            <div className="space-y-4">
+              {phases.map((ph) => (
+                <PhaseChecklist
+                  key={ph.id}
+                  phase={ph}
+                  tasks={tasks.filter((t) => t.phaseId === ph.id).sort((a, b) => a.seq - b.seq)}
+                  subtasks={subtasks}
+                  files={files}
+                  projectId={project.id}
+                  email={email}
+                  canEdit={perms.isMember}
+                  canManage={perms.isPM}
+                  onChanged={reload}
+                  onError={setErr}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {tab === "finances" ? (
+            <FinancesPanel
               projectId={project.id}
+              budgetItems={budgetItems}
+              invoices={invoices}
               email={email}
-              canEdit={perms.isMember}
               canManage={perms.isPM}
+              canUploadInvoice={perms.isMember}
               onChanged={reload}
               onError={setErr}
             />
-          ))}
-        </div>
+          ) : null}
 
-        {/* Side rail */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader><CardTitle>Team</CardTitle></CardHeader>
-            <CardBody>
-              <MembersPanel
-                projectId={project.id}
-                members={members}
-                projectManagerEmail={project.projectManagerEmail}
-                currentUserEmail={email}
-                canAssignPM={perms.isOwner}
-                canManageMembers={perms.isPM}
-                onChanged={reload}
-              />
-            </CardBody>
-          </Card>
+          {tab === "team" ? (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>Team</CardTitle></CardHeader>
+                <CardBody>
+                  <MembersPanel
+                    projectId={project.id}
+                    members={members}
+                    projectManagerEmail={project.projectManagerEmail}
+                    currentUserEmail={email}
+                    canAssignPM={perms.isOwner}
+                    canManageMembers={perms.isPM}
+                    onChanged={reload}
+                  />
+                </CardBody>
+              </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Activity trail</CardTitle></CardHeader>
-            <CardBody>
-              {audit.length === 0 ? (
-                <p className="text-sm text-ink-muted">No activity yet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {audit.map((a) => {
-                    const code = a.detail?.code != null ? String(a.detail?.code) : "";
-                    const name = a.detail?.name != null ? String(a.detail?.name) : "";
-                    return (
-                      <li key={a.id} className="text-xs">
-                        <span className="font-medium">{a.actorEmail ?? "system"}</span>{" "}
-                        {AUDIT_VERB[a.action] ?? a.action}
-                        {code || name ? <> · {code ? `${code} ` : ""}{name}</> : null}
-                        <span className="block text-ink-muted">{fmtDateTime(a.createdAt)}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </CardBody>
-          </Card>
+              <Card>
+                <CardHeader><CardTitle>Activity trail</CardTitle></CardHeader>
+                <CardBody>
+                  {audit.length === 0 ? (
+                    <p className="text-sm text-ink-muted">No activity yet.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {audit.map((a) => {
+                        const code = a.detail?.code != null ? String(a.detail?.code) : "";
+                        const name = a.detail?.name != null ? String(a.detail?.name) : "";
+                        return (
+                          <li key={a.id} className="text-xs">
+                            <span className="font-medium">{a.actorEmail ?? "system"}</span>{" "}
+                            {AUDIT_VERB[a.action] ?? a.action}
+                            {code || name ? <> · {code ? `${code} ` : ""}{name}</> : null}
+                            <span className="block text-ink-muted">{fmtDateTime(a.createdAt)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </CardBody>
+              </Card>
+            </div>
+          ) : null}
         </div>
       </div>
+
     </div>
   );
 }
