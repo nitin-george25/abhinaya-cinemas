@@ -11,6 +11,7 @@ import { format, parseISO } from "date-fns";
 
 import { useSync } from "../lib/hooks/SyncContext";
 import { computeEntry } from "../lib/engine";
+import { entryKey } from "../lib/mappers";
 import { fetchEntriesPage } from "../lib/entriesApi";
 import { weekday } from "../lib/format";
 import { fmtINR, fmtInt } from "../lib/dashboard";
@@ -55,8 +56,9 @@ interface Row {
 }
 
 export default function HistoryPage() {
-  const { state } = useSync();
+  const { state, setAppState } = useSync();
   const appState = state.appState;
+  const isOwner = state.role === "owner";
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [openRow, setOpenRow] = useState<Row | null>(null);
@@ -103,6 +105,29 @@ export default function HistoryPage() {
     );
   }
 
+  // Owner-only: delete a DCR entry. Goes through the sync (remove from
+  // appState → debounced push deletes the now-missing row from the DB),
+  // matching how Settings/Entry deletes work, so the engine and cloud stay
+  // consistent. The visible page is updated optimistically.
+  function handleDelete(row: Row) {
+    const { entry, computed } = row;
+    const label = `${computed.movie?.name ?? entry.movieId} — ${niceDate(entry.date)}`;
+    if (
+      !window.confirm(
+        `Delete the DCR for ${label}?\n\nThis permanently removes the entry from the cloud and can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    const key = entryKey(entry);
+    setAppState({
+      ...appState,
+      entries: appState.entries.filter((e) => entryKey(e) !== key),
+    });
+    setPageEntries((prev) => prev.filter((e) => entryKey(e) !== key));
+    setTotal((t) => Math.max(0, t - 1));
+  }
+
   // Totals cover the rows on this page only — the share math lives in the
   // client-side engine (locked), so we don't aggregate the full filtered
   // set server-side.
@@ -143,7 +168,13 @@ export default function HistoryPage() {
           </CardBody>
         </Card>
       ) : (
-        <HistoryTable rows={pageRows} onSelect={setOpenRow} appState={appState} />
+        <HistoryTable
+          rows={pageRows}
+          onSelect={setOpenRow}
+          appState={appState}
+          canDelete={isOwner}
+          onDelete={handleDelete}
+        />
       )}
 
       {total > 0 ? (
@@ -335,10 +366,14 @@ function HistoryTable({
   rows,
   onSelect,
   appState,
+  canDelete,
+  onDelete,
 }: {
   rows: Row[];
   onSelect: (r: Row) => void;
   appState: AppState;
+  canDelete: boolean;
+  onDelete: (r: Row) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -377,6 +412,8 @@ function HistoryTable({
                   row={row}
                   onSelect={onSelect}
                   appState={appState}
+                  canDelete={canDelete}
+                  onDelete={onDelete}
                 />
               ))}
             </tbody>
@@ -391,10 +428,14 @@ function HistoryRow({
   row,
   onSelect,
   appState,
+  canDelete,
+  onDelete,
 }: {
   row: Row;
   onSelect: (r: Row) => void;
   appState: AppState;
+  canDelete: boolean;
+  onDelete: (r: Row) => void;
 }) {
   const { entry, computed } = row;
 
@@ -462,6 +503,17 @@ function HistoryRow({
           <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onSelect(row); }}>
             View
           </Button>
+          {canDelete ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => { e.stopPropagation(); onDelete(row); }}
+              title="Delete this DCR"
+              className="text-red-700"
+            >
+              Delete
+            </Button>
+          ) : null}
         </div>
       </td>
     </tr>
