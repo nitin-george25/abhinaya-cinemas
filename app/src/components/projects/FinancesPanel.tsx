@@ -13,10 +13,59 @@ import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
 import { fmtINR } from "../../lib/dashboard";
 import {
-  createBudgetItem, createInvoice, deleteBudgetItem, deleteInvoice,
-  financeSummary, updateBudgetItem,
-  type ProjectBudgetItem, type ProjectInvoice,
+  createBudgetItem, createBudgetItemsBulk, createInvoice, deleteBudgetItem,
+  deleteInvoice, financeSummary, updateBudgetItem,
+  type BudgetItemInput, type ProjectBudgetItem, type ProjectInvoice,
 } from "../../lib/projects";
+
+// Minimal CSV parser: respects double-quoted fields; one record per line.
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (q) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim());
+}
+
+// Parse a budget CSV into BudgetItemInput rows. Accepts an optional header row
+// (name/category/estimate/notes, any order); otherwise assumes that column order.
+function parseBudgetCsv(text: string): { rows: BudgetItemInput[]; error?: string } {
+  const lines = text.split(/
+?
+/).filter((l) => l.trim() !== "");
+  if (lines.length === 0) return { rows: [], error: "The file is empty." };
+  const first = parseCsvLine(lines[0]!).map((h) => h.toLowerCase());
+  const hasHeader = first.includes("name") || first.includes("estimate");
+  const col = (name: string, fallback: number) =>
+    hasHeader ? first.indexOf(name) : fallback;
+  const iName = col("name", 0), iCat = col("category", 1), iEst = col("estimate", 2), iNote = col("notes", 3);
+  const body = hasHeader ? lines.slice(1) : lines;
+  const rows: BudgetItemInput[] = [];
+  for (const line of body) {
+    const f = parseCsvLine(line);
+    const name = (iName >= 0 ? f[iName] : "")?.trim() ?? "";
+    if (!name) continue;
+    const estRaw = (iEst >= 0 ? f[iEst] : "") ?? "";
+    const estimate = Number(estRaw.replace(/[^0-9.\-]/g, "")) || 0;
+    rows.push({
+      name,
+      category: (iCat >= 0 ? f[iCat] : "")?.trim() || null,
+      estimate,
+      notes: (iNote >= 0 ? f[iNote] : "")?.trim() || null,
+    });
+  }
+  if (rows.length === 0) return { rows: [], error: "No valid rows found (need at least a name)." };
+  return { rows };
+}
 
 export function FinancesPanel({
   projectId, budgetItems, invoices, email, canManage, canUploadInvoice, onChanged, onError,
@@ -31,6 +80,7 @@ export function FinancesPanel({
   onError: (m: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const csvRef = useRef<HTMLInputElement>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddInv, setShowAddInv] = useState(false);
@@ -67,9 +117,37 @@ export function FinancesPanel({
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-display text-sm font-semibold">Budget vs actuals</h3>
           {canManage ? (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowAddItem((v) => !v)}>
-              {showAddItem ? "Cancel" : "+ Budget line"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                ref={csvRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  void run(async () => {
+                    const text = await file.text();
+                    const { rows, error } = parseBudgetCsv(text);
+                    if (error) throw new Error(error);
+                    await createBudgetItemsBulk(projectId, rows, email, budgetItems.length);
+                  });
+                }}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => csvRef.current?.click()}
+                title="CSV columns: name, category, estimate, notes"
+              >
+                Upload CSV
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowAddItem((v) => !v)}>
+                {showAddItem ? "Cancel" : "+ Budget line"}
+              </Button>
+            </div>
           ) : null}
         </div>
 

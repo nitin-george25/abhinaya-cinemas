@@ -80,6 +80,7 @@ export interface ProjectTask {
   done: boolean;
   doneAt: string | null;
   doneBy: string | null;
+  doneNote: string | null;
 }
 
 export interface ProjectSubtask {
@@ -176,6 +177,7 @@ const toTask = (r: any): ProjectTask => ({
   done: !!r.done,
   doneAt: r.done_at ?? null,
   doneBy: r.done_by ?? null,
+  doneNote: r.done_note ?? null,
 });
 
 const toSubtask = (r: any): ProjectSubtask => ({
@@ -398,10 +400,15 @@ export async function listSubtasks(projectId: string): Promise<ProjectSubtask[]>
 }
 
 /** Flip a task's done flag. done_at/done_by + audit are set by a DB trigger. */
-export async function setTaskDone(taskId: string, done: boolean): Promise<void> {
+export async function setTaskDone(
+  taskId: string, done: boolean, note?: string | null,
+): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
-  const { error } = await sb.from("project_tasks").update({ done }).eq("id", taskId);
+  // done_note is set only when completing; the DB trigger clears it on reopen.
+  const row: Record<string, unknown> = { done };
+  if (done && note !== undefined) row.done_note = note;
+  const { error } = await sb.from("project_tasks").update(row).eq("id", taskId);
   if (error) throw new Error(error.message);
 }
 
@@ -755,4 +762,93 @@ export function financeSummary(
     variance: totalEstimate - totalActual,
     spentPct: totalEstimate > 0 ? Math.round((totalActual / totalEstimate) * 100) : 0,
   };
+}
+
+// ── task structure: add / edit timeline / delete (owner/manager) ────────────
+export interface CreateTaskInput {
+  phaseId: string;
+  name: string;
+  code?: string | null;
+  note?: string | null;
+  startDate?: DateISO | null;
+  endDate?: DateISO | null;
+  isMilestone?: boolean;
+}
+
+export async function createTask(
+  projectId: string, input: CreateTaskInput, createdBy: string, seq = 0,
+): Promise<ProjectTask> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("project_tasks")
+    .insert({
+      project_id: projectId,
+      phase_id: input.phaseId,
+      name: input.name,
+      code: input.code ?? null,
+      note: input.note ?? null,
+      start_date: input.startDate ?? null,
+      end_date: input.endDate ?? null,
+      is_milestone: input.isMilestone ?? false,
+      seq,
+      updated_by: createdBy,
+    })
+    .select("*").single();
+  if (error) throw new Error(error.message);
+  return toTask(data);
+}
+
+export interface TaskPatch {
+  name?: string;
+  code?: string | null;
+  note?: string | null;
+  startDate?: DateISO | null;
+  endDate?: DateISO | null;
+  isMilestone?: boolean;
+}
+
+export async function updateTask(
+  taskId: string, patch: TaskPatch, updatedBy: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const row: Record<string, unknown> = { updated_by: updatedBy };
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.code !== undefined) row.code = patch.code;
+  if (patch.note !== undefined) row.note = patch.note;
+  if (patch.startDate !== undefined) row.start_date = patch.startDate;
+  if (patch.endDate !== undefined) row.end_date = patch.endDate;
+  if (patch.isMilestone !== undefined) row.is_milestone = patch.isMilestone;
+  const { error } = await sb.from("project_tasks").update(row).eq("id", taskId);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.from("project_tasks").delete().eq("id", taskId);
+  if (error) throw new Error(error.message);
+}
+
+// ── budget: bulk insert (CSV import) ────────────────────────────────────────
+export async function createBudgetItemsBulk(
+  projectId: string, rows: BudgetItemInput[], createdBy: string, startSeq = 0,
+): Promise<number> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (rows.length === 0) return 0;
+  const payload = rows.map((r, i) => ({
+    project_id: projectId,
+    name: r.name,
+    category: r.category ?? null,
+    estimate: r.estimate ?? 0,
+    notes: r.notes ?? null,
+    seq: startSeq + i,
+    created_by: createdBy,
+    updated_by: createdBy,
+  }));
+  const { data, error } = await sb.from("project_budget_items").insert(payload).select("id");
+  if (error) throw new Error(error.message);
+  return ((data as unknown[]) ?? []).length;
 }
