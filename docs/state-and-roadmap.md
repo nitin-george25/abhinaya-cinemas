@@ -198,6 +198,41 @@ it out retroactively. Don't repeat.
     Approval link = console URL to the pending-expenses view filtered
     to the expense id. Open Qs below.
 
+21. **Project Management module — Renovations tracker.** IMPLEMENTED
+    2026-06-13 on branch `feat/project-management-renovations` (off main);
+    awaiting build + commit + push + db:push (staging & prod). Migration
+    `20260613100000_projects_module.sql`; app files lib/projects.ts,
+    pages/projects/*, components/projects/*, nav/icon/route wiring. Owner
+    assigns a project manager; PM/owner assign members; only owner +
+    assigned members tick (RLS) with an audit trail; per-task attachments
+    required to complete a task; PM-created subtasks drive % completion.
+    Audi 1 Dolby Atmos project seeded. Original spec below.
+    Captured 2026-06-13. New top-level nav group **"Project Management"** with a
+    **"Renovations"** sub-item. Renovations shows a grid of project
+    **cards** (e.g. "Location: HQ · Audi 1 · Type: Technical Upgrade")
+    that open into a detail view = the **Gantt timeline + phased progress
+    checklist** (seed = the Audi 1 Dolby Atmos / acoustic renovation HTML
+    Nitin uploaded: 7 phases, 19 tasks, 21-day schedule from 11 Jun 2026).
+    Goal: store this checklist data for THIS and future projects instead
+    of the upload's browser-localStorage (`abhi_audi1_renovation_v1`),
+    which is per-device and lost on cache clear.
+    - Nav: add group `project-management` in `app/src/lib/nav.ts`
+      (new `IconProjects` in `icons.tsx`); child leaf `/projects/renovations`.
+      Roles likely `OWNER_MANAGER` (decide if daily_manager can tick items).
+    - Storage (recommended shape): `projects` (id, name, location/unit,
+      type, status, start_date, target_finish, created_by) + `project_phases`
+      (project_id, seq, name, color) + `project_tasks` (phase_id, code,
+      name, note, start_day/end_day OR start_date/end_date, is_milestone,
+      done_at, done_by). Progress = done tasks / total. RLS mirrors other
+      console tables; staging+prod parity (cf. feedback_staging_parity).
+    - Build the Gantt + checklist as React components rendering from those
+      rows (the uploaded HTML's render logic ports directly). One-time
+      importer to seed the Audi 1 project from the upload.
+    - Open Qs: who can check off items vs only owner; do tasks store fixed
+      calendar dates or day-offsets from start; per-project file/photo
+      attachments; project types as a fixed enum or free text; archive vs
+      delete completed projects.
+
 ### Cleanup / debt
 
 19. Delete `netlify.toml`, `netlify/functions/`, and the 410-Gone

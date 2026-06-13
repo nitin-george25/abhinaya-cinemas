@@ -15,6 +15,7 @@ import {
   IconHistory,
   IconCash,
   IconFinance,
+  IconProjects,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -139,6 +140,19 @@ export const NAV: NavItem[] = [
     children: [
       { kind: "leaf", to: "/cash/payments",    label: "Payments",    roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
+    ],
+  },
+  {
+    // Project Management — renovations & capital projects. Visible to anyone
+    // who can be assigned to a project; per-project edit rights are enforced
+    // by RLS (only the owner + assigned members can tick).
+    kind: "group",
+    id: "project-management",
+    label: "Project Management",
+    Icon: IconProjects,
+    roles: ENTRY_ROLES,
+    children: [
+      { kind: "leaf", to: "/projects/renovations", label: "Renovations", roles: ENTRY_ROLES },
     ],
   },
   {
