@@ -26,6 +26,7 @@ import { fmtINR } from "../lib/dashboard";
 import { uid } from "../lib/mappers";
 import type {
   ClassDef,
+  Distributor,
   FbProduct,
   Movie,
   MovieStatus,
@@ -839,6 +840,174 @@ export function MoviesSection() {
   );
 }
 
+// ── distributors section ──────────────────────────────────────────────
+
+export function DistributorsSection() {
+  const { state, setAppState } = useSync();
+  const appState = state.appState;
+  const [adding, setAdding] = useState(false);
+  if (!appState || !canEditCatalog(state.role)) return null;
+
+  function save(next: Distributor) {
+    if (!appState) return;
+    const others = appState.distributors.filter((d) => d.id !== next.id);
+    setAppState({ ...appState, distributors: [...others, next] });
+  }
+  function remove(id: UUID) {
+    if (!appState) return;
+    const d = appState.distributors.find((x) => x.id === id);
+    const linked = appState.movies.filter((m) => m.distributorId === id);
+    const warn = linked.length
+      ? `\n\n${linked.length} movie(s) are linked to it. They keep the distributor name on their records but the dropdown link is cleared.`
+      : "";
+    if (!confirm(`Delete distributor "${d?.name ?? id}"?${warn}`)) return;
+    setAppState({
+      ...appState,
+      distributors: appState.distributors.filter((x) => x.id !== id),
+      // Unlink movies but preserve their filed distributor name string.
+      movies: appState.movies.map((m) =>
+        m.distributorId === id ? { ...m, distributorId: undefined } : m,
+      ),
+    });
+  }
+
+  const sorted = [...appState.distributors].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Distributors</CardTitle>
+        <Button size="sm" onClick={() => setAdding((a) => !a)}>
+          {adding ? "Cancel" : "+ Add distributor"}
+        </Button>
+      </CardHeader>
+      {adding ? (
+        <CardBody className="border-b border-line bg-paper">
+          <DistributorForm
+            onCancel={() => setAdding(false)}
+            onSave={(d) => { save(d); setAdding(false); }}
+          />
+        </CardBody>
+      ) : null}
+      <CardBody className="p-0">
+        {sorted.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            No distributors yet. Add one, then pick it on each movie.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
+                  <th className="text-left px-5 py-3 font-semibold">Name</th>
+                  <th className="text-left px-5 py-3 font-semibold w-48">POC name</th>
+                  <th className="text-left px-5 py-3 font-semibold w-40">Contact</th>
+                  <th className="text-left px-5 py-3 font-semibold w-56">Email</th>
+                  <th className="text-right px-5 py-3 font-semibold w-36"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((d) => (
+                  <DistributorRow key={d.id} distributor={d} onSave={save} onRemove={remove} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function DistributorRow({
+  distributor,
+  onSave,
+  onRemove,
+}: {
+  distributor: Distributor;
+  onSave: (d: Distributor) => void;
+  onRemove: (id: UUID) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(distributor.name);
+  const [pocName, setPocName] = useState(distributor.pocName ?? "");
+  const [pocContact, setPocContact] = useState(distributor.pocContact ?? "");
+  const [pocEmail, setPocEmail] = useState(distributor.pocEmail ?? "");
+
+  function save() {
+    if (!name.trim()) return;
+    onSave({
+      ...distributor,
+      name: name.trim(),
+      pocName: pocName.trim() || undefined,
+      pocContact: pocContact.trim() || undefined,
+      pocEmail: pocEmail.trim() || undefined,
+    });
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <tr className="border-b border-line bg-amber-50/40">
+        <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2 text-right whitespace-nowrap">
+          <Button size="sm" onClick={save}>Save</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr className="border-b border-line hover:bg-paper/60">
+      <td className="px-5 py-2 font-medium">{distributor.name}</td>
+      <td className="px-5 py-2 text-ink-muted">{distributor.pocName ?? "—"}</td>
+      <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pocContact ?? "—"}</td>
+      <td className="px-5 py-2 text-ink-muted">{distributor.pocEmail ?? "—"}</td>
+      <td className="px-5 py-2 text-right whitespace-nowrap">
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
+        <Button size="sm" variant="ghost" onClick={() => onRemove(distributor.id)} className="text-red-700">×</Button>
+      </td>
+    </tr>
+  );
+}
+
+function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (d: Distributor) => void }) {
+  const [name, setName] = useState("");
+  const [pocName, setPocName] = useState("");
+  const [pocContact, setPocContact] = useState("");
+  const [pocEmail, setPocEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function go(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError("Name required."); return; }
+    onSave({
+      id: uid(),
+      name: name.trim(),
+      pocName: pocName.trim() || undefined,
+      pocContact: pocContact.trim() || undefined,
+      pocEmail: pocEmail.trim() || undefined,
+    });
+  }
+
+  return (
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
+      <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
+      <Field label="POC name"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} placeholder="Contact person" /></Field>
+      <Field label="Contact"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} placeholder="Phone" /></Field>
+      <Field label="Email"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} placeholder="name@example.com" /></Field>
+      {error ? <p className="text-sm text-red-700 lg:col-span-4">{error}</p> : null}
+      <div className="flex gap-2 lg:col-span-4">
+        <Button type="submit">Add distributor</Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
+
 function MovieRow({
   movie,
   onSave,
@@ -849,9 +1018,10 @@ function MovieRow({
   onRemove: (id: UUID) => void;
 }) {
   const { state } = useSync();
+  const distributors = state.appState?.distributors ?? [];
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(movie.name);
-  const [dist, setDist] = useState(movie.distributor ?? "");
+  const [distributorId, setDistributorId] = useState<string>(movie.distributorId ?? "");
   const [release, setRelease] = useState(movie.release ?? "");
   const [share, setShare] = useState(String(movie.share ?? 0));
   const [statusOverride, setStatusOverride] = useState<"" | MovieStatus>(movie.statusOverride ?? "");
@@ -876,10 +1046,13 @@ function MovieRow({
   }
 
   function save() {
+    const picked = distributors.find((d) => d.id === distributorId);
     onSave({
       ...movie,
       name: name.trim(),
-      distributor: dist.trim() || undefined,
+      distributorId: picked?.id,
+      // Keep the denormalized name in sync (DCR/PDF/CSV read this string).
+      distributor: picked?.name ?? undefined,
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl: posterUrl,
@@ -914,7 +1087,18 @@ function MovieRow({
           {posterErr ? <div className="text-[10px] text-red-700 mt-1">{posterErr}</div> : null}
         </td>
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
-        <td className="px-5 py-2"><Input value={dist} onChange={(e) => setDist(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2">
+          <select
+            value={distributorId}
+            onChange={(e) => setDistributorId(e.target.value)}
+            className="h-8 w-full rounded border border-line bg-white px-2 text-sm"
+          >
+            <option value="">— None —</option>
+            {distributors.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </td>
         <td className="px-5 py-2"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2 align-top">
           <select
@@ -1001,8 +1185,9 @@ function MovieRow({
 
 function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Movie) => void }) {
   const { state } = useSync();
+  const distributors = state.appState?.distributors ?? [];
   const [name, setName] = useState("");
-  const [dist, setDist] = useState("");
+  const [distributorId, setDistributorId] = useState<string>("");
   const [release, setRelease] = useState("");
   const [share, setShare] = useState("60");
   const [statusOverride, setStatusOverride] = useState<"" | MovieStatus>("");
@@ -1036,10 +1221,12 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
     // without a poster can still live with `posterUrl` unset since the
     // DB column is nullable; the UI prompts to add one on edit.
     if (!posterUrl) { setError("Poster image required."); return; }
+    const picked = distributors.find((d) => d.id === distributorId);
     onSave({
       id: uid(),
       name: name.trim(),
-      distributor: dist.trim() || undefined,
+      distributorId: picked?.id,
+      distributor: picked?.name ?? undefined,
       release: release || undefined,
       share: Number(share) || 0,
       posterUrl,
@@ -1052,7 +1239,18 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
   return (
     <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Empuraan" /></Field>
-      <Field label="Distributor"><Input value={dist} onChange={(e) => setDist(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
+      <Field label="Distributor">
+        <select
+          value={distributorId}
+          onChange={(e) => setDistributorId(e.target.value)}
+          className="h-9 w-full rounded border border-line bg-white px-2 text-sm"
+        >
+          <option value="">— None —</option>
+          {distributors.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+      </Field>
       <Field label="Release date"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} /></Field>
       <Field label="Share %">
         <Input type="number" min={0} max={100} step={0.01} value={share} onChange={(e) => setShare(e.target.value)} className="text-right" />

@@ -1,6 +1,6 @@
 // Route page: /settings/movies — Movies catalog editor.
 
-import { MoviesSection } from "../Settings";
+import { MoviesSection, DistributorsSection } from "../Settings";
 import { DesktopBetterBanner } from "../../components/layout/DesktopBetterBanner";
 
 export default function SettingsMoviesPage() {
@@ -13,6 +13,7 @@ export default function SettingsMoviesPage() {
           Master catalog. Edits sync to every screen and entry.
         </p>
       </div>
+      <DistributorsSection />
       <MoviesSection />
     </div>
   );

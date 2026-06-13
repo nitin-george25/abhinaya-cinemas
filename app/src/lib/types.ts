@@ -95,10 +95,26 @@ export interface Screen {
 
 export type MovieStatus = "coming_soon" | "now_showing" | "past";
 
+/** A distributor (the company a film's box-office share is settled with),
+ *  with a point-of-contact for chasing settlements. Cinema-scoped. */
+export interface Distributor {
+  id: UUID;
+  name: string;
+  pocName?: string;
+  pocContact?: string;
+  pocEmail?: string;
+}
+
 export interface Movie {
   id: UUID;
   name: string;
+  /** Denormalized distributor name. Kept as the display string written onto
+   *  every DCR / PDF / CSV (a filed document must render the name it was
+   *  filed with). Set from the linked `distributorId` on save. */
   distributor?: string;
+  /** FK into the `distributors` catalog. The Movies UI picks this from a
+   *  dropdown; `distributor` above is kept in sync as the display name. */
+  distributorId?: UUID;
   release?: DateISO;
   share: number;                  // distributor share %, e.g. 60
   /** Public URL to the movie poster in the `movie-posters` bucket. The
@@ -183,6 +199,7 @@ export interface AppState {
   classes: ClassDef[];
   screens: Screen[];
   movies: Movie[];
+  distributors: Distributor[];
   serialStarts: SerialStart[];
   openings: Opening[];
   entries: Entry[];
