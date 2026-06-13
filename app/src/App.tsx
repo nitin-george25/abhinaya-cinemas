@@ -31,6 +31,8 @@ import CashPaymentsPage from "./pages/cash/Payments";
 import CashSettlementsPage from "./pages/cash/Settlements";
 import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
+import RenovationsPage from "./pages/projects/Renovations";
+import ProjectDetailPage from "./pages/projects/ProjectDetail";
 
 export default function App() {
   return (
@@ -216,6 +218,16 @@ function AppGate() {
                   <Route path="/cash/settlements" element={<CashSettlementsPage />} />
                   <Route path="/cash/ledger"      element={<CashLedgerPage />} />
                   <Route path="/cash/reports"     element={<CashReportsPage />} />
+                </>
+              ) : null}
+
+              {/* Project Management — owner, manager, daily_manager. Per-project
+                  edit rights are enforced by RLS, not the route gate. */}
+              {canEnterBO ? (
+                <>
+                  <Route path="/projects"             element={<Navigate to="/projects/renovations" replace />} />
+                  <Route path="/projects/renovations" element={<RenovationsPage />} />
+                  <Route path="/projects/renovations/:id" element={<ProjectDetailPage />} />
                 </>
               ) : null}
 

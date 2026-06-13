@@ -21,6 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   CinemaRow,
   ClassRow,
+  DistributorRow,
   MovieRow,
   OpeningRow,
   PriceCardPriceRow,
@@ -35,6 +36,7 @@ import type {
   AppState,
   Cinema,
   ClassDef,
+  Distributor,
   Movie,
   Opening,
   PriceCard,
@@ -51,7 +53,7 @@ export interface CatalogReadResult {
   /** Partial<AppState> containing exactly the catalog slice. */
   catalog: Pick<
     AppState,
-    "cinema" | "tax" | "classes" | "screens" | "movies" | "serialStarts" | "openings"
+    "cinema" | "tax" | "classes" | "screens" | "movies" | "distributors" | "serialStarts" | "openings"
   >;
 }
 
@@ -88,6 +90,7 @@ export async function readCatalog(
     pcRes,
     pcpRes,
     movieRes,
+    distributorRes,
     ssRes,
     sscRes,
     openingRes,
@@ -103,6 +106,7 @@ export async function readCatalog(
     client.from("price_card_prices").select("*, price_cards!inner(screen_id, screens!inner(cinema_id))")
       .eq("price_cards.screens.cinema_id", cid),
     client.from("movies").select("*").eq("cinema_id", cid).is("archived_at", null),
+    client.from("distributors").select("*").eq("cinema_id", cid).is("archived_at", null),
     client.from("serial_starts").select("*, screens!inner(cinema_id)")
       .eq("screens.cinema_id", cid),
     client.from("serial_start_classes").select("*, serial_starts!inner(screen_id, screens!inner(cinema_id))")
@@ -121,6 +125,7 @@ export async function readCatalog(
     priceCards:         (pcRes.data        as PriceCardRow[] | null) ?? [],
     priceCardPrices:    (pcpRes.data       as PriceCardPriceRow[] | null) ?? [],
     movies:             (movieRes.data     as MovieRow[]     | null) ?? [],
+    distributors:       (distributorRes.data as DistributorRow[] | null) ?? [],
     serialStarts:       (ssRes.data        as SerialStartRow[] | null) ?? [],
     serialStartClasses: (sscRes.data       as SerialStartClassRow[] | null) ?? [],
     openings:           (openingRes.data   as OpeningRow[]   | null) ?? [],
@@ -138,6 +143,7 @@ export function composeCatalogFromRows(args: {
   priceCards:         PriceCardRow[];
   priceCardPrices:    PriceCardPriceRow[];
   movies:             MovieRow[];
+  distributors:       DistributorRow[];
   serialStarts:       SerialStartRow[];
   serialStartClasses: SerialStartClassRow[];
   openings:           OpeningRow[];
@@ -216,6 +222,17 @@ export function composeCatalogFromRows(args: {
       };
     });
 
+  const distributors: Distributor[] = args.distributors
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((d) => ({
+      id: d.id as UUID,
+      name: d.name,
+      pocName: d.poc_name ?? undefined,
+      pocContact: d.poc_contact ?? undefined,
+      pocEmail: d.poc_email ?? undefined,
+    }));
+
   const movies: Movie[] = args.movies
     .slice()
     .sort((a, b) => (b.release_date ?? "").localeCompare(a.release_date ?? ""))
@@ -223,6 +240,7 @@ export function composeCatalogFromRows(args: {
       id: m.id as UUID,
       name: m.name,
       distributor: m.distributor ?? undefined,
+      distributorId: m.distributor_id ?? undefined,
       release: m.release_date ?? undefined,
       share: Number(m.share_pct),
       posterUrl: m.poster_url ?? undefined,
@@ -257,7 +275,7 @@ export function composeCatalogFromRows(args: {
 
   return {
     cinemaId: args.cinemaId,
-    catalog: { cinema, tax, classes, screens, movies, serialStarts, openings },
+    catalog: { cinema, tax, classes, screens, movies, distributors, serialStarts, openings },
   };
 }
 
@@ -271,6 +289,7 @@ export interface CatalogSyncCache {
   priceCards:        Set<string>;
   priceCardPrices:   Set<string>;    // `${price_card_id}|${class_id}`
   movies:            Set<string>;
+  distributors:      Set<string>;
   serialStarts:      Set<string>;
   serialStartClasses: Set<string>;   // `${serial_start_id}|${class_id}`
   openings:          Set<string>;
@@ -280,7 +299,8 @@ export function emptyCatalogSyncCache(): CatalogSyncCache {
   return {
     classes: new Set(), screens: new Set(), screenClasses: new Set(),
     priceCards: new Set(), priceCardPrices: new Set(),
-    movies: new Set(), serialStarts: new Set(), serialStartClasses: new Set(),
+    movies: new Set(), distributors: new Set(),
+    serialStarts: new Set(), serialStartClasses: new Set(),
     openings: new Set(),
   };
 }
@@ -300,6 +320,7 @@ export function catalogCacheFromAppState(s: AppState): CatalogSyncCache {
     });
   });
   s.movies.forEach((m) => out.movies.add(m.id));
+  s.distributors.forEach((d) => out.distributors.add(d.id));
   s.serialStarts.forEach((ss) => {
     out.serialStarts.add(ss.id);
     Object.keys(ss.starts ?? {}).forEach((cid) =>
@@ -366,11 +387,21 @@ export async function pushCatalogDeltas(
       })),
     ),
   );
+  const wantDistributors = next.distributors.map((d) => ({
+    id: d.id,
+    cinema_id: cinemaId,
+    name: d.name,
+    poc_name: d.pocName ?? null,
+    poc_contact: d.pocContact ?? null,
+    poc_email: d.pocEmail ?? null,
+    updated_by: email,
+  }));
   const wantMovies = next.movies.map((m) => ({
     id: m.id,
     cinema_id: cinemaId,
     name: m.name,
     distributor: m.distributor ?? null,
+    distributor_id: m.distributorId ?? null,
     release_date: m.release ?? null,
     share_pct: m.share,
     poster_url: m.posterUrl ?? null,
@@ -407,6 +438,13 @@ export async function pushCatalogDeltas(
   // Build the new cache up-front (we'll diff against prevCache for deletes).
   const nextCache = catalogCacheFromAppState(next);
 
+  // Distributors must exist before movies are upserted (movies.distributor_id
+  // FK-references them). Await this one ahead of the parallel batch so a film
+  // pointing at a brand-new distributor doesn't trip the constraint.
+  if (wantDistributors.length) {
+    await safeUpsert(client, "distributors", wantDistributors, "id");
+  }
+
   // ── upserts ────────────────────────────────────────────────────────
   const tasks: Array<Promise<unknown>> = [];
   if (wantClasses.length)            tasks.push(safeUpsert(client, "classes", wantClasses, "id"));
@@ -434,6 +472,7 @@ export async function pushCatalogDeltas(
   const dScreens    = droppedSingle(prevCache.screens,    nextCache.screens);
   const dPriceCards = droppedSingle(prevCache.priceCards, nextCache.priceCards);
   const dMovies     = droppedSingle(prevCache.movies,     nextCache.movies);
+  const dDistributors = droppedSingle(prevCache.distributors, nextCache.distributors);
   const dSs         = droppedSingle(prevCache.serialStarts, nextCache.serialStarts);
   const dOpenings   = droppedSingle(prevCache.openings,   nextCache.openings);
 
@@ -445,6 +484,10 @@ export async function pushCatalogDeltas(
   if (dScreens.length)    tasks.push(safeDelete(client, "screens", "id", dScreens));
   if (dPriceCards.length) tasks.push(safeDelete(client, "price_cards", "id", dPriceCards));
   if (dMovies.length)     tasks.push(safeDelete(client, "movies", "id", dMovies));
+  // Safe to delete after movie upserts queued: the FK is ON DELETE SET NULL,
+  // and any movie keeping a now-removed distributor was already re-upserted
+  // above with distributor_id cleared.
+  if (dDistributors.length) tasks.push(safeDelete(client, "distributors", "id", dDistributors));
   if (dSs.length)         tasks.push(safeDelete(client, "serial_starts", "id", dSs));
   if (dOpenings.length)   tasks.push(safeDelete(client, "openings", "id", dOpenings));
 

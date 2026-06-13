@@ -235,6 +235,7 @@ export function useSupabaseSync(): SyncApi {
         classes: [],
         screens: [],
         movies: [],
+        distributors: [],
         serialStarts: [],
         openings: [],
         entries,

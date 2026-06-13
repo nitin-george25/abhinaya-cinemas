@@ -36,6 +36,7 @@ export interface ConfigPayload {
   classes?: unknown;
   screens?: unknown;
   movies?: unknown;
+  distributors?: unknown;
   serialStarts?: unknown;
   openings?: unknown;
 }
@@ -188,7 +189,10 @@ export interface MovieRow {
   id:             string;
   cinema_id:      string;
   name:           string;
+  /** Denormalized display name, kept in sync with `distributor_id`. */
   distributor:    string | null;
+  /** FK into `public.distributors` (distributors migration). */
+  distributor_id: string | null;
   release_date:   string | null;       // YYYY-MM-DD
   share_pct:      number;
   language:       string | null;
@@ -206,6 +210,17 @@ export interface MovieRow {
   /** Drives the landing hero film; at most one true (migration 16). */
   is_featured:    boolean;
   archived_at:    string | null;
+}
+
+/** `public.distributors` — distributor catalog with point-of-contact. */
+export interface DistributorRow {
+  id:           string;
+  cinema_id:    string;
+  name:         string;
+  poc_name:     string | null;
+  poc_contact:  string | null;
+  poc_email:    string | null;
+  archived_at:  string | null;
 }
 
 export interface SerialStartRow {

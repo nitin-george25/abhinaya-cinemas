@@ -70,3 +70,7 @@ export const IconCash = svg(
 export const IconFinance = svg(
   "M3 8l7-4 7 4M4 8v7M8 8v7M12 8v7M16 8v7M3 16h14",
 );
+// Project management — clipboard with a checklist (renovations & projects).
+export const IconProjects = svg(
+  "M7 4h6M7 4a1 1 0 0 0-1 1v0a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v0a1 1 0 0 0-1-1M6 5H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1M7.5 10l1.5 1.5L12 9",
+);
