@@ -181,6 +181,22 @@ it out retroactively. Don't repeat.
 17. Tally integration (accounts handoff).
 18. Ops management — checklists + owner audit (open/close routines,
     food-safety, projector booth).
+18a. **Slack notifications for petty expenses** — post to a Slack
+    channel on each lifecycle event of `petty_expenses`:
+    - **Created** (`createPettyExpense`, status `pending`): amount,
+      category, requester, description, expense date, operating unit,
+      POS counter, and an approval deep-link into the console.
+    - **Approved** (`approvePettyExpense`): update/append
+      "Approved by [daily manager name]".
+    - **Rejected** (`rejectPettyExpense`): "Rejected by [name]" +
+      `rejected_reason`.
+    Build approach: reuse the Edge Function notification pattern
+    (cf. `send-whatsapp-show` / `daily-digest`) — a `notify-slack`
+    Edge Function posting to a Slack Incoming Webhook (env secret
+    `SLACK_WEBHOOK_URL`), called after the insert/update in `cash.ts`,
+    or a DB trigger via `pg_net`. Name → email lookup for the approver.
+    Approval link = console URL to the pending-expenses view filtered
+    to the expense id. Open Qs below.
 
 ### Cleanup / debt
 
