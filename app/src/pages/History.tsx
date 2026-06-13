@@ -110,6 +110,7 @@ export default function HistoryPage() {
   // matching how Settings/Entry deletes work, so the engine and cloud stay
   // consistent. The visible page is updated optimistically.
   function handleDelete(row: Row) {
+    if (!appState) return;
     const { entry, computed } = row;
     const label = `${computed.movie?.name ?? entry.movieId} — ${niceDate(entry.date)}`;
     if (
