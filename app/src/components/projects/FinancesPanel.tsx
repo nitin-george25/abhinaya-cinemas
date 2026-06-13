@@ -39,9 +39,7 @@ function parseCsvLine(line: string): string[] {
 // Parse a budget CSV into BudgetItemInput rows. Accepts an optional header row
 // (name/category/estimate/notes, any order); otherwise assumes that column order.
 function parseBudgetCsv(text: string): { rows: BudgetItemInput[]; error?: string } {
-  const lines = text.split(/
-?
-/).filter((l) => l.trim() !== "");
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return { rows: [], error: "The file is empty." };
   const first = parseCsvLine(lines[0]!).map((h) => h.toLowerCase());
   const hasHeader = first.includes("name") || first.includes("estimate");
