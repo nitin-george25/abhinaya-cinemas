@@ -35,6 +35,7 @@ These predate the `docs/` folder and live where they're consumed:
   the vanilla legacy console architecture.
 - **[../supabase/README.md](../supabase/README.md)** — Supabase setup
   notes.
-- **[../migrations/catalog-normalization/README.md](../migrations/catalog-normalization/README.md)**
-  and **[../migrations/cash-management/README.md](../migrations/cash-management/README.md)** —
-  migration-specific notes.
+- **[../supabase/migrations-archive/catalog-normalization/README.md](../supabase/migrations-archive/catalog-normalization/README.md)**
+  and **[../supabase/migrations-archive/cash-management/README.md](../supabase/migrations-archive/cash-management/README.md)** —
+  archived migration-specific notes (reference only; new migrations live in
+  `supabase/migrations/`).

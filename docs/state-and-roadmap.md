@@ -258,7 +258,7 @@ it out retroactively. Don't repeat.
 | Cash management         | `app/src/pages/cash/`, `supabase/migrations/cash_*` | `../Cash Management Design.md` |
 | Database normalization  | `supabase/migrations/`                        | `../DB Normalization Design.md` |
 | Roles + access          | n/a                                           | `../ROLE_ACCESS.md` |
-| Catalog (movies, prices, screens) | `app/src/pages/settings/`, `migrations/catalog-normalization/` | `migrations/catalog-normalization/README.md` |
+| Catalog (movies, prices, screens) | `app/src/pages/settings/`, `supabase/migrations-archive/catalog-normalization/` | `supabase/migrations-archive/catalog-normalization/README.md` |
 | Edge functions          | `supabase/functions/`                         | This file §1 |
 | Build + deploy          | `build.sh`, `netlify.toml` (defunct)          | `../HANDOFF.md` §5 |
 

@@ -1,0 +1,60 @@
+# ============================================================================
+# Database migrations — apply supabase/migrations/ on push.
+#
+#   • push to `staging` → applied to the STAGING Supabase database
+#   • push to `main`    → applied to the PROD Supabase database
+#
+# Both run automatically. The job is the same script humans use locally
+# (scripts/db-push.sh), run non-interactively. `supabase db push` only applies
+# migrations that aren't already recorded in each database's history, so an
+# empty push is a safe no-op.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN         — personal access token (account/tokens)
+#   SUPABASE_DB_PASSWORD_STAGING  — staging project DB password
+#   SUPABASE_DB_PASSWORD_PROD     — prod project DB password
+#
+# Project refs are not secret (they live in supabase/config.toml) and are set
+# below per branch.
+# ============================================================================
+
+name: Database migrations
+
+on:
+  push:
+    branches: [staging, main]
+
+# Never let two migration runs for the same branch overlap.
+concurrency:
+  group: db-migrations-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Resolve target environment
+        id: target
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "env=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply migrations
+        env:
+          # Pick the matching DB password for the resolved target.
+          SUPABASE_DB_PASSWORD: ${{ steps.target.outputs.env == 'prod' && secrets.SUPABASE_DB_PASSWORD_PROD || secrets.SUPABASE_DB_PASSWORD_STAGING }}
+          ASSUME_YES: "1"
+        run: bash scripts/db-push.sh ${{ steps.target.outputs.env }}

@@ -121,8 +121,8 @@ flows that may or may not appear inside a page.
 
 ## Database RLS summary
 
-Sourced from `migrations/cash-management/04_rls.sql` (and updates in
-migrations 07 / 08 / 09 / 10 / 11).
+Sourced from `supabase/migrations-archive/cash-management/04_rls.sql` (and
+updates in migrations 07 / 08 / 09 / 10 / 11).
 
 | Table | Read | Write | Notes |
 |---|---|---|---|

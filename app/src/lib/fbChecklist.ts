@@ -4,7 +4,7 @@
 // The step *wording* (English + Malayalam) lives here, keyed by SOP code, so
 // it stays in one place and matches the printed SOP Manual word-for-word. The
 // DB (fb_checklist_runs / fb_checklist_items) only stores which steps were
-// done + the evidence. See migrations/fb-checklist/.
+// done + the evidence. See supabase/migrations-archive/fb-checklist/.
 // ============================================================================
 
 import { getSupabase } from "./supabase";

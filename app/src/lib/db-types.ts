@@ -127,7 +127,7 @@ export interface DailySummaryRow extends CumulativeRow {
 
 // ── Normalized catalog tables (Phase 3) ──────────────────────────────────
 //
-// Mirror the columns defined in migrations/catalog-normalization/*.sql.
+// Mirror the columns defined in supabase/migrations-archive/catalog-normalization/*.sql.
 // IDs on catalog tables are TEXT (not UUID) so legacy ids like "cls_royale"
 // from the JSONB blob round-trip cleanly.
 
@@ -286,7 +286,7 @@ export interface RealtimeVersionRow {
 
 // ── Cash management tables ───────────────────────────────────────────────
 //
-// Mirror migrations/cash-management/*.sql. All UUID PKs.
+// Mirror supabase/migrations-archive/cash-management/*.sql. All UUID PKs.
 
 export interface OperatingUnitRow {
   id:                     string;
