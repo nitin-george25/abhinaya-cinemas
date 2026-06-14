@@ -34,6 +34,7 @@ import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
+import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
 
 export default function App() {
   return (
@@ -149,11 +150,24 @@ function AppGate() {
                 <>
                   <Route path="/fb/entry"     element={<FBEntryPage />} />
                   <Route path="/fb/history"   element={<FBHistoryPage />} />
-                  <Route path="/fb/checklist" element={<FBChecklistPage />} />
+                  {/* Checklist moved to Operations; keep the old URL working. */}
+                  <Route path="/fb/checklist" element={<Navigate to="/operations/checklist" replace />} />
                 </>
               ) : null}
               {role === "owner" ? (
                 <Route path="/fb/menu-items" element={<FBMenuItemsPage />} />
+              ) : null}
+
+              {/* Operations — staff rosters + daily SOP checklists.
+                  owner, manager, daily_manager (ENTRY_ROLES). Manage/approve
+                  rights are gated inside the pages + by RLS. */}
+              {canEnterBO ? (
+                <>
+                  <Route path="/operations" element={<Navigate to="/operations/rosters/daily-managers" replace />} />
+                  <Route path="/operations/rosters" element={<Navigate to="/operations/rosters/daily-managers" replace />} />
+                  <Route path="/operations/rosters/daily-managers" element={<DailyManagerRosterPage />} />
+                  <Route path="/operations/checklist" element={<FBChecklistPage />} />
+                </>
               ) : null}
 
               {/* Reports — owner, manager, accountant */}

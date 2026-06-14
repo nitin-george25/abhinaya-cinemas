@@ -1,0 +1,8 @@
+# Abhinaya Cinemas — public marketing site at the apex domain.
+# The admin console under /admin/ is private and must not be indexed.
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+
+Sitemap: https://abhinayacinemas.com/sitemap.xml

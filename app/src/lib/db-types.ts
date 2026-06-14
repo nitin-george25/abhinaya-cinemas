@@ -560,3 +560,62 @@ export interface PartyRow {
   created_at:     string | null;
   updated_at:     string | null;
 }
+
+// ── Operations: staff rosters (migration operations-rosters) ────────────────
+
+export type RosterStatus       = "draft" | "published";
+export type RosterRequestStatus = "pending" | "approved" | "rejected";
+
+export interface StaffRosterRow {
+  id:          string;
+  cinema_id:   string;
+  staff_type:  string;          // 'daily_manager' for now
+  week_start:  string;          // YYYY-MM-DD (a Thursday)
+  status:      RosterStatus;
+  notes:       string | null;
+  created_by:  string | null;
+  created_at:  string | null;
+  updated_at:  string | null;
+  updated_by:  string | null;
+}
+
+export interface RosterAssignmentRow {
+  id:             string;
+  roster_id:      string;
+  work_date:      string;       // YYYY-MM-DD
+  day_offset:     number;       // 0..6 = Thu..Wed
+  assignee_email: string | null;
+  shift_start:    string;       // HH:MM:SS
+  shift_label:    string;
+  created_at:     string | null;
+  updated_at:     string | null;
+  updated_by:     string | null;
+}
+
+export interface RosterSwapRow {
+  id:                 string;
+  roster_id:          string;
+  requested_by:       string;
+  from_date:          string;   // YYYY-MM-DD
+  to_date:            string;   // YYYY-MM-DD
+  counterparty_email: string | null;
+  reason:             string;
+  status:             RosterRequestStatus;
+  decided_by:         string | null;
+  decided_at:         string | null;
+  decision_note:      string | null;
+  created_at:         string | null;
+}
+
+export interface RosterEmergencyLeaveRow {
+  id:          string;
+  roster_id:   string;
+  work_date:   string;          // YYYY-MM-DD
+  staff_email: string;
+  reason:      string;
+  status:      RosterRequestStatus;
+  cover_email: string | null;
+  decided_by:  string | null;
+  decided_at:  string | null;
+  created_at:  string | null;
+}

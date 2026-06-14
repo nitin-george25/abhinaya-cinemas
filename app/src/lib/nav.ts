@@ -16,6 +16,7 @@ import {
   IconCash,
   IconFinance,
   IconProjects,
+  IconOperations,
 } from "../components/icons";
 import type { Role } from "./hooks/useSupabaseSync";
 
@@ -87,8 +88,32 @@ export const NAV: NavItem[] = [
     children: [
       { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/history",    label: "History",    roles: ENTRY_ROLES },
-      { kind: "leaf", to: "/fb/checklist",  label: "Checklist",  roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/menu-items", label: "Menu Items", roles: OWNER_ONLY },
+    ],
+  },
+  {
+    // Operations — on-the-ground running of the cinema: staff rosters and the
+    // daily SOP checklists. Visible to anyone who runs a shift; manage/approve
+    // rights are gated per-feature (owner/manager) by the pages + RLS.
+    kind: "group",
+    id: "operations",
+    label: "Operations",
+    Icon: IconOperations,
+    roles: ENTRY_ROLES,
+    children: [
+      {
+        // Rosters — weekly staff rosters. Daily Manager Roster is the first;
+        // other staff rosters can be added as further leaves later.
+        kind: "subgroup",
+        id: "operations-rosters",
+        label: "Rosters",
+        roles: ENTRY_ROLES,
+        children: [
+          { kind: "leaf", to: "/operations/rosters/daily-managers", label: "Daily Manager Roster", roles: ENTRY_ROLES },
+        ],
+      },
+      // Moved here from F&B — the daily SOP checklists.
+      { kind: "leaf", to: "/operations/checklist", label: "Checklists", roles: ENTRY_ROLES },
     ],
   },
   {
