@@ -11,6 +11,7 @@ import EntryPage from "./pages/Entry";
 import HistoryPage from "./pages/History";
 import FBEntryPage from "./pages/fb/Entry";
 import FBHistoryPage from "./pages/fb/History";
+import FBChecklistPage from "./pages/fb/Checklist";
 import FBMenuItemsPage from "./pages/fb/MenuItems";
 import ActivityPage from "./pages/Activity";
 import BackupPage from "./pages/Backup";
@@ -146,8 +147,9 @@ function AppGate() {
               {/* F&B — owner, manager, daily_manager */}
               {canDoFB ? (
                 <>
-                  <Route path="/fb/entry"   element={<FBEntryPage />} />
-                  <Route path="/fb/history" element={<FBHistoryPage />} />
+                  <Route path="/fb/entry"     element={<FBEntryPage />} />
+                  <Route path="/fb/history"   element={<FBHistoryPage />} />
+                  <Route path="/fb/checklist" element={<FBChecklistPage />} />
                 </>
               ) : null}
               {role === "owner" ? (

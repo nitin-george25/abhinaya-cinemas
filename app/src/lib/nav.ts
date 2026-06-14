@@ -87,6 +87,7 @@ export const NAV: NavItem[] = [
     children: [
       { kind: "leaf", to: "/fb/entry",      label: "Entry",      roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/history",    label: "History",    roles: ENTRY_ROLES },
+      { kind: "leaf", to: "/fb/checklist",  label: "Checklist",  roles: ENTRY_ROLES },
       { kind: "leaf", to: "/fb/menu-items", label: "Menu Items", roles: OWNER_ONLY },
     ],
   },

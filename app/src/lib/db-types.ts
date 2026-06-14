@@ -84,6 +84,40 @@ export interface FbProductRow {
   updated_at: string | null;
 }
 
+/** `public.fb_checklist_runs` — one completed checklist instance.
+ *  The bilingual step wording lives in src/lib/fbChecklist.ts, keyed by
+ *  sop_code; this row stores who/when + sign-off + cash recon (`extra`). */
+export interface FbChecklistRunRow {
+  id:                    string;
+  cinema_id:             string;
+  run_date:              string;        // YYYY-MM-DD
+  checklist_type:        "opening" | "midshift" | "closing";
+  shift:                 string;
+  status:                "in_progress" | "completed";
+  staff_name:            string | null;
+  staff_email:           string | null;
+  manager_signoff_email: string | null;
+  manager_signed_at:     string | null;
+  notes:                 string | null;
+  extra:                 Record<string, unknown> | null;
+  created_at:            string | null;
+  updated_at:            string | null;
+  updated_by:            string | null;
+}
+
+/** `public.fb_checklist_items` — one SOP step result inside a run. */
+export interface FbChecklistItemRow {
+  id:         string;
+  run_id:     string;
+  sop_code:   string;
+  checked:    boolean;
+  done_at:    string | null;
+  initial:    string | null;
+  photo_url:  string | null;
+  position:   number;
+  created_at: string | null;
+}
+
 /** A pre-aggregated summary row (Phase D will materialize these). Not used yet. */
 export interface DailySummaryRow extends CumulativeRow {
   entry_date: string;
