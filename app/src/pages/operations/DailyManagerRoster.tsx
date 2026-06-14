@@ -13,7 +13,7 @@
 // staff_type so other staff rosters can be added as further tabs later.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -33,7 +33,6 @@ import {
   decideEmergencyLeave,
   listRosterStaff,
   weekStartOf,
-  weekDates,
   weekRangeLabel,
   WEEKDAY_LABELS,
   type RosterBundle,
@@ -97,7 +96,6 @@ export default function DailyManagerRosterPage() {
     [staff],
   );
 
-  const dates = useMemo(() => weekDates(weekStart), [weekStart]);
   const pendingSwaps = bundle?.swaps.filter((s) => s.status === "pending") ?? [];
   const pendingLeaves = bundle?.leaves.filter((l) => l.status === "pending") ?? [];
 
