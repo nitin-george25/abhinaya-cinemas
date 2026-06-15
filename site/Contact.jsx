@@ -93,6 +93,12 @@ function Contact() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <Icon name="phone" size={18} style={{ color: 'var(--accent)' }} />
+              <a href="tel:+914814066453" style={{ fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 14, color: 'var(--fg)' }}>
+                +91 481 406 6453
+              </a>
+            </div>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
               <Icon name="mail" size={18} style={{ color: 'var(--accent)' }} />
               <a href="mailto:hello@abhinayacinemas.com" style={{ fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 14, color: 'var(--fg)' }}>
                 hello@abhinayacinemas.com

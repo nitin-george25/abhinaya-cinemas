@@ -16,6 +16,7 @@ import FBMenuItemsPage from "./pages/fb/MenuItems";
 import ActivityPage from "./pages/Activity";
 import BackupPage from "./pages/Backup";
 import SettingsMoviesPage from "./pages/settings/Movies";
+import SettingsDistributorsPage from "./pages/settings/Distributors";
 import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
@@ -193,6 +194,7 @@ function AppGate() {
                   <Route path="/activity"  element={<ActivityPage />} />
                   <Route path="/backup"    element={<BackupPage />} />
                   <Route path="/settings/movies"  element={<SettingsMoviesPage />} />
+                  <Route path="/settings/distributors" element={<SettingsDistributorsPage />} />
                   <Route path="/settings/screens" element={<SettingsScreensPage />} />
                   <Route path="/settings/tax"     element={<SettingsTaxPage />} />
                   {/* Users page is now owner OR manager. Manager scope is

@@ -188,7 +188,17 @@ export const NAV: NavItem[] = [
     Icon: IconSettings,
     roles: ["owner", "manager", "accountant"],
     children: [
-      { kind: "leaf", to: "/settings/movies",  label: "Movies",            roles: OWNER_MANAGER },
+      {
+        // Box Office catalog — the films and the distributors they settle with.
+        kind: "subgroup",
+        id: "settings-box-office",
+        label: "Box Office",
+        roles: OWNER_MANAGER,
+        children: [
+          { kind: "leaf", to: "/settings/movies",       label: "Movies",       roles: OWNER_MANAGER },
+          { kind: "leaf", to: "/settings/distributors", label: "Distributors", roles: OWNER_MANAGER },
+        ],
+      },
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/cash",    label: "Cash",              roles: ["owner", "accountant"] },

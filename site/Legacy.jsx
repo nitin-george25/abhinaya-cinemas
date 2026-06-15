@@ -1,7 +1,7 @@
 /* Legacy — heritage band with the brand's projector-beam motif. */
 function Legacy() {
   const stats = [
-    { n: '1974', l: 'Established in Kottayam' },
+    { n: '1968', l: 'Established in Changanacherry' },
     { n: '50+', l: 'Years of stories' },
     { n: '3', l: 'Curated auditoriums' },
   ];
