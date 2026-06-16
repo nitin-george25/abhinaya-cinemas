@@ -19,7 +19,7 @@ function Footer({ onNav }) {
           <div>
             <div className="eyebrow" style={{ marginBottom: 16 }}>Visit</div>
             <div style={{ fontFamily: 'var(--font-text)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 14, color: 'var(--fg-muted)', lineHeight: 1.8 }}>
-              Abhinaya Cinemas, M C Road<br />Perunna, Changanacherry<br />Kottayam, Kerala — 686101
+              Abhinaya Cinemas, M C Road<br />Perunna, Changanacherry<br />Kottayam, Kerala — 686101<br /><a href="tel:+914814066453" style={{ color: 'inherit', textDecoration: 'none' }}>+91 481 406 6453</a>
             </div>
           </div>
           <div>

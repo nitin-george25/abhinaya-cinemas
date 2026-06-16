@@ -74,3 +74,7 @@ export const IconFinance = svg(
 export const IconProjects = svg(
   "M7 4h6M7 4a1 1 0 0 0-1 1v0a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v0a1 1 0 0 0-1-1M6 5H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1M7.5 10l1.5 1.5L12 9",
 );
+// Operations — calendar grid (rosters, checklists, scheduling).
+export const IconOperations = svg(
+  "M5 4h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 8h12M7 3v3M13 3v3M7 11h2M11 11h2",
+);

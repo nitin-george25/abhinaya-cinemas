@@ -84,6 +84,40 @@ export interface FbProductRow {
   updated_at: string | null;
 }
 
+/** `public.fb_checklist_runs` — one completed checklist instance.
+ *  The bilingual step wording lives in src/lib/fbChecklist.ts, keyed by
+ *  sop_code; this row stores who/when + sign-off + cash recon (`extra`). */
+export interface FbChecklistRunRow {
+  id:                    string;
+  cinema_id:             string;
+  run_date:              string;        // YYYY-MM-DD
+  checklist_type:        "opening" | "midshift" | "closing";
+  shift:                 string;
+  status:                "in_progress" | "completed";
+  staff_name:            string | null;
+  staff_email:           string | null;
+  manager_signoff_email: string | null;
+  manager_signed_at:     string | null;
+  notes:                 string | null;
+  extra:                 Record<string, unknown> | null;
+  created_at:            string | null;
+  updated_at:            string | null;
+  updated_by:            string | null;
+}
+
+/** `public.fb_checklist_items` — one SOP step result inside a run. */
+export interface FbChecklistItemRow {
+  id:         string;
+  run_id:     string;
+  sop_code:   string;
+  checked:    boolean;
+  done_at:    string | null;
+  initial:    string | null;
+  photo_url:  string | null;
+  position:   number;
+  created_at: string | null;
+}
+
 /** A pre-aggregated summary row (Phase D will materialize these). Not used yet. */
 export interface DailySummaryRow extends CumulativeRow {
   entry_date: string;
@@ -93,7 +127,7 @@ export interface DailySummaryRow extends CumulativeRow {
 
 // ── Normalized catalog tables (Phase 3) ──────────────────────────────────
 //
-// Mirror the columns defined in migrations/catalog-normalization/*.sql.
+// Mirror the columns defined in supabase/migrations-archive/catalog-normalization/*.sql.
 // IDs on catalog tables are TEXT (not UUID) so legacy ids like "cls_royale"
 // from the JSONB blob round-trip cleanly.
 
@@ -252,7 +286,7 @@ export interface RealtimeVersionRow {
 
 // ── Cash management tables ───────────────────────────────────────────────
 //
-// Mirror migrations/cash-management/*.sql. All UUID PKs.
+// Mirror supabase/migrations-archive/cash-management/*.sql. All UUID PKs.
 
 export interface OperatingUnitRow {
   id:                     string;
@@ -525,4 +559,63 @@ export interface PartyRow {
   archived_at:    string | null;
   created_at:     string | null;
   updated_at:     string | null;
+}
+
+// ── Operations: staff rosters (migration operations-rosters) ────────────────
+
+export type RosterStatus       = "draft" | "published";
+export type RosterRequestStatus = "pending" | "approved" | "rejected";
+
+export interface StaffRosterRow {
+  id:          string;
+  cinema_id:   string;
+  staff_type:  string;          // 'daily_manager' for now
+  week_start:  string;          // YYYY-MM-DD (a Thursday)
+  status:      RosterStatus;
+  notes:       string | null;
+  created_by:  string | null;
+  created_at:  string | null;
+  updated_at:  string | null;
+  updated_by:  string | null;
+}
+
+export interface RosterAssignmentRow {
+  id:             string;
+  roster_id:      string;
+  work_date:      string;       // YYYY-MM-DD
+  day_offset:     number;       // 0..6 = Thu..Wed
+  assignee_email: string | null;
+  shift_start:    string;       // HH:MM:SS
+  shift_label:    string;
+  created_at:     string | null;
+  updated_at:     string | null;
+  updated_by:     string | null;
+}
+
+export interface RosterSwapRow {
+  id:                 string;
+  roster_id:          string;
+  requested_by:       string;
+  from_date:          string;   // YYYY-MM-DD
+  to_date:            string;   // YYYY-MM-DD
+  counterparty_email: string | null;
+  reason:             string;
+  status:             RosterRequestStatus;
+  decided_by:         string | null;
+  decided_at:         string | null;
+  decision_note:      string | null;
+  created_at:         string | null;
+}
+
+export interface RosterEmergencyLeaveRow {
+  id:          string;
+  roster_id:   string;
+  work_date:   string;          // YYYY-MM-DD
+  staff_email: string;
+  reason:      string;
+  status:      RosterRequestStatus;
+  cover_email: string | null;
+  decided_by:  string | null;
+  decided_at:  string | null;
+  created_at:  string | null;
 }

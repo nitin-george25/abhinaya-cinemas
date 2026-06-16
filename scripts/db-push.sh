@@ -23,6 +23,13 @@
 # You'll need a Supabase access token in $SUPABASE_ACCESS_TOKEN. Get it from
 # https://supabase.com/dashboard/account/tokens. Add it to your shell rc
 # or .env.local and `source` it before running this script.
+#
+# CI / non-interactive use:
+#   • Set $SUPABASE_DB_PASSWORD so link/push never prompt for the DB password.
+#   • Set ASSUME_YES=1 (or run under CI, where CI=true) to skip the prod
+#     confirmation prompt. A missing TTY is also treated as non-interactive.
+#   This script is the single entry point used by both humans and the
+#   .github/workflows/db-migrations.yml workflow.
 # ============================================================================
 
 set -euo pipefail
@@ -57,15 +64,30 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Optional DB password — required in non-interactive runs (CI). When set we
+# pass it explicitly to link/list/push so the CLI never blocks on a prompt.
+# Locally you can leave it unset and the CLI will prompt or use a cached value.
+PW_ARGS=()
+if [[ -n "${SUPABASE_DB_PASSWORD:-}" ]]; then
+  PW_ARGS=(--password "$SUPABASE_DB_PASSWORD")
+fi
+
+# Are we running unattended? CI sets CI=true; ASSUME_YES=1 forces it; and a
+# missing TTY on stdin means there's no human to answer the prompt.
+NONINTERACTIVE=0
+if [[ "${ASSUME_YES:-}" == "1" || "${CI:-}" == "true" || ! -t 0 ]]; then
+  NONINTERACTIVE=1
+fi
+
 echo "→ Linking Supabase project ($TARGET → $PROJECT_REF)"
-supabase link --project-ref "$PROJECT_REF" >/dev/null
+supabase link --project-ref "$PROJECT_REF" "${PW_ARGS[@]}" >/dev/null
 
 echo "→ Pending migrations:"
 # `migration list` shows local + remote; the side-by-side diff is exactly
-# what we want before applying anything.
-supabase migration list
+# what we want before applying anything. Informational — never fail the run on it.
+supabase migration list "${PW_ARGS[@]}" || true
 
-if [[ "$TARGET" == "prod" ]]; then
+if [[ "$TARGET" == "prod" && "$NONINTERACTIVE" -eq 0 ]]; then
   echo ""
   read -r -p "Apply these migrations to PROD? (type 'yes' to confirm) " CONFIRM
   if [[ "$CONFIRM" != "yes" ]]; then
@@ -75,7 +97,7 @@ if [[ "$TARGET" == "prod" ]]; then
 fi
 
 echo "→ Pushing migrations…"
-supabase db push
+supabase db push "${PW_ARGS[@]}"
 
 echo ""
 echo "Done. Verify with: supabase migration list"

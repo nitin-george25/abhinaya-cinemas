@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSync } from "../lib/hooks/SyncContext";
-import { todayIso } from "../lib/dates";
+import { todayIso, addDaysIso } from "../lib/dates";
 import {
   addShow,
   blankEntry,
@@ -128,14 +128,21 @@ export default function EntryPage() {
     existing?.share ??
     appState.movies.find((m) => m.id === movieId)?.share ?? 0;
 
+  // DCR edit lock — an entry dated D is editable on D, D+1, D+2 (IST) and
+  // locks from D+3 onward for everyone except the owner. RLS enforces the
+  // same rule server-side (migration 20260613140000); this UI gate keeps
+  // locked entries read-only and blocks back-dated creates.
+  const editLocked = state.role !== "owner" && date < addDaysIso(todayIso(), -2);
+
   function startEntry() {
-    if (!movieId || !screenId) return;
+    if (!movieId || !screenId || editLocked) return;
     const fresh = blankEntry(appState!, date, movieId, screenId);
     if (shareOverride != null) fresh.share = shareOverride;
     setAppState(upsertEntry(appState!, fresh));
   }
 
   function persist(next: Entry) {
+    if (editLocked) return;
     setAppState(upsertEntry(appState!, next));
   }
 
@@ -222,11 +229,13 @@ export default function EntryPage() {
         movieId={movieId}
         screenId={screenId}
         share={share}
-        shareLocked={!!existing}
+        shareLocked={!!existing || editLocked}
         onChange={onHeaderChange}
       />
 
-      {existing ? (
+      {editLocked ? (
+        <LockedEntryView entry={existing} appState={appState} date={date} />
+      ) : existing ? (
         <EntryBody entry={existing} persist={persist} />
       ) : (
         <EmptyState
@@ -259,6 +268,46 @@ function EmptyState({
         </Button>
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * Read-only view shown when an entry is locked (older than 2 days, non-owner).
+ * Surfaces the computed DCR figures so staff can still read/print the day,
+ * but offers no editable controls. The matching server-side guard is the
+ * entries_edit_lock_* RLS policies (migration 20260613140000).
+ */
+function LockedEntryView({
+  entry,
+  appState,
+  date,
+}: {
+  entry: Entry | undefined;
+  appState: AppState;
+  date: DateISO;
+}) {
+  const computed = useMemo(
+    () => (entry ? computeEntry(appState, entry) : null),
+    [appState, entry],
+  );
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardBody className="flex items-start gap-3">
+          <Badge tone="amber">Locked</Badge>
+          <div className="text-sm text-ink-muted">
+            <p className="font-medium text-ink">
+              This entry is more than 2 days old ({date}).
+            </p>
+            <p className="mt-1">
+              Entries lock 2 days after their show date and can no longer be
+              edited. Ask the owner if a correction is needed.
+            </p>
+          </div>
+        </CardBody>
+      </Card>
+      {computed ? <EntryPreview computed={computed} /> : null}
+    </div>
   );
 }
 

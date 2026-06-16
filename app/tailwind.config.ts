@@ -53,6 +53,15 @@ export default {
           "sans-serif",
         ],
         mono: ["JetBrains Mono", "Menlo", "monospace"],
+        // Malayalam (bilingual SOP checklists). Anek Malayalam pairs with
+        // Barlow; loaded from Google Fonts in index.html. Apply via
+        // `font-malayalam`.
+        malayalam: [
+          "Anek Malayalam",
+          "Barlow Semi Condensed",
+          "system-ui",
+          "sans-serif",
+        ],
       },
       borderRadius: {
         xl: "0.875rem",

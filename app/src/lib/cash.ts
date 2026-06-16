@@ -1,7 +1,7 @@
 // ============================================================================
 // Cash management — domain types + Supabase DAL.
 //
-// Mirrors migrations/cash-management/*.sql. Talks directly to Supabase
+// Mirrors supabase/migrations-archive/cash-management/*.sql. Talks directly to Supabase
 // (no dual-write blob); the catalog dual-write only exists for legacy
 // migration, cash management is normalized-only from day 1.
 // ============================================================================

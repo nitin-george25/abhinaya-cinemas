@@ -1,8 +1,29 @@
 # Supabase migrations
 
-This directory is the **source of truth** for new database changes. The
-Supabase CLI tracks which files have been applied via
+`supabase/migrations/` is the **single source of truth** for all database
+changes. Author every new migration here as a timestamped file — the old
+`migrations/<feature>/` convention is retired (its history now lives in
+`supabase/migrations-archive/`, reference-only, never applied). The Supabase
+CLI tracks which files have been applied via
 `supabase_migrations.schema_migrations` and only runs what's pending.
+
+## CI — migrations apply automatically on push
+
+`.github/workflows/db-migrations.yml` runs `supabase db push` on every push:
+
+- push to **staging** → applied to the **staging** database
+- push to **main** → applied to the **prod** database
+
+Both are automatic (no approval gate). Because `db push` only applies files
+not already in each database's history, a push with no new migration is a safe
+no-op. The workflow runs the same `scripts/db-push.sh` you use locally, just
+non-interactively (`ASSUME_YES=1`, `SUPABASE_DB_PASSWORD` from secrets).
+
+Required repo secrets (Settings → Secrets and variables → Actions):
+`SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD_STAGING`,
+`SUPABASE_DB_PASSWORD_PROD`.
+
+The `npm run db:push:*` commands below still work for manual / out-of-band runs.
 
 ## One-time setup
 
@@ -90,28 +111,31 @@ That writes a new migration with the diff. Review and commit it.
 
 ## What stays out of CLI management
 
-The following SQL lives in `migrations/` (the older folder) and was applied
-manually to prod before we adopted the CLI. They're left alone:
+`supabase/migrations-archive/` holds historical SQL that was applied to prod
+**before** we adopted the CLI (most importantly `catalog-normalization/00..07`,
+the foundational normalized schema). It is reference-only and is **never**
+read by the CLI or CI — it lives outside `supabase/migrations/` on purpose, so
+re-running its backfills/ALTERs can't happen. See
+`supabase/migrations-archive/README.md`.
 
-- `migrations/catalog-normalization/00..07` — catalog normalization phase.
-- Root-level `Abhinaya DCR Cloud - Step 3 Digest Cron.sql`,
-  `Step 5 Daily Manager Role.sql`,
-  `FB Historical Backfill v2 (Item Report).sql`,
-  `WhatsApp Setup Runbook.md` companion SQL.
+Some companion SQL also lives at the repo root (`Abhinaya DCR Cloud - Step 3
+Digest Cron.sql`, `Step 5 Daily Manager Role.sql`, the FB backfill, etc.) and
+is likewise out of CLI management.
 
-If at some point you want full audit of every change in CLI: copy each one
-into `supabase/migrations/` with a timestamp earlier than the cash ones,
-then run `supabase migration repair --status applied <timestamp>` for each
-on prod (and staging) so the CLI knows they're already in place.
+If at some point you want full audit of an already-applied change in the CLI:
+copy it into `supabase/migrations/` with an appropriate timestamp, then run
+`supabase migration repair --status applied <timestamp>` on **both** prod and
+staging so the CLI records it as done instead of trying to re-run it.
 
 ## Verify and rollback files
 
-`migrations/cash-management/06_verify.sql` and `99_rollback.sql` are NOT
-migrations — `06` is read-only assertions for post-apply sanity checks,
-`99` is a destructive teardown for dev. Run them manually when needed:
+Verify (`*_verify.sql`) and rollback (`*_rollback.sql`) scripts are NOT
+migrations — verify files are read-only post-apply sanity checks, rollback
+files are destructive teardowns. They live in `supabase/migrations-archive/`
+(or `docs/`), never in `supabase/migrations/`, and are run by hand when needed:
 
 ```bash
-psql "$DATABASE_URL" -f migrations/cash-management/06_verify.sql
+psql "$DATABASE_URL" -f supabase/migrations-archive/cash-management/06_verify.sql
 ```
 
 ## Troubleshooting
@@ -131,3 +155,19 @@ files haven't been attempted. Fix the SQL and re-run `db push`.
 
 **Edge Functions.** Migrations don't touch Edge Functions. Deploy those
 with `supabase functions deploy <name>` (eg. `admin-users`, `daily-digest`).
+
+---
+
+## Migration application (updated 2026-06-16)
+
+Database migrations are applied by the **Supabase Dashboard GitHub integration**,
+not by a CI workflow:
+
+- Opening a PR spins up a **Preview Branch** and runs `supabase/migrations/`
+  against it (this is the green/red check on the PR).
+- Merging to the **production branch** applies pending migrations to that
+  project's database.
+
+The old `.github/workflows/db-migrations.yml` Action (which ran `supabase db push`
+on every push) was removed to avoid double-applying. `scripts/db-push.sh` remains
+as a manual CLI fallback for ad-hoc, per-project pushes.
