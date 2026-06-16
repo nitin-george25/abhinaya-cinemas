@@ -155,3 +155,19 @@ files haven't been attempted. Fix the SQL and re-run `db push`.
 
 **Edge Functions.** Migrations don't touch Edge Functions. Deploy those
 with `supabase functions deploy <name>` (eg. `admin-users`, `daily-digest`).
+
+---
+
+## Migration application (updated 2026-06-16)
+
+Database migrations are applied by the **Supabase Dashboard GitHub integration**,
+not by a CI workflow:
+
+- Opening a PR spins up a **Preview Branch** and runs `supabase/migrations/`
+  against it (this is the green/red check on the PR).
+- Merging to the **production branch** applies pending migrations to that
+  project's database.
+
+The old `.github/workflows/db-migrations.yml` Action (which ran `supabase db push`
+on every push) was removed to avoid double-applying. `scripts/db-push.sh` remains
+as a manual CLI fallback for ad-hoc, per-project pushes.
