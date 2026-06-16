@@ -1,0 +1,124 @@
+-- =============================================================================
+-- Distributor name normalization. Rewrites every spelling/case/typo variant of
+-- a distributor to its web-verified canonical name, in BOTH the movies table and
+-- the config.movies blob the app reads. CI applies migrations in timestamp order,
+-- so this runs before 20260616140000_distributors.sql and its backfill therefore
+-- builds clean distributor records. Idempotent; a no-op on a DB without these rows.
+-- Kept deliberately separate: Aashirvad Cinemas vs Aashirvad Release; Disney vs UTV.
+-- =============================================================================
+begin;
+
+create temp table dist_map(variant text, canon text) on commit drop;
+insert into dist_map(variant, canon) values
+  ('A & A RELEASE','A&A Release'),
+  ('A&A RELEASE','A&A Release'),
+  ('AAN MEGA MEDIA','AAN Mega Media'),
+  ('Aan Mega Media','AAN Mega Media'),
+  ('AAN MEGA MEDIA RELEASE','AAN Mega Media'),
+  ('aan mega media','AAN Mega Media'),
+  ('AASHIRVAD CINEMAS','Aashirvad Cinemas'),
+  ('AASHIRVAD CINEMAS PVT LTD','Aashirvad Cinemas'),
+  ('AASHIRVAD CINEMAS LLP','Aashirvad Cinemas'),
+  ('AASHIRVAD RELEASE','Aashirvad Release'),
+  ('AASHIRVAD RELASE','Aashirvad Release'),
+  ('ASHIRVAD RELEASE','Aashirvad Release'),
+  ('aashirvad release','Aashirvad Release'),
+  ('AJITH VINAYAKA FILMS PVT LTD','Ajith Vinayaka Films'),
+  ('VINAYAKA FILMS','Ajith Vinayaka Films'),
+  ('AJITH VINAYAKA FILMS','Ajith Vinayaka Films'),
+  ('ajith vinayaka films pvt ltd','Ajith Vinayaka Films'),
+  ('BHAVANA STUDIOS','Bhavana Studios'),
+  ('BHAVANA STUDIOUS','Bhavana Studios'),
+  ('BHAVANA STUDIOES','Bhavana Studios'),
+  ('CELEBRATE CINEAMS','Celebrate Cinema'),
+  ('CELEBRATE CINEMA','Celebrate Cinema'),
+  ('celebrate cinema','Celebrate Cinema'),
+  ('CENTRAL PICTURES','Central Pictures'),
+  ('central pictures','Central Pictures'),
+  ('Central pictures','Central Pictures'),
+  ('CENTRAL  PICTURES','Central Pictures'),
+  ('CENTURY','Century Films'),
+  ('CENTURY FILMS','Century Films'),
+  ('century','Century Films'),
+  ('Century','Century Films'),
+  ('CENTURY RELEASE','Century Films'),
+  ('DISNEY','Disney'),
+  ('disney','Disney'),
+  ('DREAM BIG FILMS','Dream Big Films'),
+  ('DREAM BIG','Dream Big Films'),
+  ('dream big films','Dream Big Films'),
+  ('DREAMBIG FILMS','Dream Big Films'),
+  ('E4 ENTERTAINMENTS','E4 Entertainment'),
+  ('E4 ENTERTAINMENT','E4 Entertainment'),
+  ('E4 Entertainments','E4 Entertainment'),
+  ('E4 ENTERTAINMNETS','E4 Entertainment'),
+  ('E4 entertainments','E4 Entertainment'),
+  ('FESTIVAL CINEMAS','Festival Cinemas'),
+  ('FRIDAY FILM HOUSE','Friday Film House'),
+  ('GOODWILL ENTERTAINMENTS','Goodwill Entertainments'),
+  ('GOODWILL','Goodwill Entertainments'),
+  ('GOODWILL ENETERTAINMENTS','Goodwill Entertainments'),
+  ('GOODWILL ENETRTAINMENTS','Goodwill Entertainments'),
+  ('GOODWILL FILMS','Goodwill Entertainments'),
+  ('HM ASSOCIATES PRIVATE LTD','HM Associates'),
+  ('HM ASSOCIATES','HM Associates'),
+  ('ICON CINEMAS','Icon Cinemas'),
+  ('icon cinemas','Icon Cinemas'),
+  ('Icon cinemas','Icon Cinemas'),
+  ('jawahar films','Jawahar Films'),
+  ('JAWAHAR FILMS','Jawahar Films'),
+  ('KOKERS MEDIA','Kokers Media Entertainments'),
+  ('KOKERS MEDIA ENTERTAINMENTS','Kokers Media Entertainments'),
+  ('MAGIC FRAMES','Magic Frames'),
+  ('magic frames','Magic Frames'),
+  ('Magic frames','Magic Frames'),
+  ('MAGIC  FRAMES','Magic Frames'),
+  ('MOONSHOT ENTERTAINMENTS','Moonshot Entertainments'),
+  ('MOON SHOT ENTERTAINMENTS','Moonshot Entertainments'),
+  ('Pvr Inox Pictures','PVR Inox Pictures'),
+  ('PVR INOX PICTURES','PVR Inox Pictures'),
+  ('RD ILLUMINATIONS','RD Illuminations'),
+  ('R D ILUMINATIONS','RD Illuminations'),
+  ('RD ILUMINATIONS','RD Illuminations'),
+  ('RAJAPUTRA RELEASE','Rejaputhra Visual Media'),
+  ('REJAPUTHRA RELEASE','Rejaputhra Visual Media'),
+  ('RAJAPUTHRA VISUAL MEDIA','Rejaputhra Visual Media'),
+  ('THE GREEN ROOM','The Green Room'),
+  ('GREEN ROOM RELEASE','The Green Room'),
+  ('THOMAS THIRUVALLA FILMS','Thomas Thiruvalla Films'),
+  ('URVASHI THEATERS','Urvashi Theatres'),
+  ('URVASHI THEATERES','Urvashi Theatres'),
+  ('urvashi','Urvashi Theatres'),
+  ('UTV','UTV Software Communications Ltd'),
+  ('UTV SOFTWARE COMMUNICATION PVT LTD','UTV Software Communications Ltd'),
+  ('UTV SOFTWARE COMMUNICATION LTD','UTV Software Communications Ltd'),
+  ('utv software communication pvt ltd','UTV Software Communications Ltd'),
+  ('WAYFARER FILMS','Wayfarer Films'),
+  ('WAYFARE FILMS','Wayfarer Films'),
+  ('wayfarer films','Wayfarer Films'),
+  ('WORLD WIDE FILMS','World Wide Films');
+
+-- 1) Normalize the movies table (denormalized distributor name).
+update public.movies m set distributor = dm.canon, updated_by = 'dist-normalize', updated_at = now()
+from dist_map dm where m.distributor = dm.variant and m.distributor is distinct from dm.canon;
+
+-- 2) Normalize the config.movies blob the app reads.
+update public.config c
+set data = jsonb_set(c.data, '{movies}', (
+      select coalesce(jsonb_agg(
+               case when dm.canon is not null
+                    then jsonb_set(mv, '{distributor}', to_jsonb(dm.canon))
+                    else mv end), '[]'::jsonb)
+      from jsonb_array_elements(c.data->'movies') mv
+      left join dist_map dm on dm.variant = mv->>'distributor'
+    )),
+    updated_by = 'dist-normalize', updated_at = now()
+where c.id = 1 and jsonb_typeof(c.data->'movies') = 'array';
+
+-- OPTIONAL (research-suggested, not yet confirmed) — uncomment to also fold in:
+--   'VARNACHITHRA BIG SCREEN','VARNACHITHRAFILMS','VARNACHITRA RELEASE' -> 'Varnachithra'
+--   'BHAVANA RELEASE' -> 'Bhavana Studios'   'KOKERS CINEMA' -> 'Kokers Media Entertainments'
+
+commit;
+
+-- VERIFY: select distinct distributor from public.movies order by 1;  -- should be the clean set
