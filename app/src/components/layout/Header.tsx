@@ -1,8 +1,8 @@
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
-import { IconAlert, IconCheck, IconSignOut, IconSpinner } from "../icons";
+import { IconAlert, IconBook, IconCheck, IconSignOut, IconSpinner } from "../icons";
 import { getEnv } from "../../lib/supabase";
 import { titleForPath } from "../../lib/nav";
 
@@ -35,6 +35,14 @@ export function Header({ onMenuClick }: Props) {
         </div>
 
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
+          <Link
+            to="/guides"
+            title="Guides"
+            aria-label="Guides"
+            className="p-2 -mr-1 rounded-md text-ink-muted hover:text-ink active:bg-line/40"
+          >
+            <IconBook className="w-5 h-5" />
+          </Link>
           <SyncPill />
           <UserMenu
             label={state.fullName ?? state.username ?? state.email}
