@@ -82,7 +82,8 @@ export default function ProjectDetailPage() {
     const mine = bundle?.members.find((m) => m.userEmail.toLowerCase() === email);
     const isMember = isOwner || !!mine;
     const isPM = isOwner || mine?.roleInProject === "project_manager";
-    return { isOwner, isMember, isPM, isManager: isOwner || state.role === "manager" };
+    const isAccountant = isOwner || state.role === "accountant";
+    return { isOwner, isMember, isPM, isAccountant, isManager: isOwner || state.role === "manager" };
   }, [bundle, email, state.role]);
 
   if (loading) return <p className="text-sm text-ink-muted">Loading…</p>;
@@ -95,7 +96,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, members, phases, tasks, subtasks, files, budgetItems, invoices } = bundle;
+  const { project, members, phases, tasks, subtasks, files, budgetItems, invoices, expenses, quotations } = bundle;
   const pct = projectProgressPct(tasks, subtasks);
   const meta = [project.location, project.area, project.projectType ? `Type: ${project.projectType}` : null]
     .filter(Boolean).join(" · ");
@@ -183,11 +184,16 @@ export default function ProjectDetailPage() {
           {tab === "finances" ? (
             <FinancesPanel
               projectId={project.id}
+              projectName={project.name}
               budgetItems={budgetItems}
               invoices={invoices}
+              expenses={expenses}
+              quotations={quotations}
               email={email}
-              canManage={perms.isPM}
-              canUploadInvoice={perms.isMember}
+              isOwner={perms.isOwner}
+              isPM={perms.isPM}
+              isMember={perms.isMember}
+              isAccountant={perms.isAccountant}
               onChanged={reload}
               onError={setErr}
             />
