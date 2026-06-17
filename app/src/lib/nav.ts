@@ -258,6 +258,8 @@ export function roleLabel(role: Role): string {
 
 /** Resolve the page title for a given pathname by matching the longest NAV prefix. */
 export function titleForPath(pathname: string): string {
+  // Guides lives outside the sidebar NAV (it's reached from the header).
+  if (pathname === "/guides" || pathname.startsWith("/guides/")) return "Guides";
   const candidates: Array<[string, string]> = [];
   for (const item of NAV) {
     if (item.kind === "leaf") {
