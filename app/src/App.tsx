@@ -36,6 +36,7 @@ import CashReportsPage from "./pages/cash/Reports";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
 import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
+import GuidesPage from "./pages/Guides";
 
 export default function App() {
   return (
@@ -255,6 +256,9 @@ function AppGate() {
                 path="/dcr/:date/:movieId/:screenId"
                 element={<DcrPage />}
               />
+
+              {/* Guides — in-app help (book icon, top-right). All roles. */}
+              <Route path="/guides" element={<GuidesPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             {expiredOverlay}
