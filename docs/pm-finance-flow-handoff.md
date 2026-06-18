@@ -67,8 +67,11 @@ npm run db:push:prod
 
 ## 4. Deploy the Slack function + set the webhook secrets (BOTH projects)
 `notify-slack` posts to TWO channels via two webhooks: **#payments** (payment
-requests + OTP ask) and **#invoices** (invoice uploaded). Set each project's
-secrets to its own channels (staging → staging channels, prod → prod, parity).
+requests + OTP ask) and **#invoices** (invoice uploaded). It's declared in
+`supabase/config.toml` (`[functions.notify-slack]`), so the integration deploys
+it on push — the `functions deploy` commands below are a manual fallback. Secrets
+are NOT deployed by the integration, so set them per project (staging → staging
+channels, prod → prod, parity).
 ```bash
 supabase functions deploy notify-slack --project-ref lctkvmpzijaspaytunkm   # staging
 supabase functions deploy notify-slack --project-ref xkmjygegtpmmwwnyoufn   # prod
