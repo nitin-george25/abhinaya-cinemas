@@ -8,10 +8,10 @@
 //   • budget lines:  owner / project manager           (isPM)
 //   • raise expense, add quotations, upload invoice:    assigned member (isMember)
 //   • approve / reject a quotation:                     owner (isOwner)
-//   • request payment (Slack), mark paid (OTP):         accountant (isAccountant)
+//   • request payment (Slack), mark paid (receipt):     accountant (isAccountant)
 //
-// A line's "Paid" = sum of its PAID expenses; the owner authorises payment
-// out-of-band on Slack #payments and the accountant enters the OTP at mark-paid.
+// A line's "Paid" = sum of its PAID expenses; the accountant attaches the
+// payment receipt at mark-paid, which is posted to Slack #payments.
 // ============================================================================
 
 import { useMemo, useRef, useState } from "react";
@@ -573,7 +573,7 @@ function ExpenseCard({
 
             {s === "payment_requested" ? (
               <>
-                <span className="text-xs text-teal-700">Requested — awaiting OTP on Slack #payments.</span>
+                <span className="text-xs text-teal-700">Requested — awaiting payment on Slack #payments.</span>
                 {isAccountant ? (
                   <Button size="sm" disabled={busy} onClick={() => setShowPaid((v) => !v)}>
                     {showPaid ? "Cancel" : "Mark paid"}
@@ -587,6 +587,19 @@ function ExpenseCard({
                 Paid {expense.paidAmount != null ? fmtINR(expense.paidAmount) : ""}
                 {expense.paidAt ? ` on ${expense.paidAt.slice(0, 10)}` : ""}
                 {expense.paidBy ? ` by ${expense.paidBy}` : ""}.
+                {expense.paymentReceiptUrl ? (
+                  <>
+                    {" "}
+                    <a
+                      href={expense.paymentReceiptUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-green-800"
+                    >
+                      Receipt
+                    </a>
+                  </>
+                ) : null}
               </span>
             ) : null}
 
@@ -607,8 +620,14 @@ function ExpenseCard({
               busy={busy}
               defaultAmount={payable}
               onCancel={() => setShowPaid(false)}
-              onSubmit={(otp, amount, note) => run(async () => {
-                await markExpensePaid(expense.id, otp, amount, note);
+              onSubmit={(receipt, amount, note) => run(async () => {
+                await markExpensePaid(projectId, expense.id, receipt, amount, note, {
+                  projectName,
+                  lineItem: lineName === "Unallocated" ? null : lineName,
+                  expenseTitle: expense.title,
+                  vendor: expense.approvedVendor,
+                  deepLink: typeof window !== "undefined" ? window.location.href : null,
+                });
                 setShowPaid(false);
               })}
             />
@@ -841,20 +860,36 @@ function MarkPaidForm({
   busy: boolean;
   defaultAmount: number;
   onCancel: () => void;
-  onSubmit: (otp: string, amount: number | null, note: string | null) => void;
+  onSubmit: (receipt: File, amount: number | null, note: string | null) => void;
 }) {
-  const [otp, setOtp] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
   const [amount, setAmount] = useState(defaultAmount ? String(defaultAmount) : "");
   const [note, setNote] = useState("");
   return (
     <div className="grid grid-cols-1 gap-2 rounded-lg border border-line bg-paper p-3 sm:grid-cols-12">
-      <div className="sm:col-span-3"><Input placeholder="OTP from owner" value={otp} onChange={(e) => setOtp(e.target.value)} /></div>
+      <div className="sm:col-span-5">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf"
+          className="block w-full text-sm text-ink-muted file:mr-3 file:rounded-md file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-white"
+          onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+        />
+        <p className="mt-1 text-xs text-ink-muted">
+          {fileName || "Attach the payment receipt (required)."}
+        </p>
+      </div>
       <div className="sm:col-span-3"><Input type="number" placeholder="Paid amount" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-      <div className="sm:col-span-6"><Input placeholder="Payment note / reference (optional)" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+      <div className="sm:col-span-4"><Input placeholder="Payment note / reference (optional)" value={note} onChange={(e) => setNote(e.target.value)} /></div>
       <div className="sm:col-span-12 flex justify-end gap-2">
         <Button size="sm" variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button>
-        <Button size="sm" disabled={busy || !otp.trim()}
-          onClick={() => onSubmit(otp.trim(), amount ? Number(amount) : null, note.trim() || null)}>
+        <Button size="sm" disabled={busy || !fileName}
+          onClick={() => {
+            const f = fileRef.current?.files?.[0];
+            if (!f) return;
+            onSubmit(f, amount ? Number(amount) : null, note.trim() || null);
+          }}>
           Confirm paid
         </Button>
       </div>
