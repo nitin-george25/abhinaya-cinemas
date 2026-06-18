@@ -1,11 +1,12 @@
 // ============================================================================
 // notify-slack — posts project finance events to Slack (PM expense flow #18).
 //
-// Two event kinds, each to its own channel via its own Incoming Webhook:
+// Event kinds, each to its own channel via its own Incoming Webhook:
 //   • "payment_request"  → #payments  — accountant requests payment; posts the
-//        bill + an OTP request. Owner replies with an OTP on Slack, which the
-//        accountant enters back in the console to mark the expense paid.
-//        Allowed: owner / accountant.
+//        bill for the owner to review and approve. Allowed: owner / accountant.
+//   • "payment_paid"     → #payments  — accountant marked the expense paid and
+//        attached the payment receipt. Posts the receipt. Allowed: owner /
+//        accountant.
 //   • "invoice_uploaded" → #invoices  — PM/DM uploaded a vendor invoice against
 //        an approved expense. Informational. Allowed: any entry-writer/accountant.
 //
@@ -43,6 +44,8 @@ interface Body {
   invoiceNo?: string | null;
   invoiceUrl?: string | null;
   invoiceFileName?: string | null;
+  receiptUrl?: string | null;
+  receiptFileName?: string | null;
   deepLink?: string | null;
 }
 
@@ -109,13 +112,29 @@ Deno.serve(async (req: Request) => {
       body.deepLink ? `*Open in console:* ${body.deepLink}` : null,
       `Uploaded by ${callerEmail}.`,
     ];
+  } else if (kind === "payment_paid") {
+    if (!PAYMENT_ROLES.has(role)) return json({ error: "accountant role required" }, 403);
+    webhook = PAYMENTS_HOOK;
+    if (!webhook) return json({ error: "SLACK_PAYMENTS_WEBHOOK_URL not configured" }, 500);
+    text = `Payment made: ${body.expenseTitle ?? ""} — ${inr(body.amount ?? 0)} (${body.vendor ?? "vendor"})`;
+    lines = [
+      `*Payment made* — receipt attached.`,
+      `*Project:* ${body.projectName ?? "—"}`,
+      body.lineItem ? `*Budget line:* ${body.lineItem}` : null,
+      `*Expense:* ${body.expenseTitle ?? "—"}`,
+      `*Vendor:* ${body.vendor ?? "—"}`,
+      `*Amount paid:* ${inr(body.amount ?? 0)}`,
+      body.receiptUrl ? `*Receipt:* <${body.receiptUrl}|${body.receiptFileName ?? "view receipt"}>` : null,
+      body.deepLink ? `*Open in console:* ${body.deepLink}` : null,
+      `Marked paid by ${callerEmail}.`,
+    ];
   } else {
     if (!PAYMENT_ROLES.has(role)) return json({ error: "accountant role required" }, 403);
     webhook = PAYMENTS_HOOK;
     if (!webhook) return json({ error: "SLACK_PAYMENTS_WEBHOOK_URL not configured" }, 500);
     text = `Payment requested: ${body.expenseTitle ?? ""} — ${inr(body.amount ?? 0)} (${body.vendor ?? "vendor"})`;
     lines = [
-      `*Payment requested* — please review and reply with the OTP to approve.`,
+      `*Payment requested* — please review and approve.`,
       `*Project:* ${body.projectName ?? "—"}`,
       body.lineItem ? `*Budget line:* ${body.lineItem}` : null,
       `*Expense:* ${body.expenseTitle ?? "—"}`,

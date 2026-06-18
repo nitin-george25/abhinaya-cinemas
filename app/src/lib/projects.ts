@@ -912,6 +912,8 @@ export interface ProjectExpense {
   paidBy: string | null;
   otpReference: string | null;
   paymentNote: string | null;
+  paymentReceiptUrl: string | null;
+  paymentReceiptName: string | null;
   slackChannel: string | null;
   slackTs: string | null;
   paymentRequestedBy: string | null;
@@ -953,6 +955,8 @@ const toExpense = (r: any): ProjectExpense => ({
   paidBy: r.paid_by ?? null,
   otpReference: r.otp_reference ?? null,
   paymentNote: r.payment_note ?? null,
+  paymentReceiptUrl: r.payment_receipt_url ?? null,
+  paymentReceiptName: r.payment_receipt_name ?? null,
   slackChannel: r.slack_channel ?? null,
   slackTs: r.slack_ts ?? null,
   paymentRequestedBy: r.payment_requested_by ?? null,
@@ -1181,7 +1185,7 @@ export async function recordExpenseInvoice(
   }
 }
 
-// ── payment: request (Slack #payments) + mark paid (OTP) ────────────────────
+// ── payment: request (Slack #payments) + mark paid (receipt) ────────────────
 export interface RequestPaymentInput {
   projectName: string;
   lineItem: string | null;
@@ -1194,8 +1198,8 @@ export interface RequestPaymentInput {
 }
 
 /**
- * Accountant requests payment: posts the bill + OTP request to Slack #payments
- * via the notify-slack Edge Function, then records the transition (+Slack ts).
+ * Accountant requests payment: posts the bill to Slack #payments for the owner
+ * to approve via the notify-slack Edge Function, then records the transition.
  */
 export async function requestExpensePayment(
   expenseId: string, input: RequestPaymentInput,
@@ -1225,19 +1229,68 @@ export async function requestExpensePayment(
   if (rpcErr) throw new Error(rpcErr.message);
 }
 
-/** Accountant marks paid by entering the OTP the owner shared on Slack. */
+export interface MarkPaidNotify {
+  projectName: string;
+  lineItem: string | null;
+  expenseTitle: string;
+  vendor: string | null;
+  deepLink?: string | null;
+}
+
+/**
+ * Accountant marks paid by attaching the payment RECEIPT (bank/UPI proof) —
+ * the OTP step is gone. The receipt is uploaded to the project-files bucket,
+ * recorded on the expense, and then posted to Slack #payments (best-effort).
+ */
 export async function markExpensePaid(
-  expenseId: string, otp: string, paidAmount: number | null, note: string | null,
+  projectId: string,
+  expenseId: string,
+  receipt: File,
+  paidAmount: number | null,
+  note: string | null,
+  notify?: MarkPaidNotify,
 ): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
+
+  const ext = receipt.name.split(".").pop() ?? "bin";
+  const path = `${projectId}/receipts/${Date.now()}.${ext}`;
+  const up = await sb.storage.from("project-files").upload(path, receipt, { upsert: false });
+  if (up.error) throw new Error(up.error.message);
+  const { data: pub } = sb.storage.from("project-files").getPublicUrl(path);
+
   const { error } = await sb.rpc("fn_project_expense_mark_paid", {
     p_expense_id: expenseId,
-    p_otp: otp,
     p_paid_amount: paidAmount,
     p_note: note,
+    p_receipt_url: pub.publicUrl,
+    p_receipt_name: receipt.name,
+    p_receipt_size: receipt.size,
+    p_content_type: receipt.type || null,
   });
   if (error) throw new Error(error.message);
+
+  // Best-effort second post to #payments with the receipt — must not fail the
+  // mark-paid that already committed above.
+  if (notify) {
+    try {
+      await sb.functions.invoke("notify-slack", {
+        body: {
+          kind: "payment_paid",
+          projectName: notify.projectName,
+          lineItem: notify.lineItem,
+          expenseTitle: notify.expenseTitle,
+          vendor: notify.vendor,
+          amount: paidAmount,
+          receiptUrl: pub.publicUrl,
+          receiptFileName: receipt.name,
+          deepLink: notify.deepLink ?? null,
+        },
+      });
+    } catch (e) {
+      console.warn("[projects] payment-paid Slack notify failed (non-blocking)", e);
+    }
+  }
 }
 
 // ── expense-based finance summary (Estimate / Paid / Remaining) ─────────────
