@@ -128,6 +128,8 @@ export interface ProjectBundle {
   files: ProjectTaskFile[];
   budgetItems: ProjectBudgetItem[];
   invoices: ProjectInvoice[];
+  expenses: ProjectExpense[];
+  quotations: ProjectQuotation[];
 }
 
 // ── row mappers (snake → camel) ───────────────────────────────────────────
@@ -506,16 +508,21 @@ export async function listAudit(projectId: string, limit = 100): Promise<Project
 export async function loadProjectBundle(projectId: string): Promise<ProjectBundle | null> {
   const project = await getProject(projectId);
   if (!project) return null;
-  const [members, phases, tasks, subtasks, files, budgetItems, invoices] = await Promise.all([
-    listMembers(projectId),
-    listPhases(projectId),
-    listTasks(projectId),
-    listSubtasks(projectId),
-    listTaskFiles(projectId),
-    listBudgetItems(projectId),
-    listInvoices(projectId),
-  ]);
-  return { project, members, phases, tasks, subtasks, files, budgetItems, invoices };
+  const [members, phases, tasks, subtasks, files, budgetItems, invoices, expenses, quotations] =
+    await Promise.all([
+      listMembers(projectId),
+      listPhases(projectId),
+      listTasks(projectId),
+      listSubtasks(projectId),
+      listTaskFiles(projectId),
+      listBudgetItems(projectId),
+      listInvoices(projectId),
+      listExpenses(projectId),
+      listQuotations(projectId),
+    ]);
+  return {
+    project, members, phases, tasks, subtasks, files, budgetItems, invoices, expenses, quotations,
+  };
 }
 
 // ── progress helpers ───────────────────────────────────────────────────────
@@ -555,6 +562,12 @@ export interface ProjectInvoice {
   invoiceNo: string | null;
   invoiceDate: DateISO | null;
   amount: number;
+  expenseId: string | null;
+  subtotal: number | null;
+  gst: number | null;
+  freight: number | null;
+  total: number | null;
+  deviationReason: string | null;
   notes: string | null;
   fileUrl: string | null;
   fileName: string | null;
@@ -583,6 +596,12 @@ const toInvoice = (r: any): ProjectInvoice => ({
   invoiceNo: r.invoice_no ?? null,
   invoiceDate: r.invoice_date ?? null,
   amount: Number(r.amount ?? 0),
+  expenseId: r.expense_id ?? null,
+  subtotal: r.subtotal != null ? Number(r.subtotal) : null,
+  gst: r.gst != null ? Number(r.gst) : null,
+  freight: r.freight != null ? Number(r.freight) : null,
+  total: r.total != null ? Number(r.total) : null,
+  deviationReason: r.deviation_reason ?? null,
   notes: r.notes ?? null,
   fileUrl: r.file_url ?? null,
   fileName: r.file_name ?? null,
@@ -851,4 +870,425 @@ export async function createBudgetItemsBulk(
   const { data, error } = await sb.from("project_budget_items").insert(payload).select("id");
   if (error) throw new Error(error.message);
   return ((data as unknown[]) ?? []).length;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Expense approval & payment flow (migration 20260617120000_project_expense_flow)
+//
+// Lifecycle per expense: quoting → quote_approved → invoiced →
+//   payment_requested → paid  (+ rejected / cancelled). State changes run
+// through SECURITY DEFINER RPCs that enforce the machine + per-role gating.
+// ════════════════════════════════════════════════════════════════════════════
+
+export type ExpenseStatus =
+  | "quoting" | "quote_approved" | "invoiced" | "payment_requested"
+  | "paid" | "rejected" | "cancelled";
+
+export const EXPENSE_STATUS_LABEL: Record<ExpenseStatus, string> = {
+  quoting: "Quoting",
+  quote_approved: "Quote approved",
+  invoiced: "Invoiced",
+  payment_requested: "Payment requested",
+  paid: "Paid",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};
+
+export type QuotationStatus = "submitted" | "approved" | "rejected";
+
+export interface ProjectExpense {
+  id: string;
+  projectId: string;
+  budgetItemId: string | null;
+  title: string;
+  description: string | null;
+  status: ExpenseStatus;
+  approvedQuotationId: string | null;
+  approvedVendor: string | null;
+  approvedAmount: number | null;
+  quoteSkipReason: string | null;
+  paidAmount: number | null;
+  paidAt: string | null;
+  paidBy: string | null;
+  otpReference: string | null;
+  paymentNote: string | null;
+  slackChannel: string | null;
+  slackTs: string | null;
+  paymentRequestedBy: string | null;
+  paymentRequestedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface ProjectQuotation {
+  id: string;
+  projectId: string;
+  expenseId: string;
+  vendor: string;
+  amount: number;
+  notes: string | null;
+  fileUrl: string;
+  fileName: string | null;
+  fileSize: number | null;
+  contentType: string | null;
+  status: QuotationStatus;
+  submittedBy: string | null;
+  submittedAt: string;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const toExpense = (r: any): ProjectExpense => ({
+  id: r.id,
+  projectId: r.project_id,
+  budgetItemId: r.budget_item_id ?? null,
+  title: r.title,
+  description: r.description ?? null,
+  status: r.status,
+  approvedQuotationId: r.approved_quotation_id ?? null,
+  approvedVendor: r.approved_vendor ?? null,
+  approvedAmount: r.approved_amount != null ? Number(r.approved_amount) : null,
+  quoteSkipReason: r.quote_skip_reason ?? null,
+  paidAmount: r.paid_amount != null ? Number(r.paid_amount) : null,
+  paidAt: r.paid_at ?? null,
+  paidBy: r.paid_by ?? null,
+  otpReference: r.otp_reference ?? null,
+  paymentNote: r.payment_note ?? null,
+  slackChannel: r.slack_channel ?? null,
+  slackTs: r.slack_ts ?? null,
+  paymentRequestedBy: r.payment_requested_by ?? null,
+  paymentRequestedAt: r.payment_requested_at ?? null,
+  createdBy: r.created_by ?? null,
+  createdAt: r.created_at,
+});
+
+const toQuotation = (r: any): ProjectQuotation => ({
+  id: r.id,
+  projectId: r.project_id,
+  expenseId: r.expense_id,
+  vendor: r.vendor,
+  amount: Number(r.amount ?? 0),
+  notes: r.notes ?? null,
+  fileUrl: r.file_url,
+  fileName: r.file_name ?? null,
+  fileSize: r.file_size ?? null,
+  contentType: r.content_type ?? null,
+  status: r.status,
+  submittedBy: r.submitted_by ?? null,
+  submittedAt: r.submitted_at,
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export async function listExpenses(projectId: string): Promise<ProjectExpense[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("project_expenses").select("*").eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) { console.warn("[projects] listExpenses", error.message); return []; }
+  return ((data as unknown[]) ?? []).map(toExpense);
+}
+
+export async function listQuotations(projectId: string): Promise<ProjectQuotation[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("project_quotations").select("*").eq("project_id", projectId)
+    .order("submitted_at", { ascending: true });
+  if (error) { console.warn("[projects] listQuotations", error.message); return []; }
+  return ((data as unknown[]) ?? []).map(toQuotation);
+}
+
+// ── raise / edit / cancel an expense ────────────────────────────────────────
+export interface CreateExpenseInput {
+  budgetItemId?: string | null;
+  title: string;
+  description?: string | null;
+}
+
+export async function createExpense(
+  projectId: string, input: CreateExpenseInput, createdBy: string,
+): Promise<ProjectExpense> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb
+    .from("project_expenses")
+    .insert({
+      project_id: projectId,
+      budget_item_id: input.budgetItemId ?? null,
+      title: input.title,
+      description: input.description ?? null,
+      created_by: createdBy,
+      updated_by: createdBy,
+    })
+    .select("*").single();
+  if (error) throw new Error(error.message);
+  return toExpense(data);
+}
+
+/** Cancel an expense before it is paid (RPC: member or owner). */
+export async function cancelExpense(expenseId: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_expense_cancel", {
+    p_expense_id: expenseId, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── quotations (quote FILE is required) ─────────────────────────────────────
+export interface QuotationInput {
+  vendor: string;
+  amount: number;
+  notes?: string | null;
+}
+
+export async function addQuotation(
+  projectId: string, expenseId: string, input: QuotationInput, file: File, submittedBy: string,
+): Promise<ProjectQuotation> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (!file) throw new Error("A quotation file is required");
+  const ext = file.name.split(".").pop() ?? "bin";
+  const path = `${projectId}/quotes/${Date.now()}.${ext}`;
+  const up = await sb.storage.from("project-files").upload(path, file, { upsert: false });
+  if (up.error) throw new Error(up.error.message);
+  const { data: pub } = sb.storage.from("project-files").getPublicUrl(path);
+  const { data, error } = await sb
+    .from("project_quotations")
+    .insert({
+      project_id: projectId,
+      expense_id: expenseId,
+      vendor: input.vendor,
+      amount: input.amount,
+      notes: input.notes ?? null,
+      file_url: pub.publicUrl,
+      file_name: file.name,
+      file_size: file.size,
+      content_type: file.type || null,
+      submitted_by: submittedBy,
+    })
+    .select("*").single();
+  if (error) throw new Error(error.message);
+  return toQuotation(data);
+}
+
+export async function deleteQuotation(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.from("project_quotations").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/** Owner approves one quotation (RPC: siblings auto-rejected, expense advances). */
+export async function approveQuotation(quotationId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_quote_approve", { p_quotation_id: quotationId });
+  if (error) throw new Error(error.message);
+}
+
+/** Owner rejects all submitted quotes; expense stays in quoting for re-quoting. */
+export async function rejectQuotations(expenseId: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_quotes_reject", {
+    p_expense_id: expenseId, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * PM/owner skip the quotation stage with a reason (e.g. "known vendor"):
+ * quoting → quote_approved with the given vendor + amount (RPC).
+ */
+export async function skipQuotation(
+  expenseId: string, vendor: string, amount: number, reason: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_expense_skip_quotation", {
+    p_expense_id: expenseId, p_vendor: vendor, p_amount: amount, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── invoice the approved expense (subtotal must match approved + GST + freight)
+export interface ExpenseInvoiceInput {
+  invoiceNo?: string | null;
+  invoiceDate?: DateISO | null;
+  subtotal: number;
+  gst: number;
+  freight: number;
+  deviationReason?: string | null;
+}
+
+export interface InvoiceNotifyContext {
+  projectName: string;
+  lineItem: string | null;
+  expenseTitle: string;
+  vendor: string | null;
+  deepLink?: string | null;
+}
+
+export async function recordExpenseInvoice(
+  projectId: string, expenseId: string, input: ExpenseInvoiceInput, file: File,
+  notify?: InvoiceNotifyContext,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (!file) throw new Error("An invoice file is required");
+  const ext = file.name.split(".").pop() ?? "bin";
+  const path = `${projectId}/invoices/${Date.now()}.${ext}`;
+  const up = await sb.storage.from("project-files").upload(path, file, { upsert: false });
+  if (up.error) throw new Error(up.error.message);
+  const { data: pub } = sb.storage.from("project-files").getPublicUrl(path);
+  const total = (input.subtotal || 0) + (input.gst || 0) + (input.freight || 0);
+  const { error } = await sb.rpc("fn_project_expense_record_invoice", {
+    p_expense_id: expenseId,
+    p_invoice_no: input.invoiceNo ?? null,
+    p_invoice_date: input.invoiceDate ?? null,
+    p_subtotal: input.subtotal,
+    p_gst: input.gst,
+    p_freight: input.freight,
+    p_file_url: pub.publicUrl,
+    p_file_name: file.name,
+    p_file_size: file.size,
+    p_content_type: file.type || null,
+    p_deviation_reason: input.deviationReason ?? null,
+  });
+  if (error) throw new Error(error.message);
+
+  // Best-effort post to Slack #invoices — must not fail the upload.
+  if (notify) {
+    try {
+      await sb.functions.invoke("notify-slack", {
+        body: {
+          kind: "invoice_uploaded",
+          projectName: notify.projectName,
+          lineItem: notify.lineItem,
+          expenseTitle: notify.expenseTitle,
+          vendor: notify.vendor,
+          amount: total,
+          invoiceNo: input.invoiceNo ?? null,
+          invoiceUrl: pub.publicUrl,
+          invoiceFileName: file.name,
+          deepLink: notify.deepLink ?? null,
+        },
+      });
+    } catch (e) {
+      console.warn("[projects] invoice Slack notify failed (non-blocking)", e);
+    }
+  }
+}
+
+// ── payment: request (Slack #payments) + mark paid (OTP) ────────────────────
+export interface RequestPaymentInput {
+  projectName: string;
+  lineItem: string | null;
+  expenseTitle: string;
+  vendor: string | null;
+  amount: number;
+  invoiceUrl: string | null;
+  invoiceFileName: string | null;
+  deepLink?: string | null;
+}
+
+/**
+ * Accountant requests payment: posts the bill + OTP request to Slack #payments
+ * via the notify-slack Edge Function, then records the transition (+Slack ts).
+ */
+export async function requestExpensePayment(
+  expenseId: string, input: RequestPaymentInput,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb.functions.invoke("notify-slack", {
+    body: {
+      kind: "payment_request",
+      projectName: input.projectName,
+      lineItem: input.lineItem,
+      expenseTitle: input.expenseTitle,
+      vendor: input.vendor,
+      amount: input.amount,
+      invoiceUrl: input.invoiceUrl,
+      invoiceFileName: input.invoiceFileName,
+      deepLink: input.deepLink ?? null,
+    },
+  });
+  if (error) throw new Error(`Slack notification failed: ${error.message}`);
+  const res = (data ?? {}) as { channel?: string | null; ts?: string | null };
+  const { error: rpcErr } = await sb.rpc("fn_project_expense_request_payment", {
+    p_expense_id: expenseId,
+    p_slack_channel: res.channel ?? null,
+    p_slack_ts: res.ts ?? null,
+  });
+  if (rpcErr) throw new Error(rpcErr.message);
+}
+
+/** Accountant marks paid by entering the OTP the owner shared on Slack. */
+export async function markExpensePaid(
+  expenseId: string, otp: string, paidAmount: number | null, note: string | null,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_expense_mark_paid", {
+    p_expense_id: expenseId,
+    p_otp: otp,
+    p_paid_amount: paidAmount,
+    p_note: note,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── expense-based finance summary (Estimate / Paid / Remaining) ─────────────
+export interface ExpenseLineRollup extends ProjectBudgetItem {
+  paid: number;          // sum of paid expense amounts on this line
+  remaining: number;     // estimate − paid
+  expenseCount: number;  // expenses on this line (excl. cancelled/rejected)
+}
+
+export interface ExpenseFinanceSummary {
+  items: ExpenseLineRollup[];
+  unallocatedPaid: number;     // paid expenses with no budget line
+  unallocatedCount: number;
+  totalEstimate: number;
+  totalPaid: number;
+  remaining: number;           // totalEstimate − totalPaid
+  spentPct: number;            // totalPaid / totalEstimate × 100
+}
+
+const PAID = (e: ProjectExpense) => (e.status === "paid" ? (e.paidAmount ?? 0) : 0);
+const LIVE = (e: ProjectExpense) => e.status !== "cancelled" && e.status !== "rejected";
+
+export function expenseFinanceSummary(
+  items: ProjectBudgetItem[], expenses: ProjectExpense[],
+): ExpenseFinanceSummary {
+  const byItem = new Map<string, { paid: number; count: number }>();
+  let unallocatedPaid = 0;
+  let unallocatedCount = 0;
+  for (const e of expenses) {
+    if (!LIVE(e)) continue;
+    if (e.budgetItemId) {
+      const cur = byItem.get(e.budgetItemId) ?? { paid: 0, count: 0 };
+      cur.paid += PAID(e); cur.count += 1;
+      byItem.set(e.budgetItemId, cur);
+    } else {
+      unallocatedPaid += PAID(e); unallocatedCount += 1;
+    }
+  }
+  const rolled: ExpenseLineRollup[] = items.map((it) => {
+    const agg = byItem.get(it.id) ?? { paid: 0, count: 0 };
+    return { ...it, paid: agg.paid, remaining: it.estimate - agg.paid, expenseCount: agg.count };
+  });
+  const totalEstimate = items.reduce((a, b) => a + b.estimate, 0);
+  const totalPaid = expenses.reduce((a, e) => a + PAID(e), 0);
+  return {
+    items: rolled,
+    unallocatedPaid,
+    unallocatedCount,
+    totalEstimate,
+    totalPaid,
+    remaining: totalEstimate - totalPaid,
+    spentPct: totalEstimate > 0 ? Math.round((totalPaid / totalEstimate) * 100) : 0,
+  };
 }

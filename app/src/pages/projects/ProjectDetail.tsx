@@ -21,6 +21,8 @@ import { useSync } from "../../lib/hooks/SyncContext";
 import { ProjectGantt } from "../../components/projects/ProjectGantt";
 import { MembersPanel } from "../../components/projects/MembersPanel";
 import { FinancesPanel } from "../../components/projects/FinancesPanel";
+import { Tabs } from "../../components/ui/Tabs";
+import { localIso, todayIso } from "../../lib/dates";
 import {
   addSubtask, createTask, deleteSubtask, deleteTask, deleteTaskFile, listAudit,
   loadProjectBundle, projectProgressPct, setSubtaskDone, setTaskDone, taskCompletion,
@@ -43,13 +45,25 @@ const AUDIT_VERB: Record<string, string> = {
   subtask_unchecked: "reopened subtask",
 };
 
-type TabKey = "timeline" | "checklist" | "finances" | "team";
+type TabKey = "progress" | "finances" | "team";
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "timeline", label: "Timeline" },
-  { key: "checklist", label: "Checklist" },
+  { key: "progress", label: "Progress" },
   { key: "finances", label: "Finances" },
   { key: "team", label: "Team" },
 ];
+
+function StatCard({ label, value, tone }: { label: string; value: string; tone?: "red" | "amber" }) {
+  return (
+    <div className="rounded-lg border border-line bg-white px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-ink-muted">{label}</div>
+      <div className={`mt-0.5 font-display text-lg font-bold ${
+        tone === "red" ? "text-red-600" : tone === "amber" ? "text-amber-700" : ""
+      }`}>
+        {value}
+      </div>
+    </div>
+  );
+}
 
 export default function ProjectDetailPage() {
   const { id = "" } = useParams();
@@ -61,7 +75,8 @@ export default function ProjectDetailPage() {
   const [audit, setAudit] = useState<ProjectAuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey>("timeline");
+  const [tab, setTab] = useState<TabKey>("progress");
+  const [planView, setPlanView] = useState<"timeline" | "checklist">("timeline");
 
   const reload = useCallback(async () => {
     try {
@@ -82,7 +97,8 @@ export default function ProjectDetailPage() {
     const mine = bundle?.members.find((m) => m.userEmail.toLowerCase() === email);
     const isMember = isOwner || !!mine;
     const isPM = isOwner || mine?.roleInProject === "project_manager";
-    return { isOwner, isMember, isPM, isManager: isOwner || state.role === "manager" };
+    const isAccountant = isOwner || state.role === "accountant";
+    return { isOwner, isMember, isPM, isAccountant, isManager: isOwner || state.role === "manager" };
   }, [bundle, email, state.role]);
 
   if (loading) return <p className="text-sm text-ink-muted">Loading…</p>;
@@ -95,8 +111,15 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, members, phases, tasks, subtasks, files, budgetItems, invoices } = bundle;
+  const { project, members, phases, tasks, subtasks, files, budgetItems, invoices, expenses, quotations } = bundle;
   const pct = projectProgressPct(tasks, subtasks);
+  const today = todayIso();
+  const in7 = localIso(new Date(Date.now() + 7 * 86400000));
+  const doneCount = tasks.filter((t) => t.done).length;
+  const delayedCount = tasks.filter((t) => !t.done && t.endDate && t.endDate < today).length;
+  const dueSoonCount = tasks.filter(
+    (t) => !t.done && t.endDate && t.endDate >= today && t.endDate <= in7,
+  ).length;
   const meta = [project.location, project.area, project.projectType ? `Type: ${project.projectType}` : null]
     .filter(Boolean).join(" · ");
 
@@ -145,49 +168,72 @@ export default function ProjectDetailPage() {
         </nav>
 
         <div className="min-w-0 flex-1">
-          {tab === "timeline" ? (
-            <Card>
-              <CardHeader><CardTitle>Timeline</CardTitle></CardHeader>
-              <CardBody>
-                <ProjectGantt
-                  phases={phases}
-                  tasks={tasks}
-                  startDate={project.startDate}
-                  targetFinish={project.targetFinish}
-                />
-              </CardBody>
-            </Card>
-          ) : null}
-
-          {tab === "checklist" ? (
+          {tab === "progress" ? (
             <div className="space-y-4">
-              {phases.map((ph) => (
-                <PhaseChecklist
-                  key={ph.id}
-                  phase={ph}
-                  tasks={tasks.filter((t) => t.phaseId === ph.id).sort((a, b) => a.seq - b.seq)}
-                  subtasks={subtasks}
-                  files={files}
-                  projectId={project.id}
-                  email={email}
-                  canEdit={perms.isMember}
-                  canManage={perms.isPM}
-                  canStructure={perms.isManager}
-                  onChanged={reload}
-                  onError={setErr}
-                />
-              ))}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <StatCard label="Progress" value={`${pct}%`} />
+                <StatCard label="Tasks done" value={`${doneCount} / ${tasks.length}`} />
+                <StatCard label="Delayed" value={String(delayedCount)} tone={delayedCount > 0 ? "red" : undefined} />
+                <StatCard label="Due in 7 days" value={String(dueSoonCount)} tone={dueSoonCount > 0 ? "amber" : undefined} />
+              </div>
+
+              <Tabs
+                options={[
+                  { value: "timeline", label: "Timeline" },
+                  { value: "checklist", label: "Checklist" },
+                ]}
+                value={planView}
+                onChange={setPlanView}
+              />
+
+              {planView === "timeline" ? (
+                <Card>
+                  <CardHeader><CardTitle>Timeline</CardTitle></CardHeader>
+                  <CardBody>
+                    <ProjectGantt
+                      phases={phases}
+                      tasks={tasks}
+                      startDate={project.startDate}
+                      targetFinish={project.targetFinish}
+                    />
+                  </CardBody>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {phases.map((ph) => (
+                    <PhaseChecklist
+                      key={ph.id}
+                      phase={ph}
+                      tasks={tasks.filter((t) => t.phaseId === ph.id).sort((a, b) => a.seq - b.seq)}
+                      subtasks={subtasks}
+                      files={files}
+                      projectId={project.id}
+                      email={email}
+                      canEdit={perms.isMember}
+                      canManage={perms.isPM}
+                      canStructure={perms.isManager}
+                      onChanged={reload}
+                      onError={setErr}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
 
           {tab === "finances" ? (
             <FinancesPanel
               projectId={project.id}
+              projectName={project.name}
               budgetItems={budgetItems}
               invoices={invoices}
+              expenses={expenses}
+              quotations={quotations}
               email={email}
-              canManage={perms.isPM}
-              canUploadInvoice={perms.isMember}
+              isOwner={perms.isOwner}
+              isPM={perms.isPM}
+              isMember={perms.isMember}
+              isAccountant={perms.isAccountant}
               onChanged={reload}
               onError={setErr}
             />

@@ -39,3 +39,10 @@ verify_jwt = true
 # Publicly callable from the marketing site — no auth required. The apikey
 # header (anon key) is still enforced by the platform.
 verify_jwt = false
+
+[functions.notify-slack]
+# PM expense flow (#18): posts payment requests → #payments and invoice
+# uploads → #invoices. Caller must be signed in; the function also re-checks
+# the caller's role. Needs secrets SLACK_PAYMENTS_WEBHOOK_URL +
+# SLACK_INVOICES_WEBHOOK_URL set per project.
+verify_jwt = true
