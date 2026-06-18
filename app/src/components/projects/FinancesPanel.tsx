@@ -18,11 +18,12 @@ import { useMemo, useRef, useState } from "react";
 
 import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
+import { Tabs } from "../ui/Tabs";
 import { fmtINR } from "../../lib/dashboard";
 import {
   createBudgetItem, createBudgetItemsBulk, deleteBudgetItem, updateBudgetItem,
   createExpense, cancelExpense, addQuotation, deleteQuotation, approveQuotation,
-  rejectQuotations, recordExpenseInvoice, requestExpensePayment, markExpensePaid,
+  rejectQuotations, skipQuotation, recordExpenseInvoice, requestExpensePayment, markExpensePaid,
   expenseFinanceSummary, EXPENSE_STATUS_LABEL,
   type BudgetItemInput, type ProjectBudgetItem, type ProjectInvoice,
   type ProjectExpense, type ProjectQuotation, type ExpenseStatus,
@@ -118,6 +119,7 @@ export function FinancesPanel(props: FinancesPanelProps) {
   const [editId, setEditId] = useState<string | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [subTab, setSubTab] = useState<"budget" | "expenses">("budget");
 
   const summary = useMemo(() => expenseFinanceSummary(budgetItems, expenses), [budgetItems, expenses]);
   const itemName = (id: string | null) =>
@@ -163,7 +165,18 @@ export function FinancesPanel(props: FinancesPanelProps) {
         <SummaryCard label="Spent" value={`${summary.spentPct}%`} />
       </div>
 
+      {/* Sub-tabs */}
+      <Tabs
+        options={[
+          { value: "budget", label: "Budget" },
+          { value: "expenses", label: `Expenses (${liveExpenses.length})` },
+        ]}
+        value={subTab}
+        onChange={setSubTab}
+      />
+
       {/* Budget vs paid table */}
+      {subTab === "budget" ? (
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-display text-sm font-semibold">Budget vs paid</h3>
@@ -281,7 +294,10 @@ export function FinancesPanel(props: FinancesPanelProps) {
         </div>
       </div>
 
+      ) : null}
+
       {/* Expenses */}
+      {subTab === "expenses" ? (
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-display text-sm font-semibold">
@@ -321,6 +337,7 @@ export function FinancesPanel(props: FinancesPanelProps) {
                 quotes={quotesByExpense.get(exp.id) ?? []}
                 invoice={invoiceByExpense.get(exp.id) ?? null}
                 isOwner={isOwner}
+                isPM={isPM}
                 isMember={isMember}
                 isAccountant={isAccountant}
                 busy={busy}
@@ -330,6 +347,7 @@ export function FinancesPanel(props: FinancesPanelProps) {
           </div>
         )}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -337,7 +355,7 @@ export function FinancesPanel(props: FinancesPanelProps) {
 // ── expense card ────────────────────────────────────────────────────────────
 function ExpenseCard({
   expense, lineName, projectId, projectName, email, quotes, invoice,
-  isOwner, isMember, isAccountant, busy, run,
+  isOwner, isPM, isMember, isAccountant, busy, run,
 }: {
   expense: ProjectExpense;
   lineName: string;
@@ -347,6 +365,7 @@ function ExpenseCard({
   quotes: ProjectQuotation[];
   invoice: ProjectInvoice | null;
   isOwner: boolean;
+  isPM: boolean;
   isMember: boolean;
   isAccountant: boolean;
   busy: boolean;
@@ -354,6 +373,7 @@ function ExpenseCard({
 }) {
   const [open, setOpen] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
+  const [showSkip, setShowSkip] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
   const [showPaid, setShowPaid] = useState(false);
 
@@ -383,16 +403,29 @@ function ExpenseCard({
       {open ? (
         <div className="space-y-3 border-t border-line px-3 py-3">
           {expense.description ? <p className="text-sm text-ink-muted">{expense.description}</p> : null}
+          {expense.quoteSkipReason ? (
+            <p className="text-xs text-amber-700">Quotation skipped — {expense.quoteSkipReason}</p>
+          ) : null}
 
           {/* Quotations */}
           <div>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Quotations</span>
-              {isMember && s === "quoting" ? (
-                <button className="text-xs text-blue-700 hover:underline disabled:opacity-50"
-                  disabled={busy} onClick={() => setShowQuote((v) => !v)}>
-                  {showQuote ? "Cancel" : "+ Quotation"}
-                </button>
+              {s === "quoting" ? (
+                <div className="flex items-center gap-3">
+                  {isMember ? (
+                    <button className="text-xs text-blue-700 hover:underline disabled:opacity-50"
+                      disabled={busy} onClick={() => { setShowQuote((v) => !v); setShowSkip(false); }}>
+                      {showQuote ? "Cancel" : "+ Quotation"}
+                    </button>
+                  ) : null}
+                  {isPM ? (
+                    <button className="text-xs text-blue-700 hover:underline disabled:opacity-50"
+                      disabled={busy} onClick={() => { setShowSkip((v) => !v); setShowQuote(false); }}>
+                      {showSkip ? "Cancel" : "Skip quotations"}
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
 
@@ -403,6 +436,17 @@ function ExpenseCard({
                 onSubmit={(input, file) => run(async () => {
                   await addQuotation(projectId, expense.id, input, file, email);
                   setShowQuote(false);
+                })}
+              />
+            ) : null}
+
+            {showSkip ? (
+              <SkipQuoteForm
+                busy={busy}
+                onCancel={() => setShowSkip(false)}
+                onSubmit={(vendor, amount, reason) => run(async () => {
+                  await skipQuotation(expense.id, vendor, amount, reason);
+                  setShowSkip(false);
                 })}
               />
             ) : null}
@@ -476,7 +520,13 @@ function ExpenseCard({
                   approvedAmount={expense.approvedAmount ?? 0}
                   onCancel={() => setShowInvoice(false)}
                   onSubmit={(input, file) => run(async () => {
-                    await recordExpenseInvoice(projectId, expense.id, input, file);
+                    await recordExpenseInvoice(projectId, expense.id, input, file, {
+                      projectName,
+                      lineItem: lineName === "Unallocated" ? null : lineName,
+                      expenseTitle: expense.title,
+                      vendor: expense.approvedVendor,
+                      deepLink: typeof window !== "undefined" ? window.location.href : null,
+                    });
                     setShowInvoice(false);
                   })}
                 />
@@ -685,6 +735,35 @@ function QuotationForm({
         </Button>
       </div>
       {!fileName ? <p className="sm:col-span-12 text-xs text-ink-muted">A quotation file is required.</p> : null}
+    </div>
+  );
+}
+
+function SkipQuoteForm({
+  busy, onCancel, onSubmit,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (vendor: string, amount: number, reason: string) => void;
+}) {
+  const [vendor, setVendor] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  return (
+    <div className="mb-2 grid grid-cols-1 gap-2 rounded-lg border border-amber-200 bg-amber-50/40 p-3 sm:grid-cols-12">
+      <p className="sm:col-span-12 text-xs text-ink-muted">
+        Skip quotations and approve this vendor directly (e.g. known vendor). A reason is required.
+      </p>
+      <div className="sm:col-span-4"><Input placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} /></div>
+      <div className="sm:col-span-3"><Input type="number" placeholder="Approved amount" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      <div className="sm:col-span-5"><Input placeholder="Reason (e.g. known vendor)" value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+      <div className="sm:col-span-12 flex justify-end gap-2">
+        <Button size="sm" variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button>
+        <Button size="sm" disabled={busy || !vendor.trim() || !amount || !reason.trim()}
+          onClick={() => onSubmit(vendor.trim(), Number(amount) || 0, reason.trim())}>
+          Skip &amp; approve
+        </Button>
+      </div>
     </div>
   );
 }

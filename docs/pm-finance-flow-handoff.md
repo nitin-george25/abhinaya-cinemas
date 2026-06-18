@@ -5,6 +5,17 @@ Design spec: `Operations/Project Management/PM Finances Redesign - User Flow.md`
 Files written into the working tree (currently on `feat/guides-page` — move to a clean branch below).
 
 ## What was added / changed
+- **Backfill migration** `supabase/migrations/20260617130000_project_invoice_backfill.sql`
+  - turns every pre-existing invoice into a completed `paid` expense and links
+    it, so budget-line spend is unchanged after deploy. Idempotent; legacy items
+    tagged "Imported from legacy invoice" in `payment_note`. **Critical for prod**
+    (where real invoices exist) — without it, spend would drop to ₹0.
+- **Skip-quotation side-step** `supabase/migrations/20260617140000_project_expense_skip_quote.sql`
+  - PM/owner can skip the quotation stage with a reason ("known vendor"):
+    `quoting → quote_approved` directly, recording vendor + amount + reason
+    (`project_expenses.quote_skip_reason`). New RPC `fn_project_expense_skip_quotation`.
+    UI: "Skip quotations" button in the quoting state (PM/owner); skip reason shown
+    on the card.
 - **Migration** `supabase/migrations/20260617120000_project_expense_flow.sql`
   - tables `project_expenses`, `project_quotations`; extends `project_invoices`
     (`expense_id`, `subtotal`, `gst`, `freight`, `total`, `deviation_reason`)
@@ -54,20 +65,29 @@ npm run db:push:staging
 npm run db:push:prod
 ```
 
-## 4. Deploy the Slack function + set the webhook secret (BOTH projects)
-Staging webhook → staging #payments, prod webhook → prod #payments (parity).
+## 4. Deploy the Slack function + set the webhook secrets (BOTH projects)
+`notify-slack` posts to TWO channels via two webhooks: **#payments** (payment
+requests + OTP ask) and **#invoices** (invoice uploaded). Set each project's
+secrets to its own channels (staging → staging channels, prod → prod, parity).
 ```bash
 supabase functions deploy notify-slack --project-ref lctkvmpzijaspaytunkm   # staging
 supabase functions deploy notify-slack --project-ref xkmjygegtpmmwwnyoufn   # prod
+# staging
 supabase secrets set SLACK_PAYMENTS_WEBHOOK_URL="https://hooks.slack.com/services/XXX" --project-ref lctkvmpzijaspaytunkm
+supabase secrets set SLACK_INVOICES_WEBHOOK_URL="https://hooks.slack.com/services/AAA" --project-ref lctkvmpzijaspaytunkm
+# prod
 supabase secrets set SLACK_PAYMENTS_WEBHOOK_URL="https://hooks.slack.com/services/YYY" --project-ref xkmjygegtpmmwwnyoufn
+supabase secrets set SLACK_INVOICES_WEBHOOK_URL="https://hooks.slack.com/services/BBB" --project-ref xkmjygegtpmmwwnyoufn
 ```
-Create the incoming webhook in Slack: add an app to the workspace → Incoming
-Webhooks → add to #payments → copy the URL.
+Create each incoming webhook in Slack (add an app → Incoming Webhooks → add to
+#payments and again to #invoices → copy each URL). The #invoices post is
+best-effort — if its webhook is unset the invoice still records, it just won't notify.
 
 ## 5. Commit
 ```bash
 git add supabase/migrations/20260617120000_project_expense_flow.sql \
+        supabase/migrations/20260617130000_project_invoice_backfill.sql \
+        supabase/migrations/20260617140000_project_expense_skip_quote.sql \
         supabase/functions/notify-slack/index.ts \
         app/src/lib/projects.ts \
         app/src/components/projects/FinancesPanel.tsx \
