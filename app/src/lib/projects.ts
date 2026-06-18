@@ -906,6 +906,7 @@ export interface ProjectExpense {
   approvedQuotationId: string | null;
   approvedVendor: string | null;
   approvedAmount: number | null;
+  quoteSkipReason: string | null;
   paidAmount: number | null;
   paidAt: string | null;
   paidBy: string | null;
@@ -946,6 +947,7 @@ const toExpense = (r: any): ProjectExpense => ({
   approvedQuotationId: r.approved_quotation_id ?? null,
   approvedVendor: r.approved_vendor ?? null,
   approvedAmount: r.approved_amount != null ? Number(r.approved_amount) : null,
+  quoteSkipReason: r.quote_skip_reason ?? null,
   paidAmount: r.paid_amount != null ? Number(r.paid_amount) : null,
   paidAt: r.paid_at ?? null,
   paidBy: r.paid_by ?? null,
@@ -1095,6 +1097,21 @@ export async function rejectQuotations(expenseId: string, reason: string): Promi
   if (error) throw new Error(error.message);
 }
 
+/**
+ * PM/owner skip the quotation stage with a reason (e.g. "known vendor"):
+ * quoting → quote_approved with the given vendor + amount (RPC).
+ */
+export async function skipQuotation(
+  expenseId: string, vendor: string, amount: number, reason: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_project_expense_skip_quotation", {
+    p_expense_id: expenseId, p_vendor: vendor, p_amount: amount, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
 // ── invoice the approved expense (subtotal must match approved + GST + freight)
 export interface ExpenseInvoiceInput {
   invoiceNo?: string | null;
@@ -1105,8 +1122,17 @@ export interface ExpenseInvoiceInput {
   deviationReason?: string | null;
 }
 
+export interface InvoiceNotifyContext {
+  projectName: string;
+  lineItem: string | null;
+  expenseTitle: string;
+  vendor: string | null;
+  deepLink?: string | null;
+}
+
 export async function recordExpenseInvoice(
   projectId: string, expenseId: string, input: ExpenseInvoiceInput, file: File,
+  notify?: InvoiceNotifyContext,
 ): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
@@ -1116,6 +1142,7 @@ export async function recordExpenseInvoice(
   const up = await sb.storage.from("project-files").upload(path, file, { upsert: false });
   if (up.error) throw new Error(up.error.message);
   const { data: pub } = sb.storage.from("project-files").getPublicUrl(path);
+  const total = (input.subtotal || 0) + (input.gst || 0) + (input.freight || 0);
   const { error } = await sb.rpc("fn_project_expense_record_invoice", {
     p_expense_id: expenseId,
     p_invoice_no: input.invoiceNo ?? null,
@@ -1130,6 +1157,28 @@ export async function recordExpenseInvoice(
     p_deviation_reason: input.deviationReason ?? null,
   });
   if (error) throw new Error(error.message);
+
+  // Best-effort post to Slack #invoices — must not fail the upload.
+  if (notify) {
+    try {
+      await sb.functions.invoke("notify-slack", {
+        body: {
+          kind: "invoice_uploaded",
+          projectName: notify.projectName,
+          lineItem: notify.lineItem,
+          expenseTitle: notify.expenseTitle,
+          vendor: notify.vendor,
+          amount: total,
+          invoiceNo: input.invoiceNo ?? null,
+          invoiceUrl: pub.publicUrl,
+          invoiceFileName: file.name,
+          deepLink: notify.deepLink ?? null,
+        },
+      });
+    } catch (e) {
+      console.warn("[projects] invoice Slack notify failed (non-blocking)", e);
+    }
+  }
 }
 
 // ── payment: request (Slack #payments) + mark paid (OTP) ────────────────────
