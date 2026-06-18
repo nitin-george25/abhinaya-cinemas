@@ -46,3 +46,10 @@ verify_jwt = false
 # the caller's role. Needs secrets SLACK_PAYMENTS_WEBHOOK_URL +
 # SLACK_INVOICES_WEBHOOK_URL set per project.
 verify_jwt = true
+
+[functions.pm-digest]
+# Project Management status digest (daily + weekly). Invoked by pg_cron via the
+# Vault-backed schedule in 20260618000000_pm_digest_cron_schedule.sql, exactly
+# like daily-digest. Uses the auto-injected service-role key to read every
+# project, so it must accept the cron's anon-key bearer token (verify_jwt=true).
+verify_jwt = true
