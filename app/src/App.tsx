@@ -257,8 +257,12 @@ function AppGate() {
                 element={<DcrPage />}
               />
 
-              {/* Guides — in-app help (book icon, top-right). All roles. */}
+              {/* Guides — in-app help (book icon, top-right). All roles.
+                  Category and guide are in the URL so each is shareable:
+                  /guides/:categoryId and /guides/:categoryId/:guideId. */}
               <Route path="/guides" element={<GuidesPage />} />
+              <Route path="/guides/:categoryId" element={<GuidesPage />} />
+              <Route path="/guides/:categoryId/:guideId" element={<GuidesPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             {expiredOverlay}
