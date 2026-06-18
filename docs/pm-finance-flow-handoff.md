@@ -34,7 +34,10 @@ Files written into the working tree (currently on `feat/guides-page` — move to
   table + expense cards with per-actor actions; quote file + invoice file required;
   invoice subtotal vs approved-amount deviation flag.
 - **Wiring** `app/src/pages/projects/ProjectDetail.tsx` — passes expenses/quotations
-  + `isOwner/isPM/isMember/isAccountant`.
+  + `isOwner/isPM/isMember/isAccountant`. Also merges **Timeline + Checklist** into a
+  single **Progress** tab (pills via `ui/Tabs`) with a status row: Progress %,
+  Tasks done, Delayed (overdue, IST dates), Due in 7 days. Top-level tabs are now
+  Progress / Finances / Team.
 - **Edge Function** `supabase/functions/notify-slack/index.ts` — posts the payment
   request + OTP ask to Slack #payments (one-way webhook, accountant/owner only).
 
@@ -92,10 +95,13 @@ git add supabase/migrations/20260617120000_project_expense_flow.sql \
         supabase/migrations/20260617130000_project_invoice_backfill.sql \
         supabase/migrations/20260617140000_project_expense_skip_quote.sql \
         supabase/functions/notify-slack/index.ts \
+        supabase/config.toml \
         app/src/lib/projects.ts \
+        app/src/components/ui/Tabs.tsx \
         app/src/components/projects/FinancesPanel.tsx \
         app/src/pages/projects/ProjectDetail.tsx \
         docs/pm-finance-flow-handoff.md
+# (or simply: git add -A — this branch only has these changes)
 git commit -m "feat(projects): expense approval & payment flow for PM finances"
 git push -u origin feat/pm-finance-flow
 ```
