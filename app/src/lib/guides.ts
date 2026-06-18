@@ -54,6 +54,15 @@ export const GUIDE_CATEGORIES: GuideCategory[] = [
   {
     id: "operations",
     label: "Operations",
-    guides: [],
+    guides: [
+      {
+        id: "ops-add-renovation-expense",
+        title: "Add a New Expense to a Renovation Project",
+        description:
+          "Record a new expense against a renovation project's budget from the Project Management module.",
+        embedUrl:
+          "https://scribehow.com/embed/How_To_Add_A_New_Expense_To_A_Renovation_Project__xJ_Klrr_QzK2vVIlrSxJcQ",
+      },
+    ],
   },
 ];
