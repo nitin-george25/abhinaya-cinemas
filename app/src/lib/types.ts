@@ -254,6 +254,10 @@ export interface FbEntry {
   summary: FbSummary;
   items: FbItem[];
   notes?: string;
+  /** Write origin. 'zoho' rows are imported from Zoho Books (source of truth
+   *  for F&B sales) and are read-only in the UI + never pushed/reaped by the
+   *  sync engine. Undefined / 'manual' = operator- or DSR-entered. */
+  source?: "manual" | "zoho";
 }
 
 // ── Computed output shapes ───────────────────────────────────────────────

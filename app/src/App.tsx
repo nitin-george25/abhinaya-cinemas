@@ -37,6 +37,7 @@ import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
 import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
 import GuidesPage from "./pages/Guides";
+import InvoicesPage from "./pages/Invoices";
 
 export default function App() {
   return (
@@ -178,6 +179,8 @@ function AppGate() {
                   <Route path="/reports"             element={<Navigate to="/reports/fb" replace />} />
                   <Route path="/reports/box-office"  element={<ReportsBoPage />} />
                   <Route path="/reports/fb"          element={<ReportsFbPage />} />
+                  {/* Invoices — purchase bills from Zoho Books (Finance group). */}
+                  <Route path="/invoices"            element={<InvoicesPage />} />
                 </>
               ) : null}
 
