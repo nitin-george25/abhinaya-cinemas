@@ -1,38 +1,25 @@
 // ============================================================================
-// notify-slack — posts project finance events to Slack (PM expense flow #18).
+// notify-slack — OUTBOUND Slack notifications.
 //
-// Event kinds, each to its own channel via its own Incoming Webhook:
-//   • "payment_request"  → #payments  — accountant requests payment; posts the
-//        bill for the owner to review and approve. Allowed: owner / accountant.
-//   • "payment_paid"     → #payments  — accountant marked the expense paid and
-//        attached the payment receipt. Posts the receipt. Allowed: owner /
-//        accountant.
-//   • "invoice_uploaded" → #invoices  — PM/DM uploaded a vendor invoice against
-//        an approved expense. Informational. Allowed: any entry-writer/accountant.
+// PM expense flow (#18) — one-way Incoming Webhooks, one channel per kind:
+//   • "payment_request"  → #payments  (owner / accountant)
+//   • "payment_paid"     → #payments  (owner / accountant)
+//   • "invoice_uploaded" → #invoices  (any entry-writer / accountant)
 //
-// v1 is ONE-WAY: webhooks only, no bot token, we don't read replies.
+// Petty-expense two-way approval (cash_21) — bot token + interactive buttons,
+// delegated to ../_shared/petty.ts:
+//   • "petty_request"  → #petty-expenses  posts the pending card + buttons
+//   • "petty_decided"  → #petty-expenses  edits the card after a console decision
+// Button clicks land on the separate slack-interactions function.
 //
-// Env vars (Edge Function secrets — set PER Supabase project so staging and prod
-// post to their own channels, satisfying staging/prod parity):
-//   • SLACK_PAYMENTS_WEBHOOK_URL  — Incoming Webhook for #payments
-//   • SLACK_INVOICES_WEBHOOK_URL  — Incoming Webhook for #invoices
+// Secrets (per Supabase project, for staging/prod parity):
+//   • SLACK_PAYMENTS_WEBHOOK_URL, SLACK_INVOICES_WEBHOOK_URL  (PM webhooks)
+//   • SLACK_BOT_TOKEN, SLACK_PETTY_CHANNEL_ID                 (petty kinds)
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+import { corsHeaders, inr, json, postWebhook } from "../_shared/slack.ts";
+import { handlePettyOutbound } from "../_shared/petty.ts";
 
 interface Body {
   kind?: string;
@@ -47,23 +34,22 @@ interface Body {
   receiptUrl?: string | null;
   receiptFileName?: string | null;
   deepLink?: string | null;
+  // Petty-expense two-way approval (cash_21).
+  pettyExpenseId?: string;
 }
 
 const PAYMENT_ROLES = new Set(["owner", "accountant"]);
 const INVOICE_ROLES = new Set(["owner", "manager", "daily_manager", "accountant"]);
 
-const inr = (n: number) =>
-  "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  const SUPABASE_URL   = Deno.env.get("SUPABASE_URL");
-  const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const ANON_KEY       = Deno.env.get("SUPABASE_ANON_KEY");
-  const PAYMENTS_HOOK  = Deno.env.get("SLACK_PAYMENTS_WEBHOOK_URL");
-  const INVOICES_HOOK  = Deno.env.get("SLACK_INVOICES_WEBHOOK_URL");
+  const SUPABASE_URL  = Deno.env.get("SUPABASE_URL");
+  const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const ANON_KEY      = Deno.env.get("SUPABASE_ANON_KEY");
+  const PAYMENTS_HOOK = Deno.env.get("SLACK_PAYMENTS_WEBHOOK_URL");
+  const INVOICES_HOOK = Deno.env.get("SLACK_INVOICES_WEBHOOK_URL");
   if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
     return json({ error: "Supabase env vars not configured" }, 500);
   }
@@ -90,7 +76,14 @@ Deno.serve(async (req: Request) => {
 
   const kind = body.kind ?? "payment_request";
 
-  // Pick channel + gate + message by kind.
+  // Petty-expense two-way kinds (cash_21) — delegated to the shared handler.
+  if (kind === "petty_request" || kind === "petty_decided") {
+    return await handlePettyOutbound(svc, role, kind, body.pettyExpenseId);
+  }
+
+  // --------------------------------------------------------------------------
+  // PM webhook kinds — pick channel + gate + message by kind.
+  // --------------------------------------------------------------------------
   let webhook: string | undefined;
   let text: string;
   let lines: (string | null)[];
@@ -152,17 +145,9 @@ Deno.serve(async (req: Request) => {
   };
 
   try {
-    const r = await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(slackPayload),
-    });
-    if (!r.ok) {
-      const t = await r.text();
-      return json({ error: `Slack webhook failed: ${r.status} ${t}` }, 502);
-    }
+    await postWebhook(webhook, slackPayload);
   } catch (e) {
-    return json({ error: `Slack webhook error: ${e instanceof Error ? e.message : String(e)}` }, 502);
+    return json({ error: e instanceof Error ? e.message : String(e) }, 502);
   }
 
   return json({ ok: true, channel: kind === "invoice_uploaded" ? "#invoices" : "#payments", ts: null });

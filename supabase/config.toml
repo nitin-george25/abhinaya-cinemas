@@ -42,10 +42,20 @@ verify_jwt = false
 
 [functions.notify-slack]
 # PM expense flow (#18): posts payment requests → #payments and invoice
-# uploads → #invoices. Caller must be signed in; the function also re-checks
-# the caller's role. Needs secrets SLACK_PAYMENTS_WEBHOOK_URL +
-# SLACK_INVOICES_WEBHOOK_URL set per project.
+# uploads → #invoices (Incoming Webhooks). ALSO petty-expense two-way approval
+# (cash_21): petty_request/petty_decided post + edit interactive messages in
+# #petty-expenses via the bot token. Caller must be signed in; the function
+# re-checks the caller's role. Secrets per project: SLACK_PAYMENTS_WEBHOOK_URL,
+# SLACK_INVOICES_WEBHOOK_URL, SLACK_BOT_TOKEN, SLACK_PETTY_CHANNEL_ID.
 verify_jwt = true
+
+[functions.slack-interactions]
+# Inbound Slack interactivity (cash_21) — the app's Request URL. Slack POSTs
+# here on Approve/Reject clicks + reject-reason modal submits; there is no
+# Supabase JWT, so verify_jwt MUST be false. The function authenticates every
+# request via the Slack signing secret instead. Secrets per project:
+# SLACK_SIGNING_SECRET, SLACK_BOT_TOKEN.
+verify_jwt = false
 
 [functions.pm-digest]
 # Project Management status digest (daily + weekly). Invoked by pg_cron via the
