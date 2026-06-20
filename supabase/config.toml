@@ -42,14 +42,41 @@ verify_jwt = false
 
 [functions.notify-slack]
 # PM expense flow (#18): posts payment requests → #payments and invoice
-# uploads → #invoices. Caller must be signed in; the function also re-checks
-# the caller's role. Needs secrets SLACK_PAYMENTS_WEBHOOK_URL +
-# SLACK_INVOICES_WEBHOOK_URL set per project.
+# uploads → #invoices (Incoming Webhooks). ALSO petty-expense two-way approval
+# (cash_21): petty_request/petty_decided post + edit interactive messages in
+# #petty-expenses via the bot token. Caller must be signed in; the function
+# re-checks the caller's role. Secrets per project: SLACK_PAYMENTS_WEBHOOK_URL,
+# SLACK_INVOICES_WEBHOOK_URL, SLACK_BOT_TOKEN, SLACK_PETTY_CHANNEL_ID.
 verify_jwt = true
+
+[functions.slack-interactions]
+# Inbound Slack interactivity (cash_21) — the app's Request URL. Slack POSTs
+# here on Approve/Reject clicks + reject-reason modal submits; there is no
+# Supabase JWT, so verify_jwt MUST be false. The function authenticates every
+# request via the Slack signing secret instead. Secrets per project:
+# SLACK_SIGNING_SECRET, SLACK_BOT_TOKEN.
+verify_jwt = false
 
 [functions.pm-digest]
 # Project Management status digest (daily + weekly). Invoked by pg_cron via the
 # Vault-backed schedule in 20260618000000_pm_digest_cron_schedule.sql, exactly
 # like daily-digest. Uses the auto-injected service-role key to read every
 # project, so it must accept the cron's anon-key bearer token (verify_jwt=true).
+verify_jwt = true
+
+[functions.zoho-webhook]
+# Inbound Zoho Books webhooks (Workflow Rules on Bills + Invoices). Zoho can't
+# send a Supabase JWT, so verify_jwt MUST be false; the function authenticates
+# every request via the ZOHO_WEBHOOK_SECRET shared-secret header instead. The
+# service-role key performs the upsert. Secrets per project: ZOHO_WEBHOOK_SECRET
+# (+ ZOHO_CLIENT_ID/SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID, ZOHO_DC for the
+# thin-payload line-item fallback).
+verify_jwt = false
+
+[functions.zoho-sync]
+# Scheduled OAuth pull (reconciliation) + one-time backfill (?mode=backfill).
+# Invoked by pg_cron via the Vault-backed 20260619120200_zoho_sync_cron_schedule
+# .sql, like daily-digest, so it must accept the cron's anon-key bearer token
+# (verify_jwt=true). Secrets per project: ZOHO_CLIENT_ID/SECRET,
+# ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID, ZOHO_DC.
 verify_jwt = true

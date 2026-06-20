@@ -60,9 +60,15 @@ export interface AuthorizedUserRow {
 export interface FbEntryRow {
   id: string;
   entry_date: string;
+  /** cinema scope (NOT NULL in the DB after migration 06). */
+  cinema_id: string | null;
   summary: Record<string, unknown> | null;
   items: Array<Record<string, unknown>> | null;
   notes: string | null;
+  /** 'manual' = client-owned (operator/DSR); 'zoho' = server-imported and
+   *  NEVER reaped/overwritten by the client delta-sync engine. Default
+   *  'manual' so every legacy row stays client-owned. */
+  source: string | null;
   updated_by: string | null;
   updated_at: string | null;
 }
@@ -82,6 +88,65 @@ export interface FbProductRow {
   metadata: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** `public.invoices` — unified Zoho store. type='purchase' (Bills) surface in
+ *  the Invoices page; type='sales' are rolled up into fb_entries. */
+export interface InvoiceRow {
+  id: string;
+  cinema_id: string;
+  type: "purchase" | "sales";
+  source: "zoho" | "manual";
+  category: string | null;
+  zoho_org_id: string | null;
+  zoho_branch_id: string | null;
+  zoho_id: string | null;
+  party_name: string | null;
+  invoice_no: string | null;
+  invoice_date: string | null;   // YYYY-MM-DD
+  due_date: string | null;
+  status: string | null;
+  currency: string | null;
+  sub_total: number | null;
+  tax_total: number | null;
+  cgst: number | null;
+  sgst: number | null;
+  igst: number | null;
+  total: number | null;
+  balance: number | null;
+  gst_treatment: string | null;
+  place_of_supply: string | null;
+  gstin: string | null;
+  notes: string | null;
+  project_id: string | null;
+  budget_item_id: string | null;
+  expense_id: string | null;
+  raw: Record<string, unknown> | null;
+  zoho_last_modified: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** `public.invoice_line_items` — one row per Zoho line (HSN + GST split). */
+export interface InvoiceLineItemRow {
+  id: string;
+  invoice_id: string;
+  line_no: number | null;
+  zoho_line_id: string | null;
+  name: string | null;
+  description: string | null;
+  hsn_or_sac: string | null;
+  quantity: number | null;
+  rate: number | null;
+  item_total: number | null;
+  tax_percentage: number | null;
+  cgst: number | null;
+  sgst: number | null;
+  igst: number | null;
+  account: string | null;
+  raw: Record<string, unknown> | null;
 }
 
 /** `public.fb_checklist_runs` — one completed checklist instance.

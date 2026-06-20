@@ -42,6 +42,7 @@ import {
   fbRowToEntry,
   rowToEntry,
 } from "../mappers";
+import { planFbSync } from "../fbSync";
 import {
   catalogCacheFromAppState,
   emptyCatalogSyncCache,
@@ -156,6 +157,10 @@ export function useSupabaseSync(): SyncApi {
     cfg: string | null;
     ent: Record<string, string>;
     fb: Record<string, string>;
+    /** Dates whose fb_entries row is Zoho-owned (source='zoho'). The client
+     *  NEVER upserts or reaps these — Zoho Books is the source of truth for
+     *  F&B sales. Populated from pullAll; consulted in pushDeltas. */
+    fbZohoDates: Set<string>;
     /** Cinema id resolved at boot — used for cinema-scoped writes (Phase 3). */
     cinemaId: string | null;
     /** Catalog sync cache for new-table delta detection. */
@@ -164,6 +169,7 @@ export function useSupabaseSync(): SyncApi {
     cfg: null,
     ent: {},
     fb: {},
+    fbZohoDates: new Set(),
     cinemaId: null,
     catalog: emptyCatalogSyncCache(),
   });
@@ -259,9 +265,18 @@ export function useSupabaseSync(): SyncApi {
       entries.forEach((e) => {
         synced.current.ent[entryKey(e)] = entrySignature(e);
       });
+      // Seed the F&B delta cache from MANUAL rows only. Zoho-owned days are
+      // tracked separately so pushDeltas never upserts or reaps them — the
+      // delete-missing reaper only ever considers keys in synced.current.fb.
       synced.current.fb = {};
+      synced.current.fbZohoDates = new Set();
       fbEntries.forEach((e) => {
-        synced.current.fb[fbEntryKey(e)] = fbEntrySignature(e);
+        const k = fbEntryKey(e);
+        if (e.source === "zoho") {
+          synced.current.fbZohoDates.add(k);
+        } else {
+          synced.current.fb[k] = fbEntrySignature(e);
+        }
       });
 
       localState.current = next;
@@ -345,37 +360,41 @@ export function useSupabaseSync(): SyncApi {
       }
     });
 
-    // F&B entries — upsert changes, delete missing. Key is entry_date.
-    const curFb: Record<string, true> = {};
-    s.fbEntries.forEach((e) => {
+    // F&B entries — upsert changed MANUAL days, reap missing MANUAL days.
+    // Zoho Books owns F&B sales: the client must NEVER upsert or reap a
+    // Zoho-imported day, or a debounced push after an unrelated edit would
+    // silently clobber/delete imported sales. planFbSync() encodes that
+    // decision (and is unit-tested in fbSync.test.ts).
+    const fbPlan = planFbSync(s.fbEntries, synced.current.fb, synced.current.fbZohoDates);
+    fbPlan.upserts.forEach((e) => {
       const k = fbEntryKey(e);
       const sig = fbEntrySignature(e);
-      curFb[k] = true;
-      if (synced.current.fb[k] !== sig) {
-        ops.push(
-          sb.from("fb_entries").upsert(fbEntryToRow(e, email, synced.current.cinemaId), {
-            // After migration 06, fb_entries unique is (cinema_id, entry_date).
-            // Sending both ensures the upsert resolves correctly on the new
-            // schema. Pre-migration, cinema_id is null but the upsert still
-            // matches on entry_date via the legacy unique.
-            onConflict: "cinema_id,entry_date",
-          }).then((r) => {
-            if (r.error) console.error(r.error);
-            else synced.current.fb[k] = sig;
-          }),
-        );
-      }
+      ops.push(
+        sb.from("fb_entries").upsert(fbEntryToRow(e, email, synced.current.cinemaId), {
+          // After migration 06, fb_entries unique is (cinema_id, entry_date).
+          // Sending both ensures the upsert resolves correctly on the new
+          // schema. Pre-migration, cinema_id is null but the upsert still
+          // matches on entry_date via the legacy unique.
+          onConflict: "cinema_id,entry_date",
+        }).then((r) => {
+          if (r.error) console.error(r.error);
+          else synced.current.fb[k] = sig;
+        }),
+      );
     });
-    Object.keys(synced.current.fb).forEach((k) => {
-      if (!curFb[k]) {
-        ops.push(
-          sb.from("fb_entries").delete().eq("entry_date", k)
-            .then((r) => {
-              if (r.error) console.error(r.error);
-              else delete synced.current.fb[k];
-            }),
-        );
-      }
+    fbPlan.deletes.forEach((k) => {
+      // Scope the delete by cinema so we can't reap another cinema's row for
+      // the same date (the unfiltered delete was a latent multi-cinema bug).
+      const cid = synced.current.cinemaId;
+      const del = cid
+        ? sb.from("fb_entries").delete().eq("cinema_id", cid).eq("entry_date", k)
+        : sb.from("fb_entries").delete().eq("entry_date", k);
+      ops.push(
+        del.then((r) => {
+          if (r.error) console.error(r.error);
+          else delete synced.current.fb[k];
+        }),
+      );
     });
 
     if (!ops.length) {

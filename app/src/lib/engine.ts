@@ -321,17 +321,21 @@ export function sharedScreenMovie(
 /**
  * Entry-wide rep batta.
  *
- *  • Movie on ONE screen that day → legacy step lookup (rep1/rep2/rep5).
+ *  • Movie on ONE screen that day → step lookup (rep1/rep2/rep5).
  *    Bit-identical to the locked legacy engine.
- *  • Movie on MORE THAN ONE screen that day → per-show day/night batta
- *    (repDay/repNight, ₹100 each at current config) summed over THIS
- *    entry's real shows. Each screen carries rate × its own shows, so the
- *    combined total across screens is rate × total shows of the movie:
- *      1+1 → 100/100 (total 200), 1+2 → 100/200 (300), 1+3 → 100/300 (400).
+ *  • Movie on MORE THAN ONE screen that day → the SAME step lookup applied to
+ *    the COMBINED real-show count across every screen, then split between the
+ *    screens in proportion to each screen's real shows, rounded to the nearest
+ *    ₹100. The screen with the most real shows absorbs the rounding remainder
+ *    (ties broken by screen name) so the per-screen shares always sum back to
+ *    the pooled step total:
+ *      1+1 (=2) → ₹400 → 200/200,  3+2 (=5) → ₹600 → 400/200,
+ *      4+1 (=5) → ₹600 → 500/100,  2+3 (=5) → ₹600 → 200/400.
  *
- * Owner-approved math change (Nitin, 2026-06-06) — the only intentional
- * divergence from the legacy engine. The pooled TOTAL is the contract;
- * the proportional split is the agreed deterministic default.
+ * Owner-directed math (Nitin): single-screen days stay bit-identical to the
+ * legacy engine; multi-screen days pool to the step total and split it. This
+ * supersedes the 2026-06-06 ₹100-per-show interim rule, so repDay/repNight no
+ * longer affect rep batta.
  */
 export function entryRepBatta(
   state: AppState,
@@ -342,12 +346,43 @@ export function entryRepBatta(
   if (!sharedScreenMovie(state, entry, draft)) {
     return repBattaFor(realShowCount(entry), tax);
   }
-  return (entry.shows || [])
-    .filter(isRealShow)
-    .reduce(
-      (sum, sh) => sum + (isNight(sh.showtime) ? N(tax.repNight) : N(tax.repDay)),
-      0,
-    );
+
+  // All real-show entries for this movie on this date, across every screen.
+  const sameMovie = mergedEntries(state, draft).filter(
+    (e) =>
+      e.date === entry.date &&
+      e.movieId === entry.movieId &&
+      realShowCount(e) > 0,
+  );
+  const combined = sameMovie.reduce((n, e) => n + realShowCount(e), 0);
+  if (combined <= 0) return 0;
+
+  // Pooled total = the SAME step lookup on the combined show count.
+  const pooledTotal = repBattaFor(combined, tax);
+  const round100 = (x: number): number => Math.round(x / 100) * 100;
+  const screenName = (e: Entry): string =>
+    (state.screens.find((s) => s.id === e.screenId) || ({} as Screen)).name || "";
+
+  // The busiest screen (ties broken by screen name) absorbs the rounding
+  // remainder so the per-screen shares sum exactly to the pooled total.
+  const absorber = sameMovie
+    .slice()
+    .sort(
+      (a, b) =>
+        realShowCount(b) - realShowCount(a) ||
+        screenName(a).localeCompare(screenName(b)),
+    )[0]!;
+
+  if (entry.screenId === absorber.screenId) {
+    const othersRounded = sameMovie
+      .filter((e) => e.screenId !== absorber.screenId)
+      .reduce(
+        (acc, e) => acc + round100((pooledTotal * realShowCount(e)) / combined),
+        0,
+      );
+    return pooledTotal - othersRounded;
+  }
+  return round100((pooledTotal * realShowCount(entry)) / combined);
 }
 
 /**
