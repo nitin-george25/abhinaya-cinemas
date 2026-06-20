@@ -46,6 +46,38 @@ import type {
   UUID,
 } from "../types";
 
+// ── weekly distributor share % (per-run-week overrides) ──────────────────
+
+/** JSONB `movies.week_shares` (string keys) → Movie.weekShares (number keys).
+ *  Drops empty/invalid values so unset weeks fall back to the entry share. */
+function weekSharesFromRow(
+  raw: Record<string, number> | null | undefined,
+): Record<number, number> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const wk = Number(k);
+    const pct = Number(v);
+    if (Number.isFinite(wk) && wk >= 1 && Number.isFinite(pct)) out[wk] = pct;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Movie.weekShares (number keys) → JSONB row value (string keys). Returns `{}`
+ *  when there are no overrides, so the column is written non-null. */
+function weekSharesToRow(
+  ws: Record<number, number> | undefined,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (ws) {
+    for (const [k, v] of Object.entries(ws)) {
+      const pct = Number(v);
+      if (Number.isFinite(Number(k)) && Number.isFinite(pct)) out[String(k)] = pct;
+    }
+  }
+  return out;
+}
+
 // ── READ ────────────────────────────────────────────────────────────────
 
 export interface CatalogReadResult {
@@ -246,6 +278,7 @@ export function composeCatalogFromRows(args: {
       posterUrl: m.poster_url ?? undefined,
       trailerUrl: m.trailer_url ?? undefined,
       featured: m.is_featured ?? false,
+      weekShares: weekSharesFromRow(m.week_shares),
       statusOverride: m.status_override ?? undefined,
       // `status` is server-derived (migration 16) and read-only here.
       status: m.status ?? undefined,
@@ -407,6 +440,7 @@ export async function pushCatalogDeltas(
     poster_url: m.posterUrl ?? null,
     trailer_url: m.trailerUrl ?? null,
     is_featured: m.featured ?? false,
+    week_shares: weekSharesToRow(m.weekShares),
     // `status` is owned by the server-side engine (migration 16); the app
     // only writes the manual override (null = Auto). Writing `status` here
     // would clobber the calc on every config push.

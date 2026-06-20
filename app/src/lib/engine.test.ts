@@ -26,6 +26,8 @@ import {
   r2,
   realShowCount,
   repBattaFor,
+  resolveShare,
+  runWeekOf,
   screenById,
   screenClasses,
   sharedScreenMovie,
@@ -792,5 +794,91 @@ describe("computeEntry()/computeShallow() — pooled batta flows into netShare",
     const { s, a, b } = pooledState();
     expect(computeShallow(s, a).repBatta).toBe(computeEntry(s, a).today.repBatta);
     expect(computeShallow(s, b).repBatta).toBe(computeEntry(s, b).today.repBatta);
+  });
+});
+
+// ── per-film weekly distributor share % ──────────────────────────────────
+
+describe("runWeekOf() — release-anchored run week", () => {
+  function movieState(release: string | undefined): AppState {
+    const s = makeDefaultState();
+    s.movies = s.movies.map((m) =>
+      m.id === "mov_empuraan" ? { ...m, release } : m,
+    );
+    return s;
+  }
+  const onDate = (date: string): Entry => ({
+    id: "e", date, movieId: "mov_empuraan", screenId: "scr_abhinaya", share: 60,
+    shows: [{ showtime: "13:00", rows: {} }],
+  });
+
+  it("release day .. release+6 is week 1", () => {
+    const s = movieState("2025-03-27");
+    expect(runWeekOf(s, onDate("2025-03-27"))).toBe(1);
+    expect(runWeekOf(s, onDate("2025-04-02"))).toBe(1); // +6 days
+  });
+  it("release+7 starts week 2; +14 starts week 3", () => {
+    const s = movieState("2025-03-27");
+    expect(runWeekOf(s, onDate("2025-04-03"))).toBe(2); // +7
+    expect(runWeekOf(s, onDate("2025-04-10"))).toBe(3); // +14
+  });
+  it("no release date → null", () => {
+    expect(runWeekOf(movieState(undefined), onDate("2025-04-03"))).toBeNull();
+  });
+  it("entry before release → null", () => {
+    expect(runWeekOf(movieState("2025-03-27"), onDate("2025-03-20"))).toBeNull();
+  });
+});
+
+describe("resolveShare() — per-week override maps onto every entry in the week", () => {
+  function stateWith(weekShares?: Record<number, number>): AppState {
+    const s = makeDefaultState();
+    s.movies = s.movies.map((m) =>
+      m.id === "mov_empuraan" ? { ...m, release: "2025-03-27", weekShares } : m,
+    );
+    return s;
+  }
+  const onDate = (date: string, share = 60): Entry => ({
+    id: "e_" + date, date, movieId: "mov_empuraan", screenId: "scr_abhinaya", share,
+    shows: [{ showtime: "13:00", rows: {} }],
+  });
+
+  it("no overrides → entry's own share", () => {
+    expect(resolveShare(stateWith(undefined), onDate("2025-03-27", 60))).toBe(60);
+  });
+  it("week override wins for every entry in that run week", () => {
+    const s = stateWith({ 1: 55 });
+    expect(resolveShare(s, onDate("2025-03-27"))).toBe(55); // day 1
+    expect(resolveShare(s, onDate("2025-04-02"))).toBe(55); // day 7, same week
+  });
+  it("a week with no override falls back to the entry share", () => {
+    expect(resolveShare(stateWith({ 1: 55 }), onDate("2025-04-03", 60))).toBe(60); // week 2 unset
+  });
+  it("overrides are independent per week", () => {
+    const s = stateWith({ 1: 55, 2: 50 });
+    expect(resolveShare(s, onDate("2025-03-27"))).toBe(55);
+    expect(resolveShare(s, onDate("2025-04-03"))).toBe(50);
+  });
+  it("no release date → entry share even if weekShares set", () => {
+    const s = makeDefaultState();
+    s.movies = s.movies.map((m) =>
+      m.id === "mov_empuraan" ? { ...m, release: undefined, weekShares: { 1: 55 } } : m,
+    );
+    expect(resolveShare(s, onDate("2025-04-03", 60))).toBe(60);
+  });
+  it("computeEntry uses the resolved week share for distShare", () => {
+    const s = stateWith({ 1: 50 });
+    const e: Entry = {
+      id: "e1", date: "2025-03-27", movieId: "mov_empuraan",
+      screenId: "scr_abhinaya", share: 60,
+      shows: [{
+        showtime: "13:00", priceCardId: "pc_1",
+        rows: { cls_royale: { tickets: 10 }, cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } },
+      }],
+    };
+    s.entries = [e];
+    const c = computeEntry(s, e);
+    expect(c.share).toBe(50); // week override, not the entry's 60
+    expect(c.today.distShare).toBeCloseTo(0.5 * c.today.netShare, 6);
   });
 });

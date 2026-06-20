@@ -386,6 +386,41 @@ export function entryRepBatta(
 }
 
 /**
+ * 1-based run week of an entry: week 1 is the release day through release+6,
+ * week 2 is release+7..release+13, etc. Returns null when the movie has no
+ * release date (run week is undefined) or the entry pre-dates release.
+ */
+export function runWeekOf(state: AppState, entry: Entry): number | null {
+  const movie = state.movies.find((m) => m.id === entry.movieId);
+  if (!movie || !movie.release || !entry.date) return null;
+  const runningDay = daysBetween(movie.release, entry.date) + 1; // 1-based
+  if (runningDay < 1) return null;
+  return Math.floor((runningDay - 1) / 7) + 1;
+}
+
+/**
+ * Distributor share % used for an entry's DCR.
+ *
+ * A per-run-week override set on the movie (Settings → Movies) wins: it maps to
+ * EVERY entry whose date falls in that run week. Resolved here at compute time
+ * — not written onto entries — so editing a week's % reflects across all of
+ * that week's DCRs, including locked ones, without touching the entries.
+ *
+ * When the entry's run week has no override (or the movie has no release date),
+ * it falls back to the entry's own `share`, which itself defaults from the
+ * movie's base share %. So existing DCRs are unchanged until a week is set.
+ */
+export function resolveShare(state: AppState, entry: Entry): number {
+  const movie = state.movies.find((m) => m.id === entry.movieId);
+  const wk = runWeekOf(state, entry);
+  if (movie && wk != null && movie.weekShares) {
+    const v = movie.weekShares[wk];
+    if (v !== undefined && v !== null && v !== ("" as unknown)) return N(v);
+  }
+  return N(entry.share);
+}
+
+/**
  * Fund credited to this entry's movie for the day on this screen.
  *
  * Rules (per Nitin):
@@ -466,7 +501,7 @@ export function computeShallow(
     }
   }
   const fund = computeFund(state, entry, draft);
-  const share = N(entry.share);
+  const share = resolveShare(state, entry);
   const netShare = grossColl - gst - tmc - cess - fund - repBatta - etax;
   return {
     grossColl,
@@ -584,7 +619,7 @@ export function computeEntry(
   G.repBatta = entryRepBatta(state, entry, tax, draft);
 
   const fund = computeFund(state, entry, draft);
-  const share = N(entry.share);
+  const share = resolveShare(state, entry);
   const netShare = G.grossColl - G.gst - G.tmc - G.cess - fund - G.repBatta - G.etax;
   const distShare = (share / 100) * netShare;
   const exShare = netShare - distShare;
