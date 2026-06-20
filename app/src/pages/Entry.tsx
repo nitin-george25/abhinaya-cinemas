@@ -157,10 +157,13 @@ export default function EntryPage() {
     if (patch.screenId !== undefined) setScreenId(patch.screenId);
 
     // Share edits apply directly to the existing entry, or stage for the
-    // next blankEntry().
+    // next blankEntry(). Distributor share is editable even on a locked DCR
+    // (owner + manager) — so this bypasses the editLocked guard in persist().
+    // The entries_edit_lock trigger enforces server-side that only `share`
+    // may change on a locked row; box-office figures stay frozen.
     if (patch.share !== undefined) {
       if (existing) {
-        persist({ ...existing, share: patch.share });
+        setAppState(upsertEntry(appState!, { ...existing, share: patch.share }));
         setShareOverride(null);
       } else {
         setShareOverride(patch.share);
@@ -229,7 +232,7 @@ export default function EntryPage() {
         movieId={movieId}
         screenId={screenId}
         share={share}
-        shareLocked={!!existing || editLocked}
+        dcrLocked={editLocked}
         onChange={onHeaderChange}
       />
 

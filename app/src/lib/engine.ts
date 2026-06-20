@@ -399,25 +399,37 @@ export function runWeekOf(state: AppState, entry: Entry): number | null {
 }
 
 /**
- * Distributor share % used for an entry's DCR.
+ * Distributor share % used for an entry's DCR. Precedence:
  *
- * A per-run-week override set on the movie (Settings → Movies) wins: it maps to
- * EVERY entry whose date falls in that run week. Resolved here at compute time
- * — not written onto entries — so editing a week's % reflects across all of
- * that week's DCRs, including locked ones, without touching the entries.
+ *   1. An EXPLICIT per-day override on the entry — i.e. `entry.share` differs
+ *      from the movie's base share %. This is a deliberate edit on the DCR
+ *      (now allowed even after the 2-day lock, share-only), so a mid-week deal
+ *      on a single day wins over the week rate.
+ *   2. A per-run-week override on the movie (Settings → Movies), which maps to
+ *      EVERY entry in that run week. Resolved at compute time — not written
+ *      onto entries — so it also applies to locked DCRs.
+ *   3. The entry's own `share` (which defaults from the movie's base %).
  *
- * When the entry's run week has no override (or the movie has no release date),
- * it falls back to the entry's own `share`, which itself defaults from the
- * movie's base share %. So existing DCRs are unchanged until a week is set.
+ * A day left at the movie default (entry.share == base) is treated as "no
+ * per-day override", so the week rate applies; change a day's share to take it
+ * off the week rate.
  */
 export function resolveShare(state: AppState, entry: Entry): number {
   const movie = state.movies.find((m) => m.id === entry.movieId);
+  const entryShare = N(entry.share);
+
+  // 1. Explicit per-day override: the entry's share was edited off the base.
+  if (movie && entryShare !== N(movie.share)) return entryShare;
+
+  // 2. Per-run-week override.
   const wk = runWeekOf(state, entry);
   if (movie && wk != null && movie.weekShares) {
     const v = movie.weekShares[wk];
     if (v !== undefined && v !== null && v !== ("" as unknown)) return N(v);
   }
-  return N(entry.share);
+
+  // 3. Default (entry share == base, or no movie record).
+  return entryShare;
 }
 
 /**

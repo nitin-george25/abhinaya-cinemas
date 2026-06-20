@@ -859,6 +859,17 @@ describe("resolveShare() — per-week override maps onto every entry in the week
     expect(resolveShare(s, onDate("2025-03-27"))).toBe(55);
     expect(resolveShare(s, onDate("2025-04-03"))).toBe(50);
   });
+  it("explicit per-day entry share (≠ base) wins over the week rate", () => {
+    const s = stateWith({ 1: 55 }); // base is 60
+    // a single day given a different deal (70) beats the week's 55
+    expect(resolveShare(s, onDate("2025-03-27", 70))).toBe(70);
+    // a sibling day left at the base default still takes the week rate
+    expect(resolveShare(s, onDate("2025-03-28", 60))).toBe(55);
+  });
+  it("explicit per-day entry share wins even with no week override", () => {
+    const s = stateWith(undefined);
+    expect(resolveShare(s, onDate("2025-03-27", 70))).toBe(70);
+  });
   it("no release date → entry share even if weekShares set", () => {
     const s = makeDefaultState();
     s.movies = s.movies.map((m) =>

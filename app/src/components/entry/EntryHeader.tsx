@@ -8,7 +8,9 @@ interface Props {
   movieId: UUID | "";
   screenId: UUID | "";
   share: number;
-  shareLocked: boolean;
+  /** True when the surrounding DCR is locked (older than 2 days, non-owner).
+   *  The share field stays editable regardless — only the hint changes. */
+  dcrLocked: boolean;
   onChange: (patch: {
     date?: DateISO;
     movieId?: UUID | "";
@@ -28,7 +30,7 @@ export function EntryHeader({
   movieId,
   screenId,
   share,
-  shareLocked,
+  dcrLocked,
   onChange,
 }: Props) {
   return (
@@ -76,7 +78,7 @@ export function EntryHeader({
 
         <Field
           label="Distributor share"
-          hint={shareLocked ? "Editable per show below" : "Defaults from movie"}
+          hint={dcrLocked ? "Editable even after the 2-day lock" : "Defaults from movie"}
         >
           <Input
             type="number"
