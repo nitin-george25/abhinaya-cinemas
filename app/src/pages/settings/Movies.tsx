@@ -5,7 +5,7 @@ import { DesktopBetterBanner } from "../../components/layout/DesktopBetterBanner
 
 export default function SettingsMoviesPage() {
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 max-w-7xl">
       <DesktopBetterBanner />
       <div>
         <h2 className="font-display text-3xl font-bold tracking-tight">Movies</h2>
