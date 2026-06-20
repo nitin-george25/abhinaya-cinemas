@@ -134,6 +134,7 @@ export function fbRowToEntry(r: FbEntryRow): FbEntry {
     summary: (r.summary ?? {}) as FbEntry["summary"],
     items: toFbItems(r.items),
     notes: r.notes ?? undefined,
+    source: r.source === "zoho" ? "zoho" : "manual",
   };
 }
 
@@ -153,6 +154,10 @@ export function fbEntryToRow(
     summary: e.summary as unknown as Record<string, unknown>,
     items: e.items as unknown as Array<Record<string, unknown>>,
     notes: e.notes ?? null,
+    // The client only ever writes manual rows — Zoho-owned days are skipped in
+    // pushDeltas — but default to 'manual' so a client write can never flip a
+    // row to 'zoho'.
+    source: e.source ?? "manual",
     updated_by: updatedBy,
     updated_at: new Date().toISOString(),
   };

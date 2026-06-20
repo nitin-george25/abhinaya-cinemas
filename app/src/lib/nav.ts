@@ -164,6 +164,8 @@ export const NAV: NavItem[] = [
     Icon: IconFinance,
     roles: REPORT_ROLES,
     children: [
+      // Purchase invoices (Zoho Books Bills) — accounts payable register.
+      { kind: "leaf", to: "/invoices",         label: "Invoices",    roles: REPORT_ROLES },
       { kind: "leaf", to: "/cash/payments",    label: "Payments",    roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
     ],

@@ -108,7 +108,7 @@ export default function FBHistoryPage() {
       <FBTable
         rows={rows}
         canEdit={canEdit}
-        onSelect={(e) => canEdit && setEditing(e)}
+        onSelect={(e) => canEdit && e.source !== "zoho" && setEditing(e)}
       />
 
       <FbEntryForm
@@ -228,17 +228,21 @@ function FBTable({
             <tbody>
               {rows.map((e) => {
                 const s = e.summary ?? {};
+                const isZoho = e.source === "zoho";
                 return (
                   <tr
                     key={e.id}
                     onClick={() => onSelect(e)}
                     className={
                       "border-b border-line last:border-b-0 hover:bg-paper/60 " +
-                      (canEdit ? "cursor-pointer" : "")
+                      (canEdit && !isZoho ? "cursor-pointer" : "")
                     }
                   >
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      <div>{niceDate(e.date)}</div>
+                      <div className="flex items-center gap-2">
+                        <span>{niceDate(e.date)}</span>
+                        {isZoho ? <Badge tone="blue">Zoho</Badge> : null}
+                      </div>
                       <div className="text-xs text-ink-muted">{weekday(e.date)}</div>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">

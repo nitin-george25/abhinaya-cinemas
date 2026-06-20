@@ -1039,7 +1039,31 @@ export async function createPettyExpense(d: PettyDraft): Promise<string> {
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "createPettyExpense failed");
-  return (data as { id: string }).id;
+  const id = (data as { id: string }).id;
+
+  // Best-effort: post the pending expense to Slack #petty-expenses with
+  // interactive Approve/Reject buttons (cash_21). Must never fail the create —
+  // the expense is saved regardless of whether Slack is reachable/configured.
+  void notifyPettySlack(sb, "petty_request", id);
+
+  return id;
+}
+
+/**
+ * Fire-and-forget Slack notification for a petty expense. `petty_request` posts
+ * the pending message with buttons; `petty_decided` re-renders the stored
+ * message after a console-side approve/reject. Swallows all errors.
+ */
+async function notifyPettySlack(
+  sb: NonNullable<ReturnType<typeof getSupabase>>,
+  kind: "petty_request" | "petty_decided",
+  pettyExpenseId: string,
+): Promise<void> {
+  try {
+    await sb.functions.invoke("notify-slack", { body: { kind, pettyExpenseId } });
+  } catch (e) {
+    console.warn("[cash] notifyPettySlack", kind, e);
+  }
 }
 
 export async function approvePettyExpense(id: string, approverEmail: string): Promise<void> {
@@ -1054,6 +1078,8 @@ export async function approvePettyExpense(id: string, approverEmail: string): Pr
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+  // Reflect the decision on the Slack message (best-effort).
+  void notifyPettySlack(sb, "petty_decided", id);
 }
 
 export async function rejectPettyExpense(
@@ -1073,6 +1099,8 @@ export async function rejectPettyExpense(
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+  // Reflect the decision on the Slack message (best-effort).
+  void notifyPettySlack(sb, "petty_decided", id);
 }
 
 export interface PaymentRequestDraft {

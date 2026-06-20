@@ -556,12 +556,14 @@ describe("computeSerials — viewed entry with a mismatched id is not duplicated
   });
 });
 
-// ── cross-screen rep batta pooling (owner-approved change, 2026-06-06) ──
+// ── cross-screen rep batta pooling (owner-directed, step-total split) ──
 //
 // When the SAME movie has real shows on more than one screen on the same
-// date, each screen's entry-wide rep batta = per-show day/night batta
-// (₹100) × its own real shows, replacing the rep1/rep2/rep5 step lookup.
-// Combined total = 100 × total shows: 1+1 → 200, 1+2 → 300, 1+3 → 400.
+// date, the pooled rep batta = the rep1/rep2/rep5 step lookup applied to the
+// COMBINED real-show count, split between screens in proportion to each
+// screen's real shows, rounded to the nearest ₹100. The busiest screen (ties
+// by screen name) absorbs the rounding remainder so the shares sum to the
+// pooled total. Day/night (repDay/repNight) no longer affects rep batta.
 // Single-screen days must remain bit-identical to the legacy step lookup.
 
 describe("entryRepBatta() — cross-screen pooling", () => {
@@ -609,26 +611,26 @@ describe("entryRepBatta() — cross-screen pooling", () => {
     expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(600);  // rep5
   });
 
-  it("1+1 shows → 100/100 (total 200, not 250/250)", () => {
+  it("1+1 shows (=2) → pooled ₹400 → 200/200, not 250/250", () => {
     const s = twoScreenState();
     const a = entryOn("eA", "scr_abhinaya", 1);
     const b = entryOn("eB", "scr_tara", 1);
     s.entries = [a, b];
     expect(sharedScreenMovie(s, a)).toBe(true);
-    expect(entryRepBatta(s, a, s.tax)).toBe(100);
-    expect(entryRepBatta(s, b, s.tax)).toBe(100);
+    expect(entryRepBatta(s, a, s.tax)).toBe(200);
+    expect(entryRepBatta(s, b, s.tax)).toBe(200);
   });
 
-  it("1+2 shows → 100/200 (total 300)", () => {
+  it("1+2 shows (=3) → pooled ₹400 → 100/300", () => {
     const s = twoScreenState();
     const a = entryOn("eA", "scr_abhinaya", 1);
     const b = entryOn("eB", "scr_tara", 2);
     s.entries = [a, b];
     expect(entryRepBatta(s, a, s.tax)).toBe(100);
-    expect(entryRepBatta(s, b, s.tax)).toBe(200);
+    expect(entryRepBatta(s, b, s.tax)).toBe(300);
   });
 
-  it("1+3 shows → 100/300 (total 400)", () => {
+  it("1+3 shows (=4) → pooled ₹400 → 100/300", () => {
     const s = twoScreenState();
     const a = entryOn("eA", "scr_abhinaya", 1);
     const b = entryOn("eB", "scr_tara", 3);
@@ -637,13 +639,30 @@ describe("entryRepBatta() — cross-screen pooling", () => {
     expect(entryRepBatta(s, b, s.tax)).toBe(300);
   });
 
-  it("2+3 shows → 200/300 (total 500, linear past the rep5 step)", () => {
+  it("2+3 shows (=5) → pooled ₹600 → 200/400 (step total, not linear 500)", () => {
     const s = twoScreenState();
     const a = entryOn("eA", "scr_abhinaya", 2);
     const b = entryOn("eB", "scr_tara", 3);
     s.entries = [a, b];
     expect(entryRepBatta(s, a, s.tax)).toBe(200);
-    expect(entryRepBatta(s, b, s.tax)).toBe(300);
+    expect(entryRepBatta(s, b, s.tax)).toBe(400);
+  });
+
+  it("4+1 shows (=5) → pooled ₹600 → 500/100 (busiest screen absorbs remainder)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 4);
+    const b = entryOn("eB", "scr_tara", 1);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(500);
+    expect(entryRepBatta(s, b, s.tax)).toBe(100);
+  });
+
+  it("per-screen shares always sum to the pooled step total", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 2);
+    const b = entryOn("eB", "scr_tara", 3);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax) + entryRepBatta(s, b, s.tax)).toBe(600);
   });
 
   it("different movies on the two screens → no pooling", () => {
@@ -680,16 +699,16 @@ describe("entryRepBatta() — cross-screen pooling", () => {
 
   it("only real shows are counted on the pooled side", () => {
     const s = twoScreenState();
-    const a = entryOn("eA", "scr_abhinaya", 1);
-    const b = entryOn("eB", "scr_tara", 2);
+    const a = entryOn("eA", "scr_abhinaya", 2);
+    const b = entryOn("eB", "scr_tara", 1);
     b.shows = [...(b.shows || []), { rows: { cls_royale: { tickets: 0 } } }]; // placeholder
     s.entries = [a, b];
-    expect(entryRepBatta(s, b, s.tax)).toBe(200); // not 300
+    // b has 1 real show, not 2 → combined 3 shows (₹400), b's share rounds to 100.
+    expect(entryRepBatta(s, b, s.tax)).toBe(100); // would be 200 if the placeholder counted
   });
 
-  it("night shows use repNight in the pooled sum", () => {
+  it("day/night no longer affects pooled rep batta", () => {
     const s = twoScreenState();
-    s.tax = { ...s.tax, repNight: 150 };
     const a = entryOn("eA", "scr_abhinaya", 1);
     const b: Entry = {
       id: "eB", date: "2025-04-15", movieId: "mov_empuraan",
@@ -697,7 +716,9 @@ describe("entryRepBatta() — cross-screen pooling", () => {
       shows: [{ showtime: "19:00", rows: {} }, { showtime: "23:15", rows: {} }],
     };
     s.entries = [a, b];
-    expect(entryRepBatta(s, b, s.tax)).toBe(250); // 100 day + 150 night
+    expect(entryRepBatta(s, b, s.tax)).toBe(300); // 2 of 3 shows → ₹400 pooled, absorber
+    const sNight = { ...s, tax: { ...s.tax, repNight: 150 } };
+    expect(entryRepBatta(sNight, b, sNight.tax)).toBe(300); // unchanged: count-based, not rate-based
   });
 
   it("an in-flight draft on the other screen triggers pooling", () => {
@@ -707,7 +728,7 @@ describe("entryRepBatta() — cross-screen pooling", () => {
     s.draft = entryOn("eB", "scr_tara", 2);
     expect(sharedScreenMovie(s, a)).toBe(true);
     expect(entryRepBatta(s, a, s.tax)).toBe(100);
-    expect(entryRepBatta(s, s.draft!, s.tax)).toBe(200);
+    expect(entryRepBatta(s, s.draft!, s.tax)).toBe(300);
   });
 });
 

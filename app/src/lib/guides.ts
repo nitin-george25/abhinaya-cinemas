@@ -56,6 +56,14 @@ export const GUIDE_CATEGORIES: GuideCategory[] = [
     label: "Operations",
     guides: [
       {
+        id: "ops-create-daily-manager-roster",
+        title: "Create a Daily Manager Roster",
+        description:
+          "Set up the daily manager roster so each shift has an assigned manager in the console.",
+        embedUrl:
+          "https://scribehow.com/embed/How_To_Create_A_Daily_Manager_Roster__PV8ujNtxSbONP8YQBW2W-g",
+      },
+      {
         id: "ops-add-renovation-expense",
         title: "Add a New Expense to a Renovation Project",
         description:

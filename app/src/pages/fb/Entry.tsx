@@ -93,7 +93,7 @@ export default function FBEntryPage() {
       <RecentDays
         rows={recent}
         canEdit={canEdit}
-        onSelect={(e) => canEdit && setEditing(e)}
+        onSelect={(e) => canEdit && e.source !== "zoho" && setEditing(e)}
       />
 
       <FbEntryForm
@@ -149,10 +149,13 @@ function RecentDays({
               onClick={() => onSelect(e)}
               className={
                 "px-5 py-3 border-b border-line last:border-b-0 hover:bg-paper/60 flex justify-between text-sm " +
-                (canEdit ? "cursor-pointer" : "")
+                (canEdit && e.source !== "zoho" ? "cursor-pointer" : "")
               }
             >
-              <span>{niceDate(e.date)}</span>
+              <span className="flex items-center gap-2">
+                {niceDate(e.date)}
+                {e.source === "zoho" ? <Badge tone="blue">Zoho</Badge> : null}
+              </span>
               <span className="tabular-nums text-ink-muted">
                 {e.summary?.netSalesWithTax != null
                   ? `₹ ${e.summary.netSalesWithTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
