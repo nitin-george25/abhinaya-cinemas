@@ -57,6 +57,18 @@ export function zohoEnv(): ZohoEnv | null {
 export const accountsHost = (dc: string) => `https://accounts.zoho.${dc}`;
 export const apiHost = (dc: string) => `https://www.zohoapis.${dc}`;
 
+/** fetch with an abort timeout so a hung Zoho request fails fast instead of
+ *  consuming the whole Edge worker budget. */
+export async function fetchWithTimeout(input: string, init: RequestInit = {}, ms = 12000): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // ── Constant-time secret compare (webhook auth) ──────────────────────────────
 
 export function safeEqual(a: string, b: string): boolean {
@@ -80,7 +92,7 @@ export async function getAccessToken(env: ZohoEnv, force = false): Promise<strin
     client_id: env.clientId,
     client_secret: env.clientSecret,
   });
-  const r = await fetch(`${url}?${params.toString()}`, { method: "POST" });
+  const r = await fetchWithTimeout(`${url}?${params.toString()}`, { method: "POST" });
   const j = await r.json();
   if (!r.ok || !j.access_token) {
     throw new Error(`Zoho token refresh failed: ${r.status} ${JSON.stringify(j)}`);
@@ -95,7 +107,7 @@ export async function getAccessToken(env: ZohoEnv, force = false): Promise<strin
 export async function zohoGet(env: ZohoEnv, path: string, query: Record<string, string> = {}): Promise<any> {
   const run = async (token: string) => {
     const qs = new URLSearchParams({ organization_id: env.orgId, ...query });
-    const r = await fetch(`${apiHost(env.dc)}/books/v3${path}?${qs.toString()}`, {
+    const r = await fetchWithTimeout(`${apiHost(env.dc)}/books/v3${path}?${qs.toString()}`, {
       headers: { Authorization: `Zoho-oauthtoken ${token}` },
     });
     return r;

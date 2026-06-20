@@ -36,9 +36,12 @@ import {
 } from "../_shared/zoho.ts";
 
 const MODULES: Module[] = ["bills", "invoices"];
-const PER_PAGE = 200;
-const MAX_PAGES_PER_RUN = 60;      // 60 * 200 = 12k records scanned per invocation
-const MAX_UPSERTS_PER_RUN = 120;   // bound new Zoho detail fetches within the time budget
+const PER_PAGE = 100;
+const MAX_PAGES_PER_RUN = 60;      // scan reach: up to 6k records/run (cheap skips)
+// Each "upsert" pulls a full record from Zoho + builds its raw JSONB payload —
+// the memory/CPU-heavy part. Keep this SMALL so a single invocation stays well
+// under the Edge worker resource limit; backfill resumes across many runs.
+const MAX_UPSERTS_PER_RUN = 15;
 
 function reply(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
