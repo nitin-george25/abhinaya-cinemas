@@ -24,7 +24,7 @@ import {
 import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
 import { uid } from "../lib/mappers";
-import { daysBetween } from "../lib/engine";
+import { daysBetween, realShowCount } from "../lib/engine";
 import { todayIso, addDaysIso } from "../lib/dates";
 import type {
   ClassDef,
@@ -745,18 +745,18 @@ async function uploadMoviePoster(file: File, uploaderEmail: string): Promise<str
  *  brand palette: chartreuse for active, ember for upcoming, neutral for
  *  retired. */
 function MovieStatusPill({ movie }: { movie: Movie }) {
-  const styles: Record<MovieStatus, { bg: string; fg: string; label: string }> = {
-    now_showing: { bg: "bg-emerald-100", fg: "text-emerald-800", label: "Now Showing" },
-    coming_soon: { bg: "bg-amber-100",   fg: "text-amber-800",   label: "Coming Soon" },
-    past:        { bg: "bg-zinc-100",    fg: "text-zinc-600",    label: "Past" },
+  const styles: Record<MovieStatus, { border: string; fg: string; label: string }> = {
+    now_showing: { border: "border-emerald-500", fg: "text-emerald-700", label: "Now Showing" },
+    coming_soon: { border: "border-amber-500",   fg: "text-amber-700",   label: "Coming Soon" },
+    past:        { border: "border-zinc-400",    fg: "text-zinc-500",    label: "Past" },
   };
   const pinned = !!movie.statusOverride;
   const eff = (movie.statusOverride ?? movie.status) as MovieStatus | undefined;
-  const cls = (eff && styles[eff]) || { bg: "bg-zinc-100", fg: "text-zinc-400", label: "—" };
+  const cls = (eff && styles[eff]) || { border: "border-zinc-300", fg: "text-zinc-400", label: "—" };
   return (
     <div className="flex flex-col items-start gap-0.5">
       <span
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.bg} ${cls.fg}`}
+        className={`inline-flex items-center whitespace-nowrap rounded-full border bg-transparent px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.border} ${cls.fg}`}
         title={pinned ? `Pinned to ${cls.label}` : `Auto: ${cls.label}`}
       >
         {cls.label}
@@ -827,7 +827,7 @@ export function MoviesSection() {
                   <th className="text-left px-5 py-3 font-semibold w-32">Status</th>
                   <th className="text-left px-5 py-3 font-semibold w-64">Hero / Trailer</th>
                   <th className="text-right px-5 py-3 font-semibold w-24">Share %</th>
-                  <th className="text-right px-5 py-3 font-semibold w-36"></th>
+                  <th className="text-right px-5 py-3 font-semibold w-64">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1022,6 +1022,12 @@ function MovieRow({
 }) {
   const { state } = useSync();
   const distributors = state.appState?.distributors ?? [];
+  const entries = state.appState?.entries ?? [];
+  // Weekly share % only makes sense once a film has actually played a show.
+  const hasShowData = entries.some(
+    (e) => e.movieId === movie.id && realShowCount(e) > 0,
+  );
+  const weekSharesSet = Object.keys(movie.weekShares ?? {}).length;
   const [editing, setEditing] = useState(false);
   const [weeksOpen, setWeeksOpen] = useState(false);
   const [name, setName] = useState(movie.name);
@@ -1180,25 +1186,29 @@ function MovieRow({
       </td>
       <td className="px-5 py-2 text-right tabular-nums">
         <div>{movie.share}%</div>
-        <button
-          type="button"
-          onClick={() => setWeeksOpen(true)}
-          className="mt-0.5 text-[10px] text-amber-700 underline"
-        >
-          {movie.weekShares && Object.keys(movie.weekShares).length
-            ? `Weekly · ${Object.keys(movie.weekShares).length} set`
-            : "Set weekly %"}
-        </button>
+        {weekSharesSet ? (
+          <div className="mt-0.5 text-[10px] text-amber-700">{weekSharesSet} weekly set</div>
+        ) : null}
+      </td>
+      <td className="px-5 py-2 text-right whitespace-nowrap">
+        {hasShowData ? (
+          <Button
+            size="sm"
+            variant={weekSharesSet ? "secondary" : "ghost"}
+            onClick={() => setWeeksOpen(true)}
+            title="Set distributor share % per run week"
+          >
+            Weekly %{weekSharesSet ? ` · ${weekSharesSet}` : ""}
+          </Button>
+        ) : null}
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
+        <Button size="sm" variant="ghost" onClick={() => onRemove(movie.id)} className="text-red-700">×</Button>
         <WeekSharesModal
           movie={movie}
           open={weeksOpen}
           onClose={() => setWeeksOpen(false)}
           onSave={onSave}
         />
-      </td>
-      <td className="px-5 py-2 text-right whitespace-nowrap">
-        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
-        <Button size="sm" variant="ghost" onClick={() => onRemove(movie.id)} className="text-red-700">×</Button>
       </td>
     </tr>
   );
