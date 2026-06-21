@@ -386,6 +386,53 @@ export function entryRepBatta(
 }
 
 /**
+ * 1-based run week of an entry: week 1 is the release day through release+6,
+ * week 2 is release+7..release+13, etc. Returns null when the movie has no
+ * release date (run week is undefined) or the entry pre-dates release.
+ */
+export function runWeekOf(state: AppState, entry: Entry): number | null {
+  const movie = state.movies.find((m) => m.id === entry.movieId);
+  if (!movie || !movie.release || !entry.date) return null;
+  const runningDay = daysBetween(movie.release, entry.date) + 1; // 1-based
+  if (runningDay < 1) return null;
+  return Math.floor((runningDay - 1) / 7) + 1;
+}
+
+/**
+ * Distributor share % used for an entry's DCR. Precedence:
+ *
+ *   1. An EXPLICIT per-day override on the entry — i.e. `entry.share` differs
+ *      from the movie's base share %. This is a deliberate edit on the DCR
+ *      (now allowed even after the 2-day lock, share-only), so a mid-week deal
+ *      on a single day wins over the week rate.
+ *   2. A per-run-week override on the movie (Settings → Movies), which maps to
+ *      EVERY entry in that run week. Resolved at compute time — not written
+ *      onto entries — so it also applies to locked DCRs.
+ *   3. The entry's own `share` (which defaults from the movie's base %).
+ *
+ * A day left at the movie default (entry.share == base) is treated as "no
+ * per-day override", so the week rate applies; change a day's share to take it
+ * off the week rate.
+ */
+export function resolveShare(state: AppState, entry: Entry): number {
+  const movie = state.movies.find((m) => m.id === entry.movieId);
+  const entryShare = N(entry.share);
+
+  // 1. Explicit per-day override: the entry's share was edited off the base.
+  if (movie && entryShare !== N(movie.share)) return entryShare;
+
+  // 2. Per-run-week override.
+  const wk = runWeekOf(state, entry);
+  if (movie && wk != null && movie.weekShares) {
+    const v = movie.weekShares[wk];
+    if (v !== undefined && v !== null && v !== ("" as unknown)) return N(v);
+  }
+
+  // 3. Default (entry share == base, or no movie record).
+  return entryShare;
+}
+
+/**
  * Fund credited to this entry's movie for the day on this screen.
  *
  * Rules (per Nitin):
@@ -466,7 +513,7 @@ export function computeShallow(
     }
   }
   const fund = computeFund(state, entry, draft);
-  const share = N(entry.share);
+  const share = resolveShare(state, entry);
   const netShare = grossColl - gst - tmc - cess - fund - repBatta - etax;
   return {
     grossColl,
@@ -584,7 +631,7 @@ export function computeEntry(
   G.repBatta = entryRepBatta(state, entry, tax, draft);
 
   const fund = computeFund(state, entry, draft);
-  const share = N(entry.share);
+  const share = resolveShare(state, entry);
   const netShare = G.grossColl - G.gst - G.tmc - G.cess - fund - G.repBatta - G.etax;
   const distShare = (share / 100) * netShare;
   const exShare = netShare - distShare;

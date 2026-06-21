@@ -24,6 +24,8 @@ import {
 import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
 import { uid } from "../lib/mappers";
+import { daysBetween, realShowCount } from "../lib/engine";
+import { todayIso, addDaysIso } from "../lib/dates";
 import type {
   ClassDef,
   Distributor,
@@ -41,6 +43,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "../components/ui/Card";
 import { Field, Input, Select } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { Modal } from "../components/ui/Modal";
 import { IconSpinner } from "../components/icons";
 
 const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
@@ -742,18 +745,18 @@ async function uploadMoviePoster(file: File, uploaderEmail: string): Promise<str
  *  brand palette: chartreuse for active, ember for upcoming, neutral for
  *  retired. */
 function MovieStatusPill({ movie }: { movie: Movie }) {
-  const styles: Record<MovieStatus, { bg: string; fg: string; label: string }> = {
-    now_showing: { bg: "bg-emerald-100", fg: "text-emerald-800", label: "Now Showing" },
-    coming_soon: { bg: "bg-amber-100",   fg: "text-amber-800",   label: "Coming Soon" },
-    past:        { bg: "bg-zinc-100",    fg: "text-zinc-600",    label: "Past" },
+  const styles: Record<MovieStatus, { border: string; fg: string; label: string }> = {
+    now_showing: { border: "border-emerald-500", fg: "text-emerald-700", label: "Now Showing" },
+    coming_soon: { border: "border-amber-500",   fg: "text-amber-700",   label: "Coming Soon" },
+    past:        { border: "border-zinc-400",    fg: "text-zinc-500",    label: "Past" },
   };
   const pinned = !!movie.statusOverride;
   const eff = (movie.statusOverride ?? movie.status) as MovieStatus | undefined;
-  const cls = (eff && styles[eff]) || { bg: "bg-zinc-100", fg: "text-zinc-400", label: "—" };
+  const cls = (eff && styles[eff]) || { border: "border-zinc-300", fg: "text-zinc-400", label: "—" };
   return (
     <div className="flex flex-col items-start gap-0.5">
       <span
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.bg} ${cls.fg}`}
+        className={`inline-flex items-center whitespace-nowrap rounded-full border bg-transparent px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${cls.border} ${cls.fg}`}
         title={pinned ? `Pinned to ${cls.label}` : `Auto: ${cls.label}`}
       >
         {cls.label}
@@ -824,7 +827,7 @@ export function MoviesSection() {
                   <th className="text-left px-5 py-3 font-semibold w-32">Status</th>
                   <th className="text-left px-5 py-3 font-semibold w-64">Hero / Trailer</th>
                   <th className="text-right px-5 py-3 font-semibold w-24">Share %</th>
-                  <th className="text-right px-5 py-3 font-semibold w-36"></th>
+                  <th className="text-right px-5 py-3 font-semibold w-64">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1019,7 +1022,14 @@ function MovieRow({
 }) {
   const { state } = useSync();
   const distributors = state.appState?.distributors ?? [];
+  const entries = state.appState?.entries ?? [];
+  // Weekly share % only makes sense once a film has actually played a show.
+  const hasShowData = entries.some(
+    (e) => e.movieId === movie.id && realShowCount(e) > 0,
+  );
+  const weekSharesSet = Object.keys(movie.weekShares ?? {}).length;
   const [editing, setEditing] = useState(false);
+  const [weeksOpen, setWeeksOpen] = useState(false);
   const [name, setName] = useState(movie.name);
   const [distributorId, setDistributorId] = useState<string>(movie.distributorId ?? "");
   const [release, setRelease] = useState(movie.release ?? "");
@@ -1174,12 +1184,154 @@ function MovieRow({
           {!movie.featured && !movie.trailerUrl ? <span className="text-ink-muted">—</span> : null}
         </div>
       </td>
-      <td className="px-5 py-2 text-right tabular-nums">{movie.share}%</td>
+      <td className="px-5 py-2 text-right tabular-nums">
+        <div>{movie.share}%</div>
+        {weekSharesSet ? (
+          <div className="mt-0.5 text-[10px] text-amber-700">{weekSharesSet} weekly set</div>
+        ) : null}
+      </td>
       <td className="px-5 py-2 text-right whitespace-nowrap">
+        {hasShowData ? (
+          <Button
+            size="sm"
+            variant={weekSharesSet ? "secondary" : "ghost"}
+            onClick={() => setWeeksOpen(true)}
+            title="Set distributor share % per run week"
+          >
+            Weekly %{weekSharesSet ? ` · ${weekSharesSet}` : ""}
+          </Button>
+        ) : null}
         <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
         <Button size="sm" variant="ghost" onClick={() => onRemove(movie.id)} className="text-red-700">×</Button>
+        <WeekSharesModal
+          movie={movie}
+          open={weeksOpen}
+          onClose={() => setWeeksOpen(false)}
+          onSave={onSave}
+        />
       </td>
     </tr>
+  );
+}
+
+// ── weekly distributor share % editor ────────────────────────────────────
+
+/**
+ * Per-film weekly share % overrides. Shows W1..W(x) for the film's run length
+ * (x = the latest run week reached by its DCRs / today if still showing / any
+ * week already overridden). Each week defaults to the movie's base share %;
+ * leaving a week blank means "use the base". A week's % is resolved onto every
+ * DCR in that run week (engine.resolveShare) — it is NOT written onto entries,
+ * so it bypasses the 2-day DCR edit lock.
+ */
+function WeekSharesModal({
+  movie,
+  open,
+  onClose,
+  onSave,
+}: {
+  movie: Movie;
+  open: boolean;
+  onClose: () => void;
+  onSave: (m: Movie) => void;
+}) {
+  const { state } = useSync();
+  const entries = state.appState?.entries ?? [];
+
+  const weekCount = (() => {
+    if (!movie.release) return 0;
+    const refs: string[] = [];
+    const es = entries.filter((e) => e.movieId === movie.id && e.date);
+    if (es.length) refs.push(es.map((e) => e.date!).sort().at(-1)!);
+    if (movie.status === "now_showing" || movie.statusOverride === "now_showing") {
+      refs.push(todayIso());
+    }
+    let max = 1;
+    for (const d of refs) {
+      const runningDay = daysBetween(movie.release, d) + 1;
+      if (runningDay >= 1) max = Math.max(max, Math.floor((runningDay - 1) / 7) + 1);
+    }
+    for (const k of Object.keys(movie.weekShares ?? {})) max = Math.max(max, Number(k));
+    return Math.min(max, 60);
+  })();
+
+  const [vals, setVals] = useState<Record<number, string>>({});
+  // Re-seed the editable copy each time the modal opens.
+  useEffect(() => {
+    if (!open) return;
+    const init: Record<number, string> = {};
+    Object.entries(movie.weekShares ?? {}).forEach(([k, v]) => {
+      init[Number(k)] = String(v);
+    });
+    setVals(init);
+  }, [open, movie.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function save() {
+    const next: Record<number, number> = {};
+    for (let w = 1; w <= weekCount; w++) {
+      const raw = (vals[w] ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (Number.isFinite(n)) next[w] = n;
+    }
+    onSave({ ...movie, weekShares: Object.keys(next).length ? next : undefined });
+    onClose();
+  }
+
+  const rangeLabel = (w: number): string =>
+    movie.release
+      ? `${addDaysIso(movie.release, (w - 1) * 7)} – ${addDaysIso(movie.release, (w - 1) * 7 + 6)}`
+      : "";
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      maxWidth="max-w-md"
+      title={`Weekly share % — ${movie.name}`}
+      actions={
+        <>
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={!movie.release}>Save</Button>
+        </>
+      }
+    >
+      {!movie.release ? (
+        <p className="text-sm text-ink-muted">
+          Set a release date on this movie first — run weeks are counted from the
+          release date.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-ink-muted">
+            Base share is <strong>{movie.share}%</strong>. Leave a week blank to use the
+            base. A week's % applies to every DCR in that run week — including locked
+            ones — without changing the entries.
+          </p>
+          <div className="space-y-1.5">
+            {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => (
+              <div key={w} className="flex items-center gap-3">
+                <div className="w-32 shrink-0">
+                  <div className="text-sm font-medium">Week {w}</div>
+                  <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  value={vals[w] ?? ""}
+                  placeholder={String(movie.share)}
+                  onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
+                  className="h-8 text-right"
+                />
+                <span className="text-sm text-ink-muted">%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

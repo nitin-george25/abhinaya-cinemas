@@ -8,7 +8,11 @@ interface Props {
   movieId: UUID | "";
   screenId: UUID | "";
   share: number;
-  shareLocked: boolean;
+  /** True when the surrounding DCR is locked (older than 2 days, non-owner). */
+  dcrLocked: boolean;
+  /** Whether the share field may be edited. On a locked DCR this is true only
+   *  for owner + manager; every other role sees a read-only share. */
+  shareEditable: boolean;
   onChange: (patch: {
     date?: DateISO;
     movieId?: UUID | "";
@@ -28,7 +32,8 @@ export function EntryHeader({
   movieId,
   screenId,
   share,
-  shareLocked,
+  dcrLocked,
+  shareEditable,
   onChange,
 }: Props) {
   return (
@@ -76,7 +81,13 @@ export function EntryHeader({
 
         <Field
           label="Distributor share"
-          hint={shareLocked ? "Editable per show below" : "Defaults from movie"}
+          hint={
+            !shareEditable
+              ? "Locked after 2 days"
+              : dcrLocked
+                ? "Editable even after the 2-day lock"
+                : "Defaults from movie"
+          }
         >
           <Input
             type="number"
@@ -84,6 +95,7 @@ export function EntryHeader({
             max={100}
             step={0.01}
             value={Number.isFinite(share) ? share : 0}
+            disabled={!shareEditable}
             onChange={(e) => onChange({ share: Number(e.target.value) || 0 })}
             className="tabular-nums"
           />

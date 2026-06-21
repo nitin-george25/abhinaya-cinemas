@@ -308,6 +308,10 @@ export interface MovieRow {
   trailer_url:    string | null;
   /** Drives the landing hero film; at most one true (migration 16). */
   is_featured:    boolean;
+  /** Per-run-week distributor share % overrides (JSONB, weekly-share
+   *  migration). Keyed by 1-based run week as a string; values are the share %
+   *  for that week. `{}` / null = no overrides. */
+  week_shares:    Record<string, number> | null;
   archived_at:    string | null;
 }
 

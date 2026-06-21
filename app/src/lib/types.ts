@@ -137,6 +137,15 @@ export interface Movie {
    *  read-only in the app. Drives the public landing page. May be undefined
    *  until the first sync after a movie is created. */
   status?: MovieStatus;
+  /** Per-run-week distributor share % overrides, keyed by 1-based run week
+   *  (week 1 = release day .. release+6). When a week has a value, the engine
+   *  uses it for EVERY DCR whose date falls in that run week (see
+   *  resolveShare), overriding the entry's stored share. Edited in
+   *  Settings → Movies and NOT subject to the 2-day DCR edit lock; resolved at
+   *  compute time so a change reflects across all of that week's DCRs without
+   *  rewriting any entry. Weeks left unset fall back to the entry's own share
+   *  (which itself defaults from `share`). */
+  weekShares?: Record<number, number>;
 }
 
 export interface SerialStart {
