@@ -134,6 +134,12 @@ export default function EntryPage() {
   // locked entries read-only and blocks back-dated creates.
   const editLocked = state.role !== "owner" && date < addDaysIso(todayIso(), -2);
 
+  // Distributor share stays editable past the lock — but only for owner and
+  // manager (every other role is fully read-only on a locked DCR). The
+  // entries_edit_lock trigger enforces the same rule server-side.
+  const shareEditable =
+    !editLocked || state.role === "owner" || state.role === "manager";
+
   function startEntry() {
     if (!movieId || !screenId || editLocked) return;
     const fresh = blankEntry(appState!, date, movieId, screenId);
@@ -157,11 +163,11 @@ export default function EntryPage() {
     if (patch.screenId !== undefined) setScreenId(patch.screenId);
 
     // Share edits apply directly to the existing entry, or stage for the
-    // next blankEntry(). Distributor share is editable even on a locked DCR
-    // (owner + manager) — so this bypasses the editLocked guard in persist().
-    // The entries_edit_lock trigger enforces server-side that only `share`
-    // may change on a locked row; box-office figures stay frozen.
-    if (patch.share !== undefined) {
+    // next blankEntry(). Distributor share is editable even on a locked DCR,
+    // but only for owner + manager (shareEditable) — so this bypasses the
+    // editLocked guard in persist() for them. The entries_edit_lock trigger
+    // enforces server-side that only `share` may change on a locked row.
+    if (patch.share !== undefined && shareEditable) {
       if (existing) {
         setAppState(upsertEntry(appState!, { ...existing, share: patch.share }));
         setShareOverride(null);
@@ -233,6 +239,7 @@ export default function EntryPage() {
         screenId={screenId}
         share={share}
         dcrLocked={editLocked}
+        shareEditable={shareEditable}
         onChange={onHeaderChange}
       />
 
