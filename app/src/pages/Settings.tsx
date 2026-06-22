@@ -1321,7 +1321,6 @@ function WeekSharesModal({
                   max={100}
                   step={0.01}
                   value={vals[w] ?? ""}
-                  placeholder={String(movie.share)}
                   onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
                   className="h-8 text-right"
                 />

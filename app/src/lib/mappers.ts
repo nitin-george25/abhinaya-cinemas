@@ -30,7 +30,9 @@ export function rowToEntry(r: EntryRow): Entry {
     date: r.entry_date,
     movieId: r.movie_id,
     screenId: r.screen_id,
-    share: r.share ?? 0,
+    // null = no per-day override (inherit week/base). Normalize a stray 0/neg
+    // to null too so memory holds the clean "null or positive override" invariant.
+    share: r.share != null && r.share > 0 ? r.share : null,
     shows: (r.shows ?? []) as Show[],
     cancelledShows: r.cancelled_shows ?? 0,
   };
@@ -50,7 +52,12 @@ export function entryToRow(
     movie_id: e.movieId,
     screen_id: e.screenId,
     cinema_id: cinemaId,
-    share: e.share === undefined || (e.share as unknown) === "" ? null : e.share,
+    // Persist only a positive per-day override; null/empty/0 → null (no
+    // override), so a cleared field never re-pins the day to 0%.
+    share:
+      e.share != null && (e.share as unknown) !== "" && Number(e.share) > 0
+        ? Number(e.share)
+        : null,
     shows: e.shows ?? [],
     cancelled_shows: e.cancelledShows ?? 0,
     updated_by: updatedBy,

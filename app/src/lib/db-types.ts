@@ -688,3 +688,19 @@ export interface RosterEmergencyLeaveRow {
   decided_at:  string | null;
   created_at:  string | null;
 }
+
+/** `public.guides` — one row per in-app help guide (the /guides page).
+ *  category_id is a fixed slug kept in lockstep with lib/guides.ts. */
+export interface GuideRow {
+  id:          string;
+  cinema_id:   string;
+  category_id: string;
+  title:       string;
+  description: string | null;
+  embed_url:   string;
+  sort_order:  number;
+  created_by:  string | null;
+  created_at:  string | null;
+  updated_at:  string | null;
+  updated_by:  string | null;
+}

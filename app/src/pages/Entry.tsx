@@ -12,7 +12,12 @@ import {
   updateShowRow,
   upsertEntry,
 } from "../lib/entry";
-import { computeEntry } from "../lib/engine";
+import {
+  computeEntry,
+  hasShareOverride,
+  resolveShare,
+  runWeekOf,
+} from "../lib/engine";
 import { sendShowMessage } from "../lib/whatsapp";
 import { downloadDcrPdf } from "../lib/pdf";
 import { LOGO_DATA_URL } from "../assets/logo";
@@ -124,9 +129,36 @@ export default function EntryPage() {
       ? findEntry(appState, date, movieId, screenId)
       : undefined;
 
-  const share = shareOverride ??
-    existing?.share ??
-    appState.movies.find((m) => m.id === movieId)?.share ?? 0;
+  const movie = appState.movies.find((m) => m.id === movieId);
+
+  // The entry whose share we resolve for the header. Use the real one, or a
+  // synthetic blank (share: null) so the header previews the rate a not-yet-
+  // created day would inherit (per-day → week → base).
+  const shareEntry: Entry | null =
+    movieId && screenId
+      ? existing ?? { id: "", date, movieId, screenId, share: null, shows: [] }
+      : null;
+
+  // Effective distributor share shown in the header. A staged per-day override
+  // (before the entry exists) wins; otherwise resolve through the engine.
+  const share =
+    shareOverride ?? (shareEntry ? resolveShare(appState, shareEntry) : movie?.share ?? 0);
+
+  // Where that rate comes from — drives the header hint.
+  const wk = shareEntry ? runWeekOf(appState, shareEntry) : null;
+  const weekRateSet =
+    !!movie &&
+    wk != null &&
+    !!movie.weekShares &&
+    movie.weekShares[wk] !== undefined &&
+    movie.weekShares[wk] !== null &&
+    (movie.weekShares[wk] as unknown) !== "";
+  const shareSource: "override" | "week" | "base" =
+    shareOverride != null || (existing != null && hasShareOverride(existing))
+      ? "override"
+      : weekRateSet
+        ? "week"
+        : "base";
 
   // DCR edit lock — an entry dated D is editable on D, D+1, D+2 (IST) and
   // locks from D+3 onward for everyone except the owner. RLS enforces the
@@ -153,7 +185,7 @@ export default function EntryPage() {
   }
 
   function onHeaderChange(patch: {
-    date?: DateISO; movieId?: UUID | ""; screenId?: UUID | ""; share?: number;
+    date?: DateISO; movieId?: UUID | ""; screenId?: UUID | ""; share?: number | null;
   }) {
     if (patch.date !== undefined) setDate(patch.date);
     if (patch.movieId !== undefined) {
@@ -238,7 +270,7 @@ export default function EntryPage() {
         movieId={movieId}
         screenId={screenId}
         share={share}
-        dcrLocked={editLocked}
+        shareSource={shareSource}
         shareEditable={shareEditable}
         onChange={onHeaderChange}
       />
