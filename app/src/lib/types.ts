@@ -190,7 +190,13 @@ export interface Entry {
   date?: DateISO;
   movieId: UUID;
   screenId: UUID;
-  share: number;                  // distributor share % for this run
+  /** Per-day distributor share % override. `null` (or 0 / unset) means "no
+   *  per-day override" — the engine inherits the movie's per-run-week rate
+   *  (weekShares), else the base `share`. A positive number is a deliberate
+   *  override for THIS day that wins over the week rate (see resolveShare).
+   *  Stored nullable in `entries.share`; blankEntry creates a new day as null
+   *  so the week rate auto-applies. */
+  share: number | null;
   shows?: Show[];
   /** Count of shows scheduled but NOT run that day (strike, power cut,
    *  festival closure…). Lets the calculated movie status (cash_20) tell

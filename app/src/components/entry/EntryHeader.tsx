@@ -7,9 +7,11 @@ interface Props {
   date: DateISO;
   movieId: UUID | "";
   screenId: UUID | "";
+  /** Effective distributor share % to display (already resolved per-day →
+   *  week → base by the caller). */
   share: number;
-  /** True when the surrounding DCR is locked (older than 2 days, non-owner). */
-  dcrLocked: boolean;
+  /** Where the displayed rate comes from — drives the field hint. */
+  shareSource: "override" | "week" | "base";
   /** Whether the share field may be edited. On a locked DCR this is true only
    *  for owner + manager; every other role sees a read-only share. */
   shareEditable: boolean;
@@ -17,7 +19,9 @@ interface Props {
     date?: DateISO;
     movieId?: UUID | "";
     screenId?: UUID | "";
-    share?: number;
+    /** A positive number sets a per-day override; null clears it (inherit the
+     *  week / base rate). */
+    share?: number | null;
   }) => void;
 }
 
@@ -32,7 +36,7 @@ export function EntryHeader({
   movieId,
   screenId,
   share,
-  dcrLocked,
+  shareSource,
   shareEditable,
   onChange,
 }: Props) {
@@ -51,9 +55,9 @@ export function EntryHeader({
           <Select
             value={movieId}
             onChange={(e) => {
-              const id = e.target.value as UUID | "";
-              const m = state.movies.find((x) => x.id === id);
-              onChange({ movieId: id, share: m?.share ?? share });
+              // Switching movies clears any staged per-day override; the new
+              // movie's week/base rate is resolved by the parent.
+              onChange({ movieId: e.target.value as UUID | "" });
             }}
           >
             <option value="">— pick —</option>
@@ -84,9 +88,11 @@ export function EntryHeader({
           hint={
             !shareEditable
               ? "Locked after 2 days"
-              : dcrLocked
-                ? "Editable even after the 2-day lock"
-                : "Defaults from movie"
+              : shareSource === "override"
+                ? "Per-day override · clear to use the week rate"
+                : shareSource === "week"
+                  ? "From this run week's rate · type to override"
+                  : "From the movie's base rate · type to override"
           }
         >
           <Input
@@ -96,7 +102,12 @@ export function EntryHeader({
             step={0.01}
             value={Number.isFinite(share) ? share : 0}
             disabled={!shareEditable}
-            onChange={(e) => onChange({ share: Number(e.target.value) || 0 })}
+            onChange={(e) => {
+              // Blank / 0 / non-positive clears the per-day override so the day
+              // inherits the week (else base) rate; a positive value pins it.
+              const n = e.target.value.trim() === "" ? NaN : Number(e.target.value);
+              onChange({ share: Number.isFinite(n) && n > 0 ? n : null });
+            }}
             className="tabular-nums"
           />
         </Field>

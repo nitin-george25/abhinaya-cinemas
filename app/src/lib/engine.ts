@@ -322,20 +322,26 @@ export function sharedScreenMovie(
  * Entry-wide rep batta.
  *
  *  • Movie on ONE screen that day → step lookup (rep1/rep2/rep5).
- *    Bit-identical to the locked legacy engine.
- *  • Movie on MORE THAN ONE screen that day → the SAME step lookup applied to
- *    the COMBINED real-show count across every screen, then split between the
- *    screens in proportion to each screen's real shows, rounded to the nearest
- *    ₹100. The screen with the most real shows absorbs the rounding remainder
- *    (ties broken by screen name) so the per-screen shares always sum back to
- *    the pooled step total:
+ *    Bit-identical to the locked legacy engine. A single screen with 5+ real
+ *    shows tops out at rep5 (₹600).
+ *  • Movie on MORE THAN ONE screen that day, with ≤5 real shows COMBINED across
+ *    screens → the SAME step lookup applied to the combined count, then split
+ *    between the screens in proportion to each screen's real shows, rounded to
+ *    the nearest ₹100. The screen with the most real shows absorbs the rounding
+ *    remainder (ties broken by screen name) so the per-screen shares always sum
+ *    back to the pooled step total:
  *      1+1 (=2) → ₹400 → 200/200,  3+2 (=5) → ₹600 → 400/200,
  *      4+1 (=5) → ₹600 → 500/100,  2+3 (=5) → ₹600 → 200/400.
+ *  • Movie on MORE THAN ONE screen that day, with 6+ real shows COMBINED → no
+ *    pooling: each screen earns its OWN step lookup on its own real-show count,
+ *    and the per-screen battas simply add up. Busy multi-screen days therefore
+ *    pay more than the capped pool:
+ *      3+4 (=7) → 400 + 400 = ₹800,  5+5 (=10) → 600 + 600 = ₹1200.
  *
  * Owner-directed math (Nitin): single-screen days stay bit-identical to the
- * legacy engine; multi-screen days pool to the step total and split it. This
- * supersedes the 2026-06-06 ₹100-per-show interim rule, so repDay/repNight no
- * longer affect rep batta.
+ * legacy engine; multi-screen days pool & split up to 5 combined shows, then
+ * switch to per-screen at 6+ combined shows. This supersedes the 2026-06-06
+ * ₹100-per-show interim rule, so repDay/repNight no longer affect rep batta.
  */
 export function entryRepBatta(
   state: AppState,
@@ -357,7 +363,13 @@ export function entryRepBatta(
   const combined = sameMovie.reduce((n, e) => n + realShowCount(e), 0);
   if (combined <= 0) return 0;
 
-  // Pooled total = the SAME step lookup on the combined show count.
+  // 6+ shows across screens: stop pooling. Each screen earns its own step
+  // lookup on its own real-show count, and the shares add up (no ₹600 cap).
+  if (combined >= 6) {
+    return repBattaFor(realShowCount(entry), tax);
+  }
+
+  // ≤5 combined: pooled total = the SAME step lookup on the combined show count.
   const pooledTotal = repBattaFor(combined, tax);
   const round100 = (x: number): number => Math.round(x / 100) * 100;
   const screenName = (e: Entry): string =>
@@ -399,27 +411,39 @@ export function runWeekOf(state: AppState, entry: Entry): number | null {
 }
 
 /**
+ * True when an entry carries a DELIBERATE per-day share override. The override
+ * is stored as a positive `entry.share`; `null` / `undefined` / `""` / `0`
+ * (or any non-positive value) all mean "no override — inherit the week / base
+ * rate". The positive-only guard is intentional: a 0% distributor share is
+ * never a real deal, and treating a stray 0 as an override is exactly the bug
+ * that suppressed the week rate (a cleared field used to persist 0). So 0 can
+ * never pin a day; it always hands the day back to the week/base rate.
+ */
+export const hasShareOverride = (e: Entry): boolean =>
+  e.share !== null && e.share !== undefined && (e.share as unknown) !== "" && N(e.share) > 0;
+
+/**
  * Distributor share % used for an entry's DCR. Precedence:
  *
- *   1. An EXPLICIT per-day override on the entry — i.e. `entry.share` differs
- *      from the movie's base share %. This is a deliberate edit on the DCR
- *      (now allowed even after the 2-day lock, share-only), so a mid-week deal
- *      on a single day wins over the week rate.
+ *   1. An EXPLICIT per-day override: a positive `entry.share` (see
+ *      hasShareOverride). A deliberate edit on this DCR (allowed even past the
+ *      2-day lock, share-only) so a mid-week deal on a single day wins over the
+ *      week rate.
  *   2. A per-run-week override on the movie (Settings → Movies), which maps to
  *      EVERY entry in that run week. Resolved at compute time — not written
  *      onto entries — so it also applies to locked DCRs.
- *   3. The entry's own `share` (which defaults from the movie's base %).
+ *   3. The movie's base share %.
  *
- * A day left at the movie default (entry.share == base) is treated as "no
- * per-day override", so the week rate applies; change a day's share to take it
- * off the week rate.
+ * A day with NO per-day override (share null/0/unset — the blankEntry default)
+ * inherits the week rate, else the base. The week rate therefore auto-applies
+ * to every ordinary day; set a positive day share to take that one day off the
+ * week rate, clear it (→ null) to hand it back.
  */
 export function resolveShare(state: AppState, entry: Entry): number {
   const movie = state.movies.find((m) => m.id === entry.movieId);
-  const entryShare = N(entry.share);
 
-  // 1. Explicit per-day override: the entry's share was edited off the base.
-  if (movie && entryShare !== N(movie.share)) return entryShare;
+  // 1. Explicit per-day override.
+  if (hasShareOverride(entry)) return N(entry.share);
 
   // 2. Per-run-week override.
   const wk = runWeekOf(state, entry);
@@ -428,8 +452,8 @@ export function resolveShare(state: AppState, entry: Entry): number {
     if (v !== undefined && v !== null && v !== ("" as unknown)) return N(v);
   }
 
-  // 3. Default (entry share == base, or no movie record).
-  return entryShare;
+  // 3. Base share %.
+  return movie ? N(movie.share) : N(entry.share);
 }
 
 /**

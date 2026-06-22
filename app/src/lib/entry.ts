@@ -43,7 +43,6 @@ export function blankEntry(
   movieId: UUID,
   screenId: UUID,
 ): Entry {
-  const movie = state.movies.find((m) => m.id === movieId);
   const screen = screenById(state, screenId);
   const firstCardId = screen?.priceCards?.[0]?.id;
   return {
@@ -51,7 +50,10 @@ export function blankEntry(
     date,
     movieId,
     screenId,
-    share: movie?.share ?? 0,
+    // No per-day override on a fresh day: share stays null so resolveShare
+    // inherits the movie's week rate (else its base %). A deliberate per-day
+    // deal is set explicitly in the header.
+    share: null,
     shows: [blankShow(state, screenId, firstCardId)],
   };
 }

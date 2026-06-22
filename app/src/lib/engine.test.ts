@@ -22,6 +22,7 @@ import {
   computeShallow,
   daysBetween,
   entryRepBatta,
+  hasShareOverride,
   isNight,
   r2,
   realShowCount,
@@ -353,7 +354,9 @@ describe("computeEntry() — single matinee, 10 Royale tickets at ₹290", () =>
       },
     ],
   };
-  const c = computeEntry(state, entry);
+  // Persist the entry so computeFund (which reads through mergedEntries) can see
+  // this movie's shows on the screen — otherwise fund resolves to 0.
+  const c = computeEntry({ ...state, entries: [entry] }, entry);
   // Hand math for ₹290 ticket, above slab (etaxPct 8.5, gstPct 18; fixed 5):
   //   poa  = r2((290 * 100 / 118 - 5) / 1.085) = r2((245.7627 - 5)/1.085) = r2(221.9012) = 221.90
   //   etax = r2(221.90 * 0.085) = r2(18.8615) = 18.86
@@ -361,15 +364,17 @@ describe("computeEntry() — single matinee, 10 Royale tickets at ₹290", () =>
   // Per ticket: 221.90 + 18.86 + 2 + 3 + 44.24 = 290.00  ✓
   it("row-level breakdown matches the ₹290 above-slab math", () => {
     const r = c.shows[0]?.rows[0];
+    // poa/gross are per-ticket unit prices; grossColl/tmc/cess/etax/gst are
+    // ROW TOTALS (per-ticket value × 10 tickets).
     expect(r?.cls).toBe("Royale");
-    expect(r?.poa).toBeCloseTo(221.9, 2);
-    expect(r?.etax).toBeCloseTo(18.86, 2);
-    expect(r?.gst).toBeCloseTo(44.24, 2);
+    expect(r?.poa).toBeCloseTo(221.9, 2);     // per ticket
+    expect(r?.etax).toBeCloseTo(188.6, 2);    // 18.86 × 10
+    expect(r?.gst).toBeCloseTo(442.4, 2);     // 44.24 × 10
     expect(r?.tickets).toBe(10);
     expect(r?.grossColl).toBeCloseTo(2900, 2);
     expect(r?.tmc).toBeCloseTo(20, 2);
     expect(r?.cess).toBeCloseTo(30, 2);
-    expect(r?.etax).toBeCloseTo(18.86, 2);
+    expect(r?.etax).toBeCloseTo(188.6, 2);
   });
 
   it("grand totals match show totals (single show)", () => {
@@ -416,7 +421,8 @@ describe("computeEntry() — single matinee, 10 Royale tickets at ₹290", () =>
   });
 
   it("computeShallow produces the same `today` row as computeEntry", () => {
-    const shallow = computeShallow(state, entry);
+    // Same persisted world as `c` above, so fund/repBatta resolve identically.
+    const shallow = computeShallow({ ...state, entries: [entry] }, entry);
     const t = c.today;
     expect(shallow.grossColl).toBeCloseTo(t.grossColl, 6);
     expect(shallow.gst).toBeCloseTo(t.gst, 6);
@@ -611,6 +617,10 @@ describe("entryRepBatta() — cross-screen pooling", () => {
     expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(400);  // rep2
     s.entries = [entryOn("e1", "scr_abhinaya", 5)];
     expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(600);  // rep5
+    s.entries = [entryOn("e1", "scr_abhinaya", 6)];
+    expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(600);  // 5+ flat, one screen
+    s.entries = [entryOn("e1", "scr_abhinaya", 9)];
+    expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(600);  // still capped at rep5
   });
 
   it("1+1 shows (=2) → pooled ₹400 → 200/200, not 250/250", () => {
@@ -665,6 +675,67 @@ describe("entryRepBatta() — cross-screen pooling", () => {
     const b = entryOn("eB", "scr_tara", 3);
     s.entries = [a, b];
     expect(entryRepBatta(s, a, s.tax) + entryRepBatta(s, b, s.tax)).toBe(600);
+  });
+
+  // ── 6+ combined shows: pooling stops, each screen earns its own tier ──
+
+  it("3+4 shows (=7, 6+) → no pooling, each its own tier → 400 + 400 = 800", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 3);
+    const b = entryOn("eB", "scr_tara", 4);
+    s.entries = [a, b];
+    expect(sharedScreenMovie(s, a)).toBe(true);
+    expect(entryRepBatta(s, a, s.tax)).toBe(400); // 3 shows → rep2
+    expect(entryRepBatta(s, b, s.tax)).toBe(400); // 4 shows → rep2
+    expect(entryRepBatta(s, a, s.tax) + entryRepBatta(s, b, s.tax)).toBe(800);
+  });
+
+  it("1+5 shows (=6, 6+) → no split: quiet screen keeps full rep1, busy screen rep5", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 5);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(250); // 1 show → rep1, NOT a split share
+    expect(entryRepBatta(s, b, s.tax)).toBe(600); // 5 shows → rep5
+  });
+
+  it("5+5 shows (=10) → 600 + 600 = 1200 (no ₹600 cap across screens)", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 5);
+    const b = entryOn("eB", "scr_tara", 5);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(600);
+    expect(entryRepBatta(s, b, s.tax)).toBe(600);
+  });
+
+  it("three screens 2+2+2 (=6) → each screen its own tier → 400 each", () => {
+    const s = twoScreenState();
+    s.screens = [
+      ...s.screens,
+      {
+        id: "scr_meena",
+        name: "Meena",
+        classes: [{ classId: "cls_royale", seats: 150 }],
+        priceCards: [{ id: "pc_m1", name: "Card M1", prices: { cls_royale: 290 } }],
+      },
+    ];
+    const a = entryOn("eA", "scr_abhinaya", 2);
+    const b = entryOn("eB", "scr_tara", 2);
+    const c = entryOn("eC", "scr_meena", 2);
+    s.entries = [a, b, c];
+    expect(entryRepBatta(s, a, s.tax)).toBe(400);
+    expect(entryRepBatta(s, b, s.tax)).toBe(400);
+    expect(entryRepBatta(s, c, s.tax)).toBe(400);
+  });
+
+  it("the 6+ switch is on COMBINED count: a 1-show screen still pays rep1, not a pooled share", () => {
+    const s = twoScreenState();
+    const a = entryOn("eA", "scr_abhinaya", 1);
+    const b = entryOn("eB", "scr_tara", 5);
+    s.entries = [a, b];
+    // Combined 6 → per-screen. Contrast with the ≤5 pooling cases above where
+    // a 1-show screen would only get a rounded fraction of the pool.
+    expect(entryRepBatta(s, a, s.tax)).toBe(250);
   });
 
   it("different movies on the two screens → no pooling", () => {
@@ -830,58 +901,88 @@ describe("runWeekOf() — release-anchored run week", () => {
   });
 });
 
-describe("resolveShare() — per-week override maps onto every entry in the week", () => {
+describe("hasShareOverride() — only a positive share is a per-day override", () => {
+  const e = (share: number | null): Entry => ({
+    id: "e", date: "2025-03-27", movieId: "mov_empuraan", screenId: "scr_abhinaya", share,
+  });
+  it("null / 0 / negative are NOT overrides (inherit week/base)", () => {
+    expect(hasShareOverride(e(null))).toBe(false);
+    expect(hasShareOverride(e(0))).toBe(false);
+    expect(hasShareOverride(e(-5))).toBe(false);
+    expect(hasShareOverride(e("" as unknown as number))).toBe(false);
+  });
+  it("any positive share is an override", () => {
+    expect(hasShareOverride(e(50))).toBe(true);
+    expect(hasShareOverride(e(60))).toBe(true);
+    expect(hasShareOverride(e(0.5))).toBe(true);
+  });
+});
+
+describe("resolveShare() — null = inherit week/base; positive = per-day override", () => {
   function stateWith(weekShares?: Record<number, number>): AppState {
-    const s = makeDefaultState();
+    const s = makeDefaultState(); // mov_empuraan base share is 60
     s.movies = s.movies.map((m) =>
       m.id === "mov_empuraan" ? { ...m, release: "2025-03-27", weekShares } : m,
     );
     return s;
   }
-  const onDate = (date: string, share = 60): Entry => ({
+  // share defaults to null = "no per-day override". Pass a positive number for
+  // a deliberate override.
+  const onDate = (date: string, share: number | null = null): Entry => ({
     id: "e_" + date, date, movieId: "mov_empuraan", screenId: "scr_abhinaya", share,
     shows: [{ showtime: "13:00", rows: {} }],
   });
 
-  it("no overrides → entry's own share", () => {
-    expect(resolveShare(stateWith(undefined), onDate("2025-03-27", 60))).toBe(60);
+  it("no override, no week rate → movie base share", () => {
+    expect(resolveShare(stateWith(undefined), onDate("2025-03-27"))).toBe(60);
   });
-  it("week override wins for every entry in that run week", () => {
+  it("week override wins for every non-overridden entry in that run week", () => {
     const s = stateWith({ 1: 55 });
     expect(resolveShare(s, onDate("2025-03-27"))).toBe(55); // day 1
     expect(resolveShare(s, onDate("2025-04-02"))).toBe(55); // day 7, same week
   });
-  it("a week with no override falls back to the entry share", () => {
-    expect(resolveShare(stateWith({ 1: 55 }), onDate("2025-04-03", 60))).toBe(60); // week 2 unset
+  it("a week with no override falls back to the base share", () => {
+    expect(resolveShare(stateWith({ 1: 55 }), onDate("2025-04-03"))).toBe(60); // week 2 unset
   });
   it("overrides are independent per week", () => {
     const s = stateWith({ 1: 55, 2: 50 });
     expect(resolveShare(s, onDate("2025-03-27"))).toBe(55);
     expect(resolveShare(s, onDate("2025-04-03"))).toBe(50);
   });
-  it("explicit per-day entry share (≠ base) wins over the week rate", () => {
+  it("a positive per-day override wins over the week rate", () => {
     const s = stateWith({ 1: 55 }); // base is 60
     // a single day given a different deal (70) beats the week's 55
     expect(resolveShare(s, onDate("2025-03-27", 70))).toBe(70);
-    // a sibling day left at the base default still takes the week rate
-    expect(resolveShare(s, onDate("2025-03-28", 60))).toBe(55);
+    // a sibling day with no override still takes the week rate
+    expect(resolveShare(s, onDate("2025-03-28", null))).toBe(55);
   });
-  it("explicit per-day entry share wins even with no week override", () => {
+  it("a positive per-day override wins even with no week override", () => {
     const s = stateWith(undefined);
     expect(resolveShare(s, onDate("2025-03-27", 70))).toBe(70);
   });
-  it("no release date → entry share even if weekShares set", () => {
+  it("no release date → base share even if weekShares set", () => {
     const s = makeDefaultState();
     s.movies = s.movies.map((m) =>
       m.id === "mov_empuraan" ? { ...m, release: undefined, weekShares: { 1: 55 } } : m,
     );
-    expect(resolveShare(s, onDate("2025-04-03", 60))).toBe(60);
+    expect(resolveShare(s, onDate("2025-04-03"))).toBe(60);
   });
+
+  // ── regression: the production bug — a 0 share must NOT shadow the week rate ──
+  it("a 0 / cleared share inherits the week rate (the Mollywood-15th bug)", () => {
+    const s = stateWith({ 2: 50 });
+    // week-2 day stored as 0 (a cleared field): used to resolve to 0%, now 50%.
+    expect(resolveShare(s, onDate("2025-04-03", 0))).toBe(50);
+  });
+  it("a 0 share with no week override falls back to the base, never 0", () => {
+    expect(resolveShare(stateWith(undefined), onDate("2025-04-03", 0))).toBe(60);
+  });
+
   it("computeEntry uses the resolved week share for distShare", () => {
     const s = stateWith({ 1: 50 });
     const e: Entry = {
       id: "e1", date: "2025-03-27", movieId: "mov_empuraan",
-      screenId: "scr_abhinaya", share: 60,
+      screenId: "scr_abhinaya", share: null, // no per-day override → inherit week
       shows: [{
         showtime: "13:00", priceCardId: "pc_1",
         rows: { cls_royale: { tickets: 10 }, cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } },
@@ -889,7 +990,7 @@ describe("resolveShare() — per-week override maps onto every entry in the week
     };
     s.entries = [e];
     const c = computeEntry(s, e);
-    expect(c.share).toBe(50); // week override, not the entry's 60
+    expect(c.share).toBe(50); // week override, not the base 60
     expect(c.today.distShare).toBeCloseTo(0.5 * c.today.netShare, 6);
   });
 });
