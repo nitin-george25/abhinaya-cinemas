@@ -1,11 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { GUIDE_CATEGORIES } from "../lib/guides";
+
+import { Modal } from "../components/ui/Modal";
+import { Button } from "../components/ui/Button";
+import { Field, Input, Select } from "../components/ui/Input";
+import { useSync } from "../lib/hooks/SyncContext";
+import {
+  GUIDE_CATEGORY_DEFS,
+  DEFAULT_GUIDE_CATEGORY_ID,
+  groupGuides,
+  listGuides,
+  addGuide,
+  type Guide,
+} from "../lib/guides";
 
 /**
  * Guides — in-app help, reached via the book icon in the header. Top-level
  * category sub-tabs (Box Office, F&B, …); each lists its guides, and the
- * selected guide renders its embedded walkthrough. Available to every role.
+ * selected guide renders its embedded walkthrough. Available to every role;
+ * owners/managers can add new guides via the "Add guide" button.
+ *
+ * Guides are loaded from Supabase (see lib/guides + migration guides_00_schema)
+ * so additions are persistent and visible to everyone.
  *
  * Category and guide live in the URL so each has its own shareable link:
  *   /guides/:categoryId               → a category ("type")
@@ -15,12 +31,31 @@ import { GUIDE_CATEGORIES } from "../lib/guides";
  * always reopens exactly what the sender was looking at.
  */
 export default function GuidesPage() {
-  const categories = GUIDE_CATEGORIES;
   const navigate = useNavigate();
+  const { state } = useSync();
+  const canEdit = state.role === "owner" || state.role === "manager";
+
   const { categoryId, guideId } = useParams<{
     categoryId?: string;
     guideId?: string;
   }>();
+
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!state.cinemaId) return;
+    const rows = await listGuides(state.cinemaId);
+    setGuides(rows);
+    setLoaded(true);
+  }, [state.cinemaId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const categories = useMemo(() => groupGuides(guides), [guides]);
 
   // Default to the first category that actually has content, else the first.
   const defaultCat = useMemo(
@@ -28,8 +63,7 @@ export default function GuidesPage() {
     [categories],
   );
 
-  const category =
-    categories.find((c) => c.id === categoryId) ?? defaultCat;
+  const category = categories.find((c) => c.id === categoryId) ?? defaultCat;
   const activeGuide =
     category?.guides.find((g) => g.id === guideId) ??
     category?.guides[0] ??
@@ -44,6 +78,10 @@ export default function GuidesPage() {
     : "/guides";
 
   useEffect(() => {
+    // Wait until guides have loaded before canonicalising, otherwise a bare
+    // /guides briefly redirects to the first (empty) category before the real
+    // content arrives.
+    if (!loaded) return;
     const current = guideId
       ? `/guides/${categoryId}/${guideId}`
       : categoryId
@@ -52,7 +90,7 @@ export default function GuidesPage() {
     if (current !== canonicalPath) {
       navigate(canonicalPath, { replace: true });
     }
-  }, [canonicalPath, categoryId, guideId, navigate]);
+  }, [loaded, canonicalPath, categoryId, guideId, navigate]);
 
   return (
     <div className="space-y-6">
@@ -63,7 +101,16 @@ export default function GuidesPage() {
             Step-by-step walkthroughs for everyday tasks in the console.
           </p>
         </div>
-        <CopyLinkButton path={canonicalPath} />
+        {canEdit ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setAddOpen(true)}
+          >
+            + Add guide
+          </Button>
+        ) : null}
       </div>
 
       {/* Category sub-tabs */}
@@ -98,7 +145,9 @@ export default function GuidesPage() {
       {!category || category.guides.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line bg-paper-card px-6 py-16 text-center">
           <p className="text-sm text-ink-muted">
-            No guides here yet — they'll appear as we add them.
+            {loaded
+              ? "No guides here yet — they'll appear as we add them."
+              : "Loading guides…"}
           </p>
         </div>
       ) : (
@@ -160,13 +209,150 @@ export default function GuidesPage() {
           ) : null}
         </div>
       )}
+
+      {addOpen ? (
+        <AddGuideModal
+          defaultCategoryId={category?.id ?? DEFAULT_GUIDE_CATEGORY_ID}
+          onClose={() => setAddOpen(false)}
+          onAdded={async (guide) => {
+            setAddOpen(false);
+            await reload();
+            navigate(`/guides/${guide.categoryId}/${guide.id}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 /**
+ * Modal form to add a guide. Owner/manager only (the button that opens it is
+ * gated, and RLS enforces it server-side).
+ */
+function AddGuideModal({
+  defaultCategoryId,
+  onClose,
+  onAdded,
+}: {
+  defaultCategoryId: string;
+  onClose: () => void;
+  onAdded: (guide: Guide) => void | Promise<void>;
+}) {
+  const { state } = useSync();
+
+  const [categoryId, setCategoryId] = useState(defaultCategoryId);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [embedUrl, setEmbedUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canSubmit =
+    title.trim().length > 0 && embedUrl.trim().length > 0 && !busy;
+
+  async function submit() {
+    if (!state.cinemaId) {
+      setErr("No cinema in context — reload and try again.");
+      return;
+    }
+    if (!/^https?:\/\//i.test(embedUrl.trim())) {
+      setErr("Enter a full embed URL starting with http(s)://");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const guide = await addGuide(
+        state.cinemaId,
+        { categoryId, title, description, embedUrl },
+        state.email ?? "system",
+      );
+      await onAdded(guide);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      maxWidth="max-w-lg"
+      title="Add a guide"
+      actions={
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-sm text-ink-muted hover:text-ink"
+        >
+          Close
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Category">
+          <Select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            {GUIDE_CATEGORY_DEFS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Title">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Record a Cash Deposit"
+            autoFocus
+          />
+        </Field>
+
+        <Field
+          label="Description"
+          hint="Optional — a one-line summary shown above the walkthrough."
+        >
+          <Input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this guide covers"
+          />
+        </Field>
+
+        <Field
+          label="Embed link"
+          hint="The Scribe /embed/ URL, e.g. https://scribehow.com/embed/…"
+        >
+          <Input
+            value={embedUrl}
+            onChange={(e) => setEmbedUrl(e.target.value)}
+            placeholder="https://scribehow.com/embed/…"
+          />
+        </Field>
+
+        {err ? <p className="text-sm text-red-600">{err}</p> : null}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!canSubmit}>
+            {busy ? "Adding…" : "Add guide"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
  * Copies the absolute URL for the given in-app path to the clipboard and
- * briefly confirms. Used to share a category or a single guide.
+ * briefly confirms. Used to share a single guide.
  */
 function CopyLinkButton({ path }: { path: string }) {
   const [copied, setCopied] = useState(false);
