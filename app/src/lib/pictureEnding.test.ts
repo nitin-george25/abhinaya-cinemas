@@ -16,6 +16,7 @@ import {
   buildPictureEnding,
   computeHoldOverDate,
   pictureEndingTotals,
+  publicityBaseFor,
   summarizeWeeks,
   type PictureEndingInputs,
   type PictureEndingWeek,
@@ -79,9 +80,11 @@ describe("pictureEndingTotals — intra-state", () => {
     expect(t.shareGst).toBe(10800);
     expect(t.credit).toBe(70800); // 60000 + 10800
   });
-  it("publicity = 2% of ex-share, plus its GST", () => {
-    expect(t.publicityBase).toBe(800); // 2% of 40000
-    expect(t.publicityGst).toBe(144);  // 18% of 800
+  it("publicity defaults to 2% of the full-run ex-share when no base is given", () => {
+    expect(t.publicityExShare).toBe(40000); // whole run (no hold-over base supplied)
+    expect(t.publicityDays).toBe(14);       // 7 + 7
+    expect(t.publicityBase).toBe(800);      // 2% of 40000
+    expect(t.publicityGst).toBe(144);       // 18% of 800
     expect(t.publicity).toBe(944);
   });
   it("TDS = 2% of (share + publicity base)", () => {
@@ -116,6 +119,100 @@ describe("pictureEndingTotals — manual round-off", () => {
   });
 });
 
+describe("pictureEndingTotals — publicity charged till hold-over", () => {
+  // Only 24000 of the 40000 ex-share was earned before hold-over (7 of 14 days).
+  const t = pictureEndingTotals(WEEKS, inputs(), { exShare: 24000, days: 7 });
+
+  it("charges 2% on the till-hold-over ex-share, not the full run", () => {
+    expect(t.publicityExShare).toBe(24000);
+    expect(t.publicityDays).toBe(7);
+    expect(t.publicityBase).toBe(480);   // 2% of 24000 (vs 800 on the full run)
+    expect(t.publicityGst).toBe(86.4);   // 18% of 480
+    expect(t.publicity).toBe(566.4);
+  });
+  it("flows the smaller publicity through TDS and the debit total", () => {
+    expect(t.tdsBase).toBe(60480);       // share 60000 + publicity base 480
+    expect(t.tds).toBe(1209.6);          // 2% of 60480
+    // debit = publicity 566.4 + tds 1209.6 + flex 500 + advances 10000
+    expect(t.debit).toBe(12276);
+    expect(t.credit).toBe(70800);        // credit side unchanged
+  });
+});
+
+describe("publicityBaseFor — ex-share up to the hold-over day", () => {
+  // Full house = 100 × ₹100 = ₹10,000.
+  const state = fixture([
+    entry("2025-03-27", [100, 100, 100]), // strong, above hold-over
+    entry("2025-03-28", [30, 30, 30]),    // best-3 ₹9,000 < full house → HOLD-OVER
+    entry("2025-03-29", [10, 10, 10]),    // after hold-over
+  ]);
+
+  it("sums ex-share only up to & including the cutoff date", () => {
+    const full = publicityBaseFor(state, "mov", null);
+    const till = publicityBaseFor(state, "mov", "2025-03-28");
+    expect(full.days).toBe(3);
+    expect(till.days).toBe(2);                       // 27 + 28 only
+    expect(till.exShare).toBeGreaterThan(0);
+    expect(till.exShare).toBeLessThan(full.exShare); // 29 Mar excluded
+  });
+
+  it("buildPictureEnding charges publicity on the till-hold-over base", () => {
+    const built = buildPictureEnding(state, "mov", inputs({ advances: [] }))!;
+    const till = publicityBaseFor(state, "mov", "2025-03-28");
+    expect(built.holdOverDate).toBe("2025-03-28");
+    expect(built.totals.publicityDays).toBe(2);
+    expect(built.totals.publicityExShare).toBe(till.exShare);
+    expect(built.totals.publicityBase).toBeCloseTo(till.exShare * 0.02, 2);
+  });
+
+  it("falls back to the full run when the film never held over", () => {
+    const strong = fixture([
+      entry("2025-03-27", [100, 100, 100]),
+      entry("2025-03-28", [95, 95, 95]),
+    ]);
+    const built = buildPictureEnding(strong, "mov", inputs({ advances: [] }))!;
+    expect(built.holdOverDate).toBeNull();
+    expect(built.totals.publicityDays).toBe(2); // both days
+    const full = publicityBaseFor(strong, "mov", null);
+    expect(built.totals.publicityExShare).toBe(full.exShare);
+  });
+});
+
+describe("computeHoldOverDate ignores zero-collection days", () => {
+  // Regression: a saved-but-empty placeholder day collects ₹0, so its best-3 is
+  // below a full house. It must NOT set the hold-over date (which would truncate
+  // the publicity base that is charged only up to the hold-over day).
+  it("an empty placeholder between strong days cannot trigger hold-over", () => {
+    const state = fixture([
+      entry("2025-03-27", [100, 100, 100]), // strong
+      emptyEntry("2025-03-28"),             // blank placeholder — ₹0
+      entry("2025-03-29", [95, 95, 95]),    // strong
+    ]);
+    expect(computeHoldOverDate(state, "mov")).toBeNull();
+  });
+
+  it("an empty release-day placeholder does not zero the publicity base", () => {
+    const state = fixture([
+      emptyEntry("2025-03-27"),              // would wrongly be hold-over before the fix
+      entry("2025-03-28", [100, 100, 100]),  // the real collecting day
+    ]);
+    const built = buildPictureEnding(state, "mov", inputs({ advances: [] }))!;
+    expect(built.holdOverDate).toBeNull();
+    expect(built.totals.publicityDays).toBe(1);              // only 28 Mar collected
+    expect(built.totals.publicityExShare).toBeGreaterThan(0);
+    expect(built.totals.publicityBase).toBeGreaterThan(0);   // not silently waived
+  });
+
+  it("a genuine low-collection day still triggers hold-over", () => {
+    const state = fixture([
+      entry("2025-03-27", [100, 100, 100]), // strong
+      emptyEntry("2025-03-28"),             // ignored
+      entry("2025-03-29", [30, 30, 30]),    // best-3 ₹9,000 < full house ₹10,000
+    ]);
+    expect(computeHoldOverDate(state, "mov")).toBe("2025-03-29");
+  });
+});
+
 // ── weekly grouping + hold-over, on a single-class fixture ──────────────────
 
 function entry(date: string, ticketsPerShow: number[]): Entry {
@@ -130,6 +227,18 @@ function entry(date: string, ticketsPerShow: number[]): Entry {
       priceCardId: "pc",
       rows: { A: { tickets: t } },
     })),
+  };
+}
+
+/** A saved-but-empty placeholder day: a blank show (no showtime, 0 tickets). */
+function emptyEntry(date: string): Entry {
+  return {
+    id: `empty_${date}`,
+    date,
+    movieId: "mov",
+    screenId: "scr",
+    share: null,
+    shows: [{ showtime: "", priceCardId: "pc", rows: { A: { tickets: 0 } } }],
   };
 }
 

@@ -76,7 +76,10 @@ export function pictureEndingCsvRows(
     R.push([`Share SGST @ ${inp.gstPct / 2}%`, t.shareSgst, ""]);
     R.push([`Share CGST @ ${inp.gstPct / 2}%`, t.shareCgst, ""]);
   }
-  R.push([`Publicity — ${inp.publicityPct}% of ex-share`, "", t.publicityBase]);
+  const pubLabel = c.holdOverDate
+    ? `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days, till hold-over ${dmy(c.holdOverDate)})`
+    : `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days)`;
+  R.push([pubLabel, "", t.publicityBase]);
   if (inp.taxKind === "inter") {
     R.push([`Publicity IGST @ ${inp.gstPct}%`, "", t.publicityIgst]);
   } else {

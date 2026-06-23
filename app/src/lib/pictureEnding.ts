@@ -131,7 +131,7 @@ export interface PictureEndingWeek {
 
 export interface PictureEndingTotals {
   net: number;
-  exShare: number;
+  exShare: number;        // full-run exhibitor share (reference)
 
   share: number;          // taxable value (CREDIT)
   shareSgst: number;
@@ -140,7 +140,12 @@ export interface PictureEndingTotals {
   shareGst: number;       // sgst + cgst + igst
   credit: number;         // share + shareGst
 
-  publicityBase: number;  // publicityPct% of exShare (DEBIT, taxable value)
+  /** Exhibitor share publicity is charged on = ex-share up to & including the
+   *  hold-over day (full run when the film never held over). */
+  publicityExShare: number;
+  /** Collecting days counted in publicityExShare (the "N days" on the PUB line). */
+  publicityDays: number;
+  publicityBase: number;  // publicityPct% of publicityExShare (DEBIT, taxable value)
   publicitySgst: number;
   publicityCgst: number;
   publicityIgst: number;
@@ -212,6 +217,12 @@ function fullHouseCollection(
  * together collect LESS than one 100% (full-house) show, valued at that day's
  * top-show price card. Per (date, screen); returns the earliest across the run.
  * null when the threshold is never crossed (or there's no usable price data).
+ *
+ * Only days that actually COLLECTED are considered. A day with ₹0 collection —
+ * a saved-but-empty placeholder DCR (opened, never filled) or a scheduled-then-
+ * pulled day — has best-3 = ₹0, which is always below a full house. Letting such
+ * a day set the hold-over date would wrongly truncate the publicity base (now
+ * charged only up to the hold-over day), so zero-collection days are skipped.
  */
 export function computeHoldOverDate(
   state: AppState,
@@ -227,6 +238,9 @@ export function computeHoldOverDate(
       coll: showCollection(state, e.screenId, sh),
       cardId: sh.priceCardId,
     }));
+    // Skip a day that took ₹0 at the counter — it never really played, so it
+    // is not a hold-over signal (and must not truncate the publicity base).
+    if (colls.reduce((s, c) => s + c.coll, 0) <= 0) continue;
     const first = colls[0];
     if (!first) continue;
     // The day's reference card = the top-collecting show's card.
@@ -315,14 +329,27 @@ export function summarizeWeeks(state: AppState, movieId: UUID): PictureEndingWee
     });
 }
 
-/** Apply the credit/debit cascade to weekly rows + the editable inputs. */
+/**
+ * Apply the credit/debit cascade to weekly rows + the editable inputs.
+ *
+ * `publicity` is the exhibitor-share base publicity is charged on — ex-share
+ * up to & including the hold-over day, with its collecting-day count. When
+ * omitted it defaults to the full-run ex-share (correct when the film never
+ * held over). buildPictureEnding always supplies the till-hold-over figure.
+ */
 export function pictureEndingTotals(
   weeks: PictureEndingWeek[],
   inputs: PictureEndingInputs,
+  pubBase?: { exShare: number; days: number },
 ): PictureEndingTotals {
   const net = r2(weeks.reduce((s, w) => s + w.net, 0));
   const exShare = r2(weeks.reduce((s, w) => s + w.exShare, 0));
   const share = r2(weeks.reduce((s, w) => s + w.share, 0));
+
+  // Publicity is 2% of the exhibitor share earned TILL the hold-over day, not
+  // the whole run. Falls back to the full run when no hold-over base is given.
+  const publicityExShare = r2(pubBase ? pubBase.exShare : exShare);
+  const publicityDays = pubBase ? pubBase.days : weeks.reduce((s, w) => s + w.days, 0);
 
   const splitGst = (base: number) => {
     const total = r2((base * inputs.gstPct) / 100);
@@ -336,7 +363,7 @@ export function pictureEndingTotals(
   const sg = splitGst(share);
   const credit = r2(share + sg.total);
 
-  const publicityBase = r2((exShare * inputs.publicityPct) / 100);
+  const publicityBase = r2((publicityExShare * inputs.publicityPct) / 100);
   const pg = splitGst(publicityBase);
   const publicity = r2(publicityBase + pg.total);
 
@@ -369,6 +396,8 @@ export function pictureEndingTotals(
     shareIgst: sg.igst,
     shareGst: sg.total,
     credit,
+    publicityExShare,
+    publicityDays,
     publicityBase,
     publicitySgst: pg.sgst,
     publicityCgst: pg.cgst,
@@ -387,6 +416,36 @@ export function pictureEndingTotals(
   };
 }
 
+/**
+ * Exhibitor share + collecting-day count earned up to & including `throughDate`
+ * (the whole run when `throughDate` is null). This is the base publicity is
+ * charged on — 2% of ex-share TILL the hold-over day.
+ *
+ * Multi-screen note: the cutoff is a single DATE across every screen, and the
+ * hold-over date is the earliest a screen dips below its own full house. For the
+ * single-screen cinema this is exact. If a film ever runs on two screens at once
+ * and one screen holds over before the other, the stronger screen's later
+ * ex-share past that date is excluded here — revisit (pool best-3 across screens,
+ * or make the cutoff per-screen) before relying on this for multi-screen runs.
+ */
+export function publicityBaseFor(
+  state: AppState,
+  movieId: UUID,
+  throughDate: DateISO | null,
+): { exShare: number; days: number } {
+  const dates = new Set<string>();
+  let exShare = 0;
+  for (const e of state.entries) {
+    if (e.movieId !== movieId || !e.date) continue;
+    if (throughDate && e.date > throughDate) continue; // inclusive of hold-over day
+    const cs = computeShallow(state, e, null);
+    if (cs.audience <= 0 && cs.netShare === 0) continue;
+    exShare += cs.exShare;
+    dates.add(e.date);
+  }
+  return { exShare: r2(exShare), days: dates.size };
+}
+
 /** Build the full computed statement for a movie. Returns null if unknown. */
 export function buildPictureEnding(
   state: AppState,
@@ -398,7 +457,10 @@ export function buildPictureEnding(
   const distributor = state.distributors.find((d) => d.id === movie.distributorId);
 
   const weeks = summarizeWeeks(state, movieId);
-  const totals = pictureEndingTotals(weeks, inputs);
+  const holdOverDate = computeHoldOverDate(state, movieId);
+  // Publicity base = ex-share till the hold-over day (full run if it never held over).
+  const publicity = publicityBaseFor(state, movieId, holdOverDate);
+  const totals = pictureEndingTotals(weeks, inputs, publicity);
 
   const screenIds = [
     ...new Set(
@@ -422,7 +484,7 @@ export function buildPictureEnding(
     runTo,
     totalDays,
     weeks,
-    holdOverDate: computeHoldOverDate(state, movieId),
+    holdOverDate,
     inputs,
     totals,
   };

@@ -44,6 +44,13 @@ import { Modal } from "../../components/ui/Modal";
 
 const inr = (x: number) => "₹" + (money(x) || "0.00");
 
+/** YYYY-MM-DD → DD.MM.YYYY, matching the PDF/CSV house style. */
+const dmy = (iso?: string | null): string => {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
+};
+
 const MODES = ["rtgs", "neft", "imps", "upi", "cheque", "cash", "adjustment"];
 
 export default function ReportsPictureEndingPage() {
@@ -428,7 +435,13 @@ export default function ReportsPictureEndingPage() {
                         <LedgerRow label={`Share CGST @ ${inputs.gstPct / 2}%`} credit={t.shareCgst} />
                       </>
                     )}
-                    <LedgerRow label={`Publicity — ${inputs.publicityPct}% of ex-share`} debit={t.publicityBase} />
+                    <LedgerRow
+                      label={
+                        `Publicity — ${inputs.publicityPct}% of ex-share (${t.publicityDays} days` +
+                        (computed.holdOverDate ? `, till hold-over ${dmy(computed.holdOverDate)})` : ")")
+                      }
+                      debit={t.publicityBase}
+                    />
                     {inputs.taxKind === "inter" ? (
                       <LedgerRow label={`Publicity IGST @ ${inputs.gstPct}%`} debit={t.publicityIgst} />
                     ) : (

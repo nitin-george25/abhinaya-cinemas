@@ -254,7 +254,10 @@ export function buildPictureEndingPdf(
     ledger(`Share SGST @ ${gstHalf}%`, t.shareSgst, null);
     ledger(`Share CGST @ ${gstHalf}%`, t.shareCgst, null);
   }
-  ledger("Publicity — 2% of ex-share".replace("2", String(inp.publicityPct)), null, t.publicityBase);
+  const pubLabel = C.holdOverDate
+    ? `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days, till hold-over ${dmy(C.holdOverDate)})`
+    : `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days)`;
+  ledger(pubLabel, null, t.publicityBase);
   if (inp.taxKind === "inter") {
     ledger(`Publicity IGST @ ${inp.gstPct}%`, null, t.publicityIgst);
   } else {
