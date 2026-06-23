@@ -23,7 +23,8 @@ import {
 } from "../lib/users";
 import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
-import { uid } from "../lib/mappers";
+import { uid, entryKey } from "../lib/mappers";
+import { clearEntryShareOverrides } from "../lib/entriesApi";
 import { daysBetween, realShowCount } from "../lib/engine";
 import { todayIso, addDaysIso } from "../lib/dates";
 import type {
@@ -1274,9 +1275,10 @@ function WeekSharesModal({
   })();
 
   const [vals, setVals] = useState<Record<number, string>>({});
-  // Weeks ticked for the "reset DCRs to week rate" action.
+  // Weeks ticked for the "clear per-day overrides" action.
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
   // Re-seed the editable copy + clear all transient state each time the modal
@@ -1290,6 +1292,7 @@ function WeekSharesModal({
     setVals(init);
     setSelected(new Set());
     setConfirmOpen(false);
+    setBusy(false);
     setFlash(null);
   }, [open, movie.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1314,15 +1317,41 @@ function WeekSharesModal({
   const weekOf = (d: string): number =>
     movie.release ? Math.floor(daysBetween(movie.release, d) / 7) + 1 : 0;
 
-  // DCRs that currently carry a per-day override (positive share) — only these
-  // actually change on reset; days already inheriting are left as-is.
-  const overrideEntries = entries.filter(
-    (e) => e.movieId === movie.id && e.date && (e.share ?? 0) > 0,
+  // Per-week tallies: total DCRs and how many carry a per-day override (a
+  // positive entry.share that blocks the week rate).
+  const totalByWeek: Record<number, number> = {};
+  const overrideByWeek: Record<number, number> = {};
+  for (const e of entries) {
+    if (e.movieId !== movie.id || !e.date) continue;
+    const w = weekOf(e.date);
+    if (w < 1) continue;
+    totalByWeek[w] = (totalByWeek[w] ?? 0) + 1;
+    if ((e.share ?? 0) > 0) overrideByWeek[w] = (overrideByWeek[w] ?? 0) + 1;
+  }
+
+  // The override DCRs in the ticked weeks — exactly what "Clear overrides" hits.
+  const targetEntries = entries.filter(
+    (e) =>
+      e.movieId === movie.id &&
+      e.date &&
+      (e.share ?? 0) > 0 &&
+      selected.has(weekOf(e.date)),
   );
-  const affectedCount = selected.size
-    ? overrideEntries.filter((e) => selected.has(weekOf(e.date!))).length
-    : 0;
   const allSelected = weekCount > 0 && selected.size === weekCount;
+
+  // Week %s edited but not yet saved — clearing would apply the SAVED rate, so
+  // gate the clear on a clean save to avoid a confusing mismatch.
+  const dirty = (() => {
+    const saved = movie.weekShares ?? {};
+    for (let w = 1; w <= weekCount; w++) {
+      const cur = (vals[w] ?? "").trim();
+      const sv = saved[w] != null ? String(saved[w]) : "";
+      if (cur === sv) continue;
+      if (cur !== "" && sv !== "" && Number(cur) === Number(sv)) continue;
+      return true;
+    }
+    return false;
+  })();
 
   function toggleWeek(w: number) {
     setSelected((p) => {
@@ -1337,43 +1366,48 @@ function WeekSharesModal({
     );
   }
 
-  // Clear the per-day override on the selected weeks' override DCRs, in memory.
-  // This goes through the normal optimistic-sync path (setAppState → debounced
-  // entries upsert): each touched row changes only `share`, which the past-lock
-  // trigger allows for owner/manager. No direct DB write, no full re-pull — so
-  // it can't clobber a pending catalog edit or half-apply across weeks.
-  function doReset() {
+  // Clear the per-day override (share → NULL) on the ticked weeks' override
+  // DCRs so they inherit the week rate via resolveShare. A single atomic,
+  // share-only Supabase UPDATE (passes the past-lock trigger for owner/manager)
+  // — then mirror it into memory by the stable natural key so the UI updates
+  // and the sync cache self-heals. Errors surface in the flash.
+  async function doReset() {
     const app = state.appState;
-    if (!movie.release || !selected.size || !app) return;
-    const ids = new Set(
-      overrideEntries.filter((e) => selected.has(weekOf(e.date!))).map((e) => e.id),
-    );
     setConfirmOpen(false);
-    if (!ids.size) {
-      setFlash("No per-day overrides to reset in the selected weeks.");
+    if (!movie.release || !app || !targetEntries.length) {
+      if (!targetEntries.length) setFlash("No per-day overrides in the ticked weeks.");
       return;
     }
-    setAppState({
-      ...app,
-      entries: app.entries.map((e) => (ids.has(e.id) ? { ...e, share: null } : e)),
-    });
-    setFlash(
-      `Reset ${ids.size} DCR${ids.size === 1 ? "" : "s"} in ${selected.size} week${selected.size === 1 ? "" : "s"} to the weekly rate.`,
-    );
-    setSelected(new Set());
+    const count = targetEntries.length;
+    const dates = [...new Set(targetEntries.map((e) => e.date!))];
+    const keys = new Set(targetEntries.map((e) => entryKey(e)));
+    setBusy(true);
+    try {
+      await clearEntryShareOverrides(movie.id, dates, state.email ?? "system");
+      setAppState({
+        ...app,
+        entries: app.entries.map((e) => (keys.has(entryKey(e)) ? { ...e, share: null } : e)),
+      });
+      setSelected(new Set());
+      setFlash(`Cleared ${count} override${count === 1 ? "" : "s"} — those DCRs now use the week rate.`);
+    } catch (err) {
+      setFlash("Couldn't clear overrides: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <>
       <Modal
         open={open}
-        onClose={() => { setConfirmOpen(false); onClose(); }}
-        maxWidth="max-w-md"
+        onClose={() => { if (confirmOpen) { setConfirmOpen(false); return; } onClose(); }}
+        maxWidth="max-w-lg"
         title={`Weekly share % — ${movie.name}`}
         actions={
           <>
             <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button size="sm" onClick={save} disabled={!movie.release}>Save</Button>
+            <Button size="sm" onClick={save} disabled={!movie.release || busy}>Save</Button>
           </>
         }
       >
@@ -1383,69 +1417,89 @@ function WeekSharesModal({
             release date.
           </p>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-ink-muted">
-              Base share is <strong>{movie.share}%</strong>. Leave a week blank to use the
-              base. A week's % applies to every DCR in that run week — including locked
-              ones — without changing the entries.
+          <div className="space-y-4">
+            <p className="text-xs text-ink-muted leading-relaxed">
+              Each run week's % applies to every DCR in that week that has{" "}
+              <strong>no per-day override</strong>. Blank uses the base ({movie.share}%).
+              A per-day override set on an individual DCR wins over the week rate —
+              {canReset ? " tick those weeks and Clear overrides to make their DCRs follow the week rate." : " an owner or manager can clear those from here."}
             </p>
-            <div className="space-y-1.5">
-              {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => (
-                <div key={w} className="flex items-center gap-3">
-                  {canReset ? (
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-amber-600"
-                      checked={selected.has(w)}
-                      onChange={() => toggleWeek(w)}
-                      aria-label={`Select week ${w}`}
-                    />
-                  ) : null}
-                  <div className="w-28 shrink-0">
-                    <div className="text-sm font-medium">Week {w}</div>
-                    <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
-                  </div>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.01}
-                    value={vals[w] ?? ""}
-                    onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
-                    className="h-8 text-right"
+
+            <div className="rounded-lg border border-line overflow-hidden">
+              <div className="grid grid-cols-[1.25rem_1fr_6rem_5rem] items-center gap-3 px-3 py-2 bg-paper/60 text-[10px] uppercase tracking-wider font-semibold text-ink-muted">
+                {canReset ? (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-amber-600"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all weeks"
                   />
-                  <span className="text-sm text-ink-muted">%</span>
-                </div>
-              ))}
+                ) : <span />}
+                <span>Run week</span>
+                <span className="text-right">Share %</span>
+                <span className="text-right">DCRs</span>
+              </div>
+              {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => {
+                const ov = overrideByWeek[w] ?? 0;
+                return (
+                  <div
+                    key={w}
+                    className="grid grid-cols-[1.25rem_1fr_6rem_5rem] items-center gap-3 px-3 py-2 border-t border-line"
+                  >
+                    {canReset ? (
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-amber-600"
+                        checked={selected.has(w)}
+                        onChange={() => toggleWeek(w)}
+                        aria-label={`Select week ${w}`}
+                      />
+                    ) : <span />}
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">Week {w}</div>
+                      <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
+                    </div>
+                    <div className="flex items-center justify-end gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={vals[w] ?? ""}
+                        placeholder={String(movie.share)}
+                        onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
+                        className="h-8 text-right w-16"
+                      />
+                      <span className="text-sm text-ink-muted">%</span>
+                    </div>
+                    <div className="text-right text-[11px] tabular-nums whitespace-nowrap">
+                      <span className="text-ink-muted">{totalByWeek[w] ?? 0}</span>
+                      {ov ? <span className="block text-amber-600">{ov} override{ov === 1 ? "" : "s"}</span> : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {canReset ? (
-              <div className="space-y-1.5 border-t border-line pt-3">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-xs text-ink-muted">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-amber-600"
-                      checked={allSelected}
-                      onChange={toggleAll}
-                    />
-                    Select all weeks
-                  </label>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={selected.size === 0}
-                    onClick={() => setConfirmOpen(true)}
-                  >
-                    Reset selected DCRs
-                  </Button>
+              <div className="flex items-start justify-between gap-3 border-t border-line pt-3">
+                <div className="text-[11px] text-ink-muted leading-relaxed">
+                  {targetEntries.length
+                    ? <>Clears <strong className="text-ink">{targetEntries.length}</strong> override{targetEntries.length === 1 ? "" : "s"} in the ticked weeks.</>
+                    : "Tick weeks that have overrides to clear them."}
+                  {dirty ? <span className="block text-amber-600">Save the week %s first — clearing applies the saved rates.</span> : null}
+                  {flash ? <span className="block text-ink">{flash}</span> : null}
                 </div>
-                <p className="text-[11px] text-ink-muted">
-                  {selected.size
-                    ? `${affectedCount} DCR${affectedCount === 1 ? "" : "s"} with a per-day override will be reset to the week rate.`
-                    : "Tick weeks to clear their DCRs' per-day share overrides so they follow the week rate."}
-                </p>
-                {flash ? <p className="text-[11px] text-ink-muted">{flash}</p> : null}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={targetEntries.length === 0 || dirty || busy}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {busy ? "Clearing…" : "Clear overrides"}
+                </Button>
               </div>
             ) : null}
           </div>
@@ -1454,20 +1508,20 @@ function WeekSharesModal({
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Reset DCRs to weekly rate?"
-        confirmLabel="Reset DCRs"
+        title="Clear per-day overrides?"
+        confirmLabel="Clear overrides"
         onConfirm={doReset}
         onCancel={() => setConfirmOpen(false)}
       >
         <p>
           Clears the per-day share override on{" "}
-          <strong>{affectedCount}</strong> DCR{affectedCount === 1 ? "" : "s"} in{" "}
-          {selected.size} selected week{selected.size === 1 ? "" : "s"} of{" "}
-          <strong>{movie.name}</strong>, so they follow the saved weekly rate
+          <strong>{targetEntries.length}</strong> DCR{targetEntries.length === 1 ? "" : "s"} in{" "}
+          {selected.size} ticked week{selected.size === 1 ? "" : "s"} of{" "}
+          <strong>{movie.name}</strong>. Those DCRs will then follow the week rate
           (or the base {movie.share}%).
         </p>
         <p className="mt-2 text-ink-muted">
-          Save any week % changes first — reset applies the rates already saved.
+          This updates the share % on locked DCRs too, and isn't undoable in bulk.
         </p>
       </ConfirmDialog>
     </>

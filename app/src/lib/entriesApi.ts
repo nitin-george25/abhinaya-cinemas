@@ -62,3 +62,33 @@ export async function fetchEntriesPage(
     total:   count ?? 0,
   };
 }
+
+/**
+ * Clear the per-day distributor-share override (entries.share → NULL) on a
+ * movie's DCRs on the given dates, so they fall back to the weekly share rate
+ * (resolveShare precedence: per-day override → weekShares → base). Returns the
+ * number of rows actually changed.
+ *
+ * One atomic UPDATE that touches ONLY the share column (+ audit), filtered to
+ * rows that currently HAVE an override (share > 0). Share-only is what lets it
+ * pass the 2-day edit-lock trigger for owner/manager on locked DCRs
+ * (enforce_entry_edit_lock). Owner/manager only — other roles are rejected
+ * server-side.
+ */
+export async function clearEntryShareOverrides(
+  movieId: UUID,
+  dates: DateISO[],
+  email: string,
+): Promise<number> {
+  const sb = getSupabase();
+  if (!sb || !dates.length) return 0;
+  const { data, error } = await sb
+    .from("entries")
+    .update({ share: null, updated_by: email, updated_at: new Date().toISOString() })
+    .eq("movie_id", movieId)
+    .in("entry_date", [...new Set(dates)])
+    .gt("share", 0)
+    .select("entry_date");
+  if (error) throw new Error(error.message);
+  return (data as unknown[] | null)?.length ?? 0;
+}
