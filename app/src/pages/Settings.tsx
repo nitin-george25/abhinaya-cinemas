@@ -44,6 +44,7 @@ import { Field, Input, Select } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { IconSpinner } from "../components/icons";
 
 const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
@@ -1251,8 +1252,9 @@ function WeekSharesModal({
   onClose: () => void;
   onSave: (m: Movie) => void;
 }) {
-  const { state } = useSync();
+  const { state, setAppState } = useSync();
   const entries = state.appState?.entries ?? [];
+  const canReset = state.role === "owner" || state.role === "manager";
 
   const weekCount = (() => {
     if (!movie.release) return 0;
@@ -1272,7 +1274,13 @@ function WeekSharesModal({
   })();
 
   const [vals, setVals] = useState<Record<number, string>>({});
-  // Re-seed the editable copy each time the modal opens.
+  // Weeks ticked for the "reset DCRs to week rate" action.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // Re-seed the editable copy + clear all transient state each time the modal
+  // opens (or switches movie), so nothing bleeds across reopens.
   useEffect(() => {
     if (!open) return;
     const init: Record<number, string> = {};
@@ -1280,6 +1288,9 @@ function WeekSharesModal({
       init[Number(k)] = String(v);
     });
     setVals(init);
+    setSelected(new Set());
+    setConfirmOpen(false);
+    setFlash(null);
   }, [open, movie.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function save() {
@@ -1299,54 +1310,167 @@ function WeekSharesModal({
       ? `${addDaysIso(movie.release, (w - 1) * 7)} – ${addDaysIso(movie.release, (w - 1) * 7 + 6)}`
       : "";
 
+  // Run week of a date (release-anchored), matching engine.runWeekOf.
+  const weekOf = (d: string): number =>
+    movie.release ? Math.floor(daysBetween(movie.release, d) / 7) + 1 : 0;
+
+  // DCRs that currently carry a per-day override (positive share) — only these
+  // actually change on reset; days already inheriting are left as-is.
+  const overrideEntries = entries.filter(
+    (e) => e.movieId === movie.id && e.date && (e.share ?? 0) > 0,
+  );
+  const affectedCount = selected.size
+    ? overrideEntries.filter((e) => selected.has(weekOf(e.date!))).length
+    : 0;
+  const allSelected = weekCount > 0 && selected.size === weekCount;
+
+  function toggleWeek(w: number) {
+    setSelected((p) => {
+      const n = new Set(p);
+      if (n.has(w)) n.delete(w); else n.add(w);
+      return n;
+    });
+  }
+  function toggleAll() {
+    setSelected(
+      allSelected ? new Set() : new Set(Array.from({ length: weekCount }, (_, i) => i + 1)),
+    );
+  }
+
+  // Clear the per-day override on the selected weeks' override DCRs, in memory.
+  // This goes through the normal optimistic-sync path (setAppState → debounced
+  // entries upsert): each touched row changes only `share`, which the past-lock
+  // trigger allows for owner/manager. No direct DB write, no full re-pull — so
+  // it can't clobber a pending catalog edit or half-apply across weeks.
+  function doReset() {
+    const app = state.appState;
+    if (!movie.release || !selected.size || !app) return;
+    const ids = new Set(
+      overrideEntries.filter((e) => selected.has(weekOf(e.date!))).map((e) => e.id),
+    );
+    setConfirmOpen(false);
+    if (!ids.size) {
+      setFlash("No per-day overrides to reset in the selected weeks.");
+      return;
+    }
+    setAppState({
+      ...app,
+      entries: app.entries.map((e) => (ids.has(e.id) ? { ...e, share: null } : e)),
+    });
+    setFlash(
+      `Reset ${ids.size} DCR${ids.size === 1 ? "" : "s"} in ${selected.size} week${selected.size === 1 ? "" : "s"} to the weekly rate.`,
+    );
+    setSelected(new Set());
+  }
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      maxWidth="max-w-md"
-      title={`Weekly share % — ${movie.name}`}
-      actions={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={save} disabled={!movie.release}>Save</Button>
-        </>
-      }
-    >
-      {!movie.release ? (
-        <p className="text-sm text-ink-muted">
-          Set a release date on this movie first — run weeks are counted from the
-          release date.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs text-ink-muted">
-            Base share is <strong>{movie.share}%</strong>. Leave a week blank to use the
-            base. A week's % applies to every DCR in that run week — including locked
-            ones — without changing the entries.
+    <>
+      <Modal
+        open={open}
+        onClose={() => { setConfirmOpen(false); onClose(); }}
+        maxWidth="max-w-md"
+        title={`Weekly share % — ${movie.name}`}
+        actions={
+          <>
+            <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button size="sm" onClick={save} disabled={!movie.release}>Save</Button>
+          </>
+        }
+      >
+        {!movie.release ? (
+          <p className="text-sm text-ink-muted">
+            Set a release date on this movie first — run weeks are counted from the
+            release date.
           </p>
-          <div className="space-y-1.5">
-            {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => (
-              <div key={w} className="flex items-center gap-3">
-                <div className="w-32 shrink-0">
-                  <div className="text-sm font-medium">Week {w}</div>
-                  <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-ink-muted">
+              Base share is <strong>{movie.share}%</strong>. Leave a week blank to use the
+              base. A week's % applies to every DCR in that run week — including locked
+              ones — without changing the entries.
+            </p>
+            <div className="space-y-1.5">
+              {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => (
+                <div key={w} className="flex items-center gap-3">
+                  {canReset ? (
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-amber-600"
+                      checked={selected.has(w)}
+                      onChange={() => toggleWeek(w)}
+                      aria-label={`Select week ${w}`}
+                    />
+                  ) : null}
+                  <div className="w-28 shrink-0">
+                    <div className="text-sm font-medium">Week {w}</div>
+                    <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={vals[w] ?? ""}
+                    onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
+                    className="h-8 text-right"
+                  />
+                  <span className="text-sm text-ink-muted">%</span>
                 </div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.01}
-                  value={vals[w] ?? ""}
-                  onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
-                  className="h-8 text-right"
-                />
-                <span className="text-sm text-ink-muted">%</span>
+              ))}
+            </div>
+
+            {canReset ? (
+              <div className="space-y-1.5 border-t border-line pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-xs text-ink-muted">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-amber-600"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                    />
+                    Select all weeks
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={selected.size === 0}
+                    onClick={() => setConfirmOpen(true)}
+                  >
+                    Reset selected DCRs
+                  </Button>
+                </div>
+                <p className="text-[11px] text-ink-muted">
+                  {selected.size
+                    ? `${affectedCount} DCR${affectedCount === 1 ? "" : "s"} with a per-day override will be reset to the week rate.`
+                    : "Tick weeks to clear their DCRs' per-day share overrides so they follow the week rate."}
+                </p>
+                {flash ? <p className="text-[11px] text-ink-muted">{flash}</p> : null}
               </div>
-            ))}
+            ) : null}
           </div>
-        </div>
-      )}
-    </Modal>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Reset DCRs to weekly rate?"
+        confirmLabel="Reset DCRs"
+        onConfirm={doReset}
+        onCancel={() => setConfirmOpen(false)}
+      >
+        <p>
+          Clears the per-day share override on{" "}
+          <strong>{affectedCount}</strong> DCR{affectedCount === 1 ? "" : "s"} in{" "}
+          {selected.size} selected week{selected.size === 1 ? "" : "s"} of{" "}
+          <strong>{movie.name}</strong>, so they follow the saved weekly rate
+          (or the base {movie.share}%).
+        </p>
+        <p className="mt-2 text-ink-muted">
+          Save any week % changes first — reset applies the rates already saved.
+        </p>
+      </ConfirmDialog>
+    </>
   );
 }
 
