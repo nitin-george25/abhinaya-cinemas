@@ -103,6 +103,12 @@ export interface Distributor {
   pocName?: string;
   pocContact?: string;
   pocEmail?: string;
+  /** GST identification number. Printed on the Picture Ending Statement; its
+   *  first two chars (the GST state code) decide SGST+CGST vs IGST on the
+   *  distributor share when compared against the cinema's GSTIN. */
+  gstin?: string;
+  /** PAN. Printed on the Picture Ending Statement. */
+  pan?: string;
 }
 
 export interface Movie {

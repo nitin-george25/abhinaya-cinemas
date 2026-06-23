@@ -903,9 +903,11 @@ export function DistributorsSection() {
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
                   <th className="text-left px-5 py-3 font-semibold">Name</th>
-                  <th className="text-left px-5 py-3 font-semibold w-48">POC name</th>
-                  <th className="text-left px-5 py-3 font-semibold w-40">Contact</th>
-                  <th className="text-left px-5 py-3 font-semibold w-56">Email</th>
+                  <th className="text-left px-5 py-3 font-semibold w-44">GST ID</th>
+                  <th className="text-left px-5 py-3 font-semibold w-32">PAN</th>
+                  <th className="text-left px-5 py-3 font-semibold w-40">POC name</th>
+                  <th className="text-left px-5 py-3 font-semibold w-36">Contact</th>
+                  <th className="text-left px-5 py-3 font-semibold w-52">Email</th>
                   <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
               </thead>
@@ -933,6 +935,8 @@ function DistributorRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(distributor.name);
+  const [gstin, setGstin] = useState(distributor.gstin ?? "");
+  const [pan, setPan] = useState(distributor.pan ?? "");
   const [pocName, setPocName] = useState(distributor.pocName ?? "");
   const [pocContact, setPocContact] = useState(distributor.pocContact ?? "");
   const [pocEmail, setPocEmail] = useState(distributor.pocEmail ?? "");
@@ -942,6 +946,8 @@ function DistributorRow({
     onSave({
       ...distributor,
       name: name.trim(),
+      gstin: gstin.trim().toUpperCase() || undefined,
+      pan: pan.trim().toUpperCase() || undefined,
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
@@ -953,6 +959,8 @@ function DistributorRow({
     return (
       <tr className="border-b border-line bg-amber-50/40">
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2"><Input value={gstin} onChange={(e) => setGstin(e.target.value)} className="h-8" placeholder="32AABFC4215E1Z9" /></td>
+        <td className="px-5 py-2"><Input value={pan} onChange={(e) => setPan(e.target.value)} className="h-8" placeholder="AABFC4215E" /></td>
         <td className="px-5 py-2"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} className="h-8" /></td>
@@ -966,6 +974,8 @@ function DistributorRow({
   return (
     <tr className="border-b border-line hover:bg-paper/60">
       <td className="px-5 py-2 font-medium">{distributor.name}</td>
+      <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.gstin ?? "—"}</td>
+      <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pan ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted">{distributor.pocName ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pocContact ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted">{distributor.pocEmail ?? "—"}</td>
@@ -979,6 +989,8 @@ function DistributorRow({
 
 function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (d: Distributor) => void }) {
   const [name, setName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [pan, setPan] = useState("");
   const [pocName, setPocName] = useState("");
   const [pocContact, setPocContact] = useState("");
   const [pocEmail, setPocEmail] = useState("");
@@ -990,6 +1002,8 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
     onSave({
       id: uid(),
       name: name.trim(),
+      gstin: gstin.trim().toUpperCase() || undefined,
+      pan: pan.trim().toUpperCase() || undefined,
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
@@ -997,13 +1011,15 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
   }
 
   return (
-    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
+      <Field label="GST ID"><Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="32AABFC4215E1Z9" /></Field>
+      <Field label="PAN"><Input value={pan} onChange={(e) => setPan(e.target.value)} placeholder="AABFC4215E" /></Field>
       <Field label="POC name"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} placeholder="Contact person" /></Field>
       <Field label="Contact"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} placeholder="Phone" /></Field>
       <Field label="Email"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} placeholder="name@example.com" /></Field>
-      {error ? <p className="text-sm text-red-700 lg:col-span-4">{error}</p> : null}
-      <div className="flex gap-2 lg:col-span-4">
+      {error ? <p className="text-sm text-red-700 lg:col-span-3">{error}</p> : null}
+      <div className="flex gap-2 lg:col-span-3">
         <Button type="submit">Add distributor</Button>
         <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
       </div>

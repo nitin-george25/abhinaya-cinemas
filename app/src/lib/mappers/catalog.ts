@@ -263,6 +263,8 @@ export function composeCatalogFromRows(args: {
       pocName: d.poc_name ?? undefined,
       pocContact: d.poc_contact ?? undefined,
       pocEmail: d.poc_email ?? undefined,
+      gstin: d.gstin ?? undefined,
+      pan: d.pan ?? undefined,
     }));
 
   const movies: Movie[] = args.movies
@@ -427,6 +429,8 @@ export async function pushCatalogDeltas(
     poc_name: d.pocName ?? null,
     poc_contact: d.pocContact ?? null,
     poc_email: d.pocEmail ?? null,
+    gstin: d.gstin ?? null,
+    pan: d.pan ?? null,
     updated_by: email,
   }));
   const wantMovies = next.movies.map((m) => ({

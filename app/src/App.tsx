@@ -24,6 +24,7 @@ import SettingsCashPage from "./pages/settings/Cash";
 import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
+import ReportsPictureEndingPage from "./pages/reports/PictureEnding";
 import DcrPage from "./pages/Dcr";
 import CashClosingsPage from "./pages/cash/Closings";
 import CashClosingDetailPage from "./pages/cash/ClosingDetail";
@@ -178,6 +179,7 @@ function AppGate() {
                 <>
                   <Route path="/reports"             element={<Navigate to="/reports/fb" replace />} />
                   <Route path="/reports/box-office"  element={<ReportsBoPage />} />
+                  <Route path="/reports/picture-ending" element={<ReportsPictureEndingPage />} />
                   <Route path="/reports/fb"          element={<ReportsFbPage />} />
                   {/* Invoices — purchase bills from Zoho Books (Finance group). */}
                   <Route path="/invoices"            element={<InvoicesPage />} />
