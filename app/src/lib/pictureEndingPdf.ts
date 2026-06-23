@@ -57,6 +57,14 @@ export function downloadPictureEndingPdf(
   return filename;
 }
 
+/** PDF as a Blob — for in-browser preview (caller makes/revokes the URL). */
+export function pictureEndingPdfBlob(
+  computed: PictureEndingComputed,
+  opts: PictureEndingPdfOpts,
+): Blob {
+  return buildPictureEndingPdf(computed, opts).output("blob");
+}
+
 /** Build the jsPDF document (no download — useful for tests / preview). */
 export function buildPictureEndingPdf(
   C: PictureEndingComputed,

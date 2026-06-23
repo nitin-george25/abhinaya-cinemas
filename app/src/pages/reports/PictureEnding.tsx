@@ -20,7 +20,7 @@ import {
   defaultPictureEndingInputs,
   type PictureEndingInputs,
 } from "../../lib/pictureEnding";
-import { downloadPictureEndingPdf } from "../../lib/pictureEndingPdf";
+import { downloadPictureEndingPdf, pictureEndingPdfBlob } from "../../lib/pictureEndingPdf";
 import { pictureEndingCsvRows, pictureEndingCsvFilename } from "../../lib/pictureEndingCsv";
 import { getCinemaProfile, type CinemaProfile } from "../../lib/cinemaProfile";
 import {
@@ -40,6 +40,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card"
 import { Field, Input, Select } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
+import { Modal } from "../../components/ui/Modal";
 
 const inr = (x: number) => "₹" + (money(x) || "0.00");
 
@@ -171,6 +172,25 @@ export default function ReportsPictureEndingPage() {
       setBusy(false);
     }
   }
+
+  // ── preview (in-browser, before download) ──
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  function openPreview(statementNo?: number) {
+    if (!computed || !profile) return;
+    const blob = pictureEndingPdfBlob(computed, { cinema: profile, logoDataUrl: LOGO_DATA_URL, statementNo });
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(blob);
+    });
+  }
+  function closePreview() {
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+  // Revoke any live object URL on unmount.
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   // ── exports + save ──
   function exportPdf(statementNo?: number) {
@@ -443,6 +463,7 @@ export default function ReportsPictureEndingPage() {
           {/* actions */}
           <Card>
             <CardBody className="flex flex-wrap items-center gap-2">
+              <Button disabled={!profile} onClick={() => openPreview()}>Preview PDF</Button>
               <Button variant="secondary" disabled={!profile} onClick={() => exportPdf()}>Export PDF</Button>
               <Button variant="secondary" disabled={!profile} onClick={() => exportCsv()}>Export CSV</Button>
               <Button disabled={busy || !profile} onClick={saveStatement}>Save &amp; number statement</Button>
@@ -483,6 +504,23 @@ export default function ReportsPictureEndingPage() {
       ) : movie ? (
         <Card><CardBody className="text-sm text-ink-muted">No collecting days found for this picture.</CardBody></Card>
       ) : null}
+
+      <Modal
+        open={!!previewUrl}
+        onClose={closePreview}
+        maxWidth="max-w-3xl"
+        title={`Picture Ending — ${movie?.name ?? "preview"}`}
+        actions={
+          <>
+            <Button size="sm" onClick={() => exportPdf()}>Download</Button>
+            <Button size="sm" variant="ghost" onClick={closePreview}>Close</Button>
+          </>
+        }
+      >
+        {previewUrl ? (
+          <iframe title="Picture Ending PDF preview" src={previewUrl} className="w-full h-[78vh] rounded-lg border border-line" />
+        ) : null}
+      </Modal>
     </div>
   );
 }
