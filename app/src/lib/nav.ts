@@ -123,8 +123,18 @@ export const NAV: NavItem[] = [
     Icon: IconHistory,
     roles: REPORT_ROLES,
     children: [
-      { kind: "leaf", to: "/reports/box-office",     label: "Box Office",     roles: REPORT_ROLES },
-      { kind: "leaf", to: "/reports/picture-ending", label: "Picture Ending", roles: REPORT_ROLES },
+      {
+        // Box Office reports — day-wise collections + the end-of-run
+        // picture-ending settlement statement. Routes stay under /reports/*.
+        kind: "subgroup",
+        id: "reports-box-office",
+        label: "Box Office",
+        roles: REPORT_ROLES,
+        children: [
+          { kind: "leaf", to: "/reports/box-office",     label: "Collections",    roles: REPORT_ROLES },
+          { kind: "leaf", to: "/reports/picture-ending", label: "Picture Ending", roles: REPORT_ROLES },
+        ],
+      },
       { kind: "leaf", to: "/reports/fb",             label: "F&B",            roles: REPORT_ROLES },
       {
         // Finance reports — read-only views over the bank-side money.
