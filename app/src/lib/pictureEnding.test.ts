@@ -175,13 +175,15 @@ describe("summarizeWeeks", () => {
   ]);
   const weeks = summarizeWeeks(state, "mov");
 
-  it("groups collecting days into run weeks", () => {
+  it("groups collecting days into release-anchored 7-day weeks", () => {
     expect(weeks.map((w) => w.week)).toEqual([1, 2]);
-    expect(weeks[0]!.days).toBe(3);
+    expect(weeks[0]!.days).toBe(3); // actual collecting days, not window length
     expect(weeks[1]!.days).toBe(2);
-    expect(weeks[0]!.from).toBe("2025-03-27");
-    expect(weeks[0]!.to).toBe("2025-03-29");
-    expect(weeks[1]!.from).toBe("2025-04-03");
+    // Window edges = release + 7(n-1) .. release + 7n - 1, NOT first/last show.
+    expect(weeks[0]!.from).toBe("2025-03-27");          // release
+    expect(weeks[0]!.to).toBe("2025-04-02");            // release + 6
+    expect(weeks[1]!.from).toBe("2025-04-03");          // release + 7
+    expect(weeks[1]!.to).toBe("2025-04-04");            // clamped to last play
   });
   it("carries the flat 60% share rate through unchanged", () => {
     expect(weeks[0]!.sharePct).toBe(60);

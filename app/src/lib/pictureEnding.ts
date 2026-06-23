@@ -33,7 +33,7 @@ import {
   screenClasses,
   cardById,
 } from "./engine";
-import { todayIso } from "./dates";
+import { todayIso, addDaysIso } from "./dates";
 import type { AppState, DateISO, Distributor, Movie, Show, UUID } from "./types";
 
 // ── tax-kind detection ────────────────────────────────────────────────────
@@ -248,8 +248,6 @@ export function computeHoldOverDate(
 interface WeekAcc {
   week: number;
   dates: Set<string>;
-  from: string;
-  to: string;
   net: number;
   exShare: number;
   share: number;
@@ -273,18 +271,23 @@ export function summarizeWeeks(state: AppState, movieId: UUID): PictureEndingWee
   );
   const anchor = movie?.release || minDate;
 
+  // Last day that actually collected — clamps the final week's window so it
+  // never claims days past the end of the run.
+  const lastPlay = collecting.reduce(
+    (m, { e }) => (e.date! > m ? e.date! : m),
+    firstCollecting.e.date!,
+  );
+
   const byWeek = new Map<number, WeekAcc>();
   for (const { e, cs } of collecting) {
     const diff = daysBetween(anchor, e.date!); // 0-based; may be <0 before release
     const week = Math.max(1, Math.floor(diff / 7) + 1);
     let acc = byWeek.get(week);
     if (!acc) {
-      acc = { week, dates: new Set(), from: e.date!, to: e.date!, net: 0, exShare: 0, share: 0 };
+      acc = { week, dates: new Set(), net: 0, exShare: 0, share: 0 };
       byWeek.set(week, acc);
     }
     acc.dates.add(e.date!);
-    if (e.date! < acc.from) acc.from = e.date!;
-    if (e.date! > acc.to) acc.to = e.date!;
     acc.net += cs.netShare;
     acc.exShare += cs.exShare;
     acc.share += cs.distShare;
@@ -292,16 +295,24 @@ export function summarizeWeeks(state: AppState, movieId: UUID): PictureEndingWee
 
   return [...byWeek.values()]
     .sort((a, b) => a.week - b.week)
-    .map((a) => ({
-      week: a.week,
-      from: a.from,
-      to: a.to,
-      days: a.dates.size,
-      net: r2(a.net),
-      exShare: r2(a.exShare),
-      sharePct: a.net !== 0 ? r2((a.share / a.net) * 100) : 0,
-      share: r2(a.share),
-    }));
+    .map((a) => {
+      // Each week is a fixed 7-day window anchored to the release date:
+      // week n = [anchor + 7(n-1), anchor + 7n - 1]. The display dates are
+      // the window edges (not the first/last show), clamped to the run end.
+      const from = addDaysIso(anchor, 7 * (a.week - 1));
+      const winEnd = addDaysIso(anchor, 7 * a.week - 1);
+      const to = winEnd < lastPlay ? winEnd : lastPlay;
+      return {
+        week: a.week,
+        from,
+        to,
+        days: a.dates.size,
+        net: r2(a.net),
+        exShare: r2(a.exShare),
+        sharePct: a.net !== 0 ? r2((a.share / a.net) * 100) : 0,
+        share: r2(a.share),
+      };
+    });
 }
 
 /** Apply the credit/debit cascade to weekly rows + the editable inputs. */
