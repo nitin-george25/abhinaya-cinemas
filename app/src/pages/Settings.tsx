@@ -26,7 +26,7 @@ import { fmtINR } from "../lib/dashboard";
 import { uid, entryKey } from "../lib/mappers";
 import { clearEntryShareOverrides } from "../lib/entriesApi";
 import { daysBetween, realShowCount } from "../lib/engine";
-import { todayIso, addDaysIso } from "../lib/dates";
+import { addDaysIso } from "../lib/dates";
 import type {
   ClassDef,
   Distributor,
@@ -1259,19 +1259,16 @@ function WeekSharesModal({
 
   const weekCount = (() => {
     if (!movie.release) return 0;
-    const refs: string[] = [];
-    const es = entries.filter((e) => e.movieId === movie.id && e.date);
-    if (es.length) refs.push(es.map((e) => e.date!).sort().at(-1)!);
-    if (movie.status === "now_showing" || movie.statusOverride === "now_showing") {
-      refs.push(todayIso());
-    }
-    let max = 1;
-    for (const d of refs) {
-      const runningDay = daysBetween(movie.release, d) + 1;
-      if (runningDay >= 1) max = Math.max(max, Math.floor((runningDay - 1) / 7) + 1);
-    }
-    for (const k of Object.keys(movie.weekShares ?? {})) max = Math.max(max, Number(k));
-    return Math.min(max, 60);
+    // Size the list to the run-week of the LAST DCR the movie collected — the
+    // weeks it actually played. No now-showing/today extension and no inflation
+    // from a stale weekShares entry, so a 2-week run shows exactly 2 weeks.
+    const dates = entries
+      .filter((e) => e.movieId === movie.id && e.date)
+      .map((e) => e.date!);
+    if (!dates.length) return 1;
+    const runningDay = daysBetween(movie.release, dates.sort().at(-1)!) + 1;
+    const wk = runningDay >= 1 ? Math.floor((runningDay - 1) / 7) + 1 : 1;
+    return Math.min(Math.max(1, wk), 60);
   })();
 
   const [vals, setVals] = useState<Record<number, string>>({});
