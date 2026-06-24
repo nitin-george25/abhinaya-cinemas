@@ -210,6 +210,9 @@ export interface CinemaRow {
   location:       string;
   gstin:          string | null;
   pan:            string | null;
+  /** GST ARN + TAN — Picture Ending statement header (identity migration). */
+  arn:            string | null;
+  tan:            string | null;
   address_line1:  string | null;
   address_line2:  string | null;
   city:           string | null;
@@ -323,7 +326,65 @@ export interface DistributorRow {
   poc_name:     string | null;
   poc_contact:  string | null;
   poc_email:    string | null;
+  /** GST ID + PAN — Picture Ending statement (identity migration). */
+  gstin:        string | null;
+  pan:          string | null;
   archived_at:  string | null;
+}
+
+/** `public.distributor_payments` — advances + final settlements paid to a
+ *  distributor. Loaded by its own DAL (not the config blob). */
+export interface DistributorPaymentRow {
+  id:              string;
+  cinema_id:       string;
+  distributor_id:  string | null;
+  movie_id:        string | null;
+  paid_on:         string;            // YYYY-MM-DD
+  amount:          number;
+  mode:            string | null;     // rtgs | neft | imps | upi | cheque | cash | adjustment
+  instrument_ref:  string | null;
+  bank:            string | null;
+  kind:            "advance" | "settlement";
+  note:            string | null;
+  created_by:      string | null;
+  created_at:      string | null;
+  updated_at:      string | null;
+  updated_by:      string | null;
+}
+
+/** `public.picture_ending_statements` — a persisted statement with a running
+ *  per-cinema number and a frozen snapshot of the computed document. */
+export interface PictureEndingStatementRow {
+  id:                string;
+  cinema_id:         string;
+  statement_no:      number;
+  movie_id:          string | null;
+  distributor_id:    string | null;
+  movie_name:        string | null;
+  movie_format:      string | null;
+  distributor_name:  string | null;
+  theatre_name:      string | null;
+  representative:    string | null;
+  statement_date:    string;          // YYYY-MM-DD
+  run_from:          string | null;
+  run_to:            string | null;
+  hold_over_date:    string | null;
+  tax_kind:          "intra" | "inter";
+  gst_pct:           number;
+  publicity_pct:     number;
+  tds_pct:           number;
+  flex_charge:       number;
+  hold_over_amount:  number;
+  round_off:         number;
+  weeks:             unknown;          // PictureEndingWeek[] snapshot
+  totals:            unknown;          // PictureEndingTotals snapshot
+  advances:          unknown;          // advance lines snapshot
+  status:            "draft" | "final" | "sent";
+  notes:             string | null;
+  created_by:        string | null;
+  created_at:        string | null;
+  updated_at:        string | null;
+  updated_by:        string | null;
 }
 
 export interface SerialStartRow {

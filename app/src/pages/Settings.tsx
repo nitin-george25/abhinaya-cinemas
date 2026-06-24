@@ -23,7 +23,8 @@ import {
 } from "../lib/users";
 import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
-import { uid } from "../lib/mappers";
+import { uid, entryKey } from "../lib/mappers";
+import { clearEntryShareOverrides } from "../lib/entriesApi";
 import { daysBetween, realShowCount } from "../lib/engine";
 import { todayIso, addDaysIso } from "../lib/dates";
 import type {
@@ -44,6 +45,7 @@ import { Field, Input, Select } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { IconSpinner } from "../components/icons";
 
 const ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
@@ -903,9 +905,11 @@ export function DistributorsSection() {
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
                   <th className="text-left px-5 py-3 font-semibold">Name</th>
-                  <th className="text-left px-5 py-3 font-semibold w-48">POC name</th>
-                  <th className="text-left px-5 py-3 font-semibold w-40">Contact</th>
-                  <th className="text-left px-5 py-3 font-semibold w-56">Email</th>
+                  <th className="text-left px-5 py-3 font-semibold w-44">GST ID</th>
+                  <th className="text-left px-5 py-3 font-semibold w-32">PAN</th>
+                  <th className="text-left px-5 py-3 font-semibold w-40">POC name</th>
+                  <th className="text-left px-5 py-3 font-semibold w-36">Contact</th>
+                  <th className="text-left px-5 py-3 font-semibold w-52">Email</th>
                   <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
               </thead>
@@ -933,6 +937,8 @@ function DistributorRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(distributor.name);
+  const [gstin, setGstin] = useState(distributor.gstin ?? "");
+  const [pan, setPan] = useState(distributor.pan ?? "");
   const [pocName, setPocName] = useState(distributor.pocName ?? "");
   const [pocContact, setPocContact] = useState(distributor.pocContact ?? "");
   const [pocEmail, setPocEmail] = useState(distributor.pocEmail ?? "");
@@ -942,6 +948,8 @@ function DistributorRow({
     onSave({
       ...distributor,
       name: name.trim(),
+      gstin: gstin.trim().toUpperCase() || undefined,
+      pan: pan.trim().toUpperCase() || undefined,
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
@@ -953,6 +961,8 @@ function DistributorRow({
     return (
       <tr className="border-b border-line bg-amber-50/40">
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2"><Input value={gstin} onChange={(e) => setGstin(e.target.value)} className="h-8" placeholder="32AABFC4215E1Z9" /></td>
+        <td className="px-5 py-2"><Input value={pan} onChange={(e) => setPan(e.target.value)} className="h-8" placeholder="AABFC4215E" /></td>
         <td className="px-5 py-2"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} className="h-8" /></td>
@@ -966,6 +976,8 @@ function DistributorRow({
   return (
     <tr className="border-b border-line hover:bg-paper/60">
       <td className="px-5 py-2 font-medium">{distributor.name}</td>
+      <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.gstin ?? "—"}</td>
+      <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pan ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted">{distributor.pocName ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pocContact ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted">{distributor.pocEmail ?? "—"}</td>
@@ -979,6 +991,8 @@ function DistributorRow({
 
 function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (d: Distributor) => void }) {
   const [name, setName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [pan, setPan] = useState("");
   const [pocName, setPocName] = useState("");
   const [pocContact, setPocContact] = useState("");
   const [pocEmail, setPocEmail] = useState("");
@@ -990,6 +1004,8 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
     onSave({
       id: uid(),
       name: name.trim(),
+      gstin: gstin.trim().toUpperCase() || undefined,
+      pan: pan.trim().toUpperCase() || undefined,
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
@@ -997,13 +1013,15 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
   }
 
   return (
-    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ashirvad Cinemas" /></Field>
+      <Field label="GST ID"><Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="32AABFC4215E1Z9" /></Field>
+      <Field label="PAN"><Input value={pan} onChange={(e) => setPan(e.target.value)} placeholder="AABFC4215E" /></Field>
       <Field label="POC name"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} placeholder="Contact person" /></Field>
       <Field label="Contact"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} placeholder="Phone" /></Field>
       <Field label="Email"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} placeholder="name@example.com" /></Field>
-      {error ? <p className="text-sm text-red-700 lg:col-span-4">{error}</p> : null}
-      <div className="flex gap-2 lg:col-span-4">
+      {error ? <p className="text-sm text-red-700 lg:col-span-3">{error}</p> : null}
+      <div className="flex gap-2 lg:col-span-3">
         <Button type="submit">Add distributor</Button>
         <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
       </div>
@@ -1235,8 +1253,9 @@ function WeekSharesModal({
   onClose: () => void;
   onSave: (m: Movie) => void;
 }) {
-  const { state } = useSync();
+  const { state, setAppState } = useSync();
   const entries = state.appState?.entries ?? [];
+  const canReset = state.role === "owner" || state.role === "manager";
 
   const weekCount = (() => {
     if (!movie.release) return 0;
@@ -1256,7 +1275,14 @@ function WeekSharesModal({
   })();
 
   const [vals, setVals] = useState<Record<number, string>>({});
-  // Re-seed the editable copy each time the modal opens.
+  // Weeks ticked for the "clear per-day overrides" action.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // Re-seed the editable copy + clear all transient state each time the modal
+  // opens (or switches movie), so nothing bleeds across reopens.
   useEffect(() => {
     if (!open) return;
     const init: Record<number, string> = {};
@@ -1264,17 +1290,14 @@ function WeekSharesModal({
       init[Number(k)] = String(v);
     });
     setVals(init);
+    setSelected(new Set());
+    setConfirmOpen(false);
+    setBusy(false);
+    setFlash(null);
   }, [open, movie.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function save() {
-    const next: Record<number, number> = {};
-    for (let w = 1; w <= weekCount; w++) {
-      const raw = (vals[w] ?? "").trim();
-      if (raw === "") continue;
-      const n = Number(raw);
-      if (Number.isFinite(n)) next[w] = n;
-    }
-    onSave({ ...movie, weekShares: Object.keys(next).length ? next : undefined });
+    onSave({ ...movie, weekShares: buildWeekShares() });
     onClose();
   }
 
@@ -1283,54 +1306,224 @@ function WeekSharesModal({
       ? `${addDaysIso(movie.release, (w - 1) * 7)} – ${addDaysIso(movie.release, (w - 1) * 7 + 6)}`
       : "";
 
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      maxWidth="max-w-md"
-      title={`Weekly share % — ${movie.name}`}
-      actions={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={save} disabled={!movie.release}>Save</Button>
-        </>
+  // Run week of a date (release-anchored), matching engine.runWeekOf.
+  const weekOf = (d: string): number =>
+    movie.release ? Math.floor(daysBetween(movie.release, d) / 7) + 1 : 0;
+
+  // Per-week tallies: total DCRs and how many carry a per-day override (a
+  // positive entry.share that blocks the week rate).
+  const totalByWeek: Record<number, number> = {};
+  const overrideByWeek: Record<number, number> = {};
+  for (const e of entries) {
+    if (e.movieId !== movie.id || !e.date) continue;
+    const w = weekOf(e.date);
+    if (w < 1) continue;
+    totalByWeek[w] = (totalByWeek[w] ?? 0) + 1;
+    if ((e.share ?? 0) > 0) overrideByWeek[w] = (overrideByWeek[w] ?? 0) + 1;
+  }
+
+  // The override DCRs in the ticked weeks — exactly what "Clear overrides" hits.
+  const targetEntries = entries.filter(
+    (e) =>
+      e.movieId === movie.id &&
+      e.date &&
+      (e.share ?? 0) > 0 &&
+      selected.has(weekOf(e.date)),
+  );
+  const allSelected = weekCount > 0 && selected.size === weekCount;
+
+  // Build the weekShares map from the current % inputs.
+  function buildWeekShares(): Record<number, number> | undefined {
+    const next: Record<number, number> = {};
+    for (let w = 1; w <= weekCount; w++) {
+      const raw = (vals[w] ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (Number.isFinite(n)) next[w] = n;
+    }
+    return Object.keys(next).length ? next : undefined;
+  }
+
+  function toggleWeek(w: number) {
+    setSelected((p) => {
+      const n = new Set(p);
+      if (n.has(w)) n.delete(w); else n.add(w);
+      return n;
+    });
+  }
+  function toggleAll() {
+    setSelected(
+      allSelected ? new Set() : new Set(Array.from({ length: weekCount }, (_, i) => i + 1)),
+    );
+  }
+
+  // Apply the ticked weeks to their DCRs in one step: save the current week
+  // rates, then clear the per-day override (share → NULL) on those weeks' DCRs
+  // so they follow the week rate via resolveShare. Persisting the override
+  // clear is a single atomic, share-only Supabase UPDATE (passes the past-lock
+  // trigger for owner/manager); the rates + the in-memory mirror go through one
+  // setAppState (matched by stable natural key) to avoid a write race. Errors
+  // surface in the flash.
+  async function applyToSelected() {
+    const app = state.appState;
+    setConfirmOpen(false);
+    if (!movie.release || !app || !selected.size) return;
+    const updatedMovie: Movie = { ...movie, weekShares: buildWeekShares() };
+    const count = targetEntries.length;
+    const dates = [...new Set(targetEntries.map((e) => e.date!))];
+    const keys = new Set(targetEntries.map((e) => entryKey(e)));
+    setBusy(true);
+    try {
+      if (dates.length) {
+        await clearEntryShareOverrides(movie.id, dates, state.email ?? "system");
       }
-    >
-      {!movie.release ? (
-        <p className="text-sm text-ink-muted">
-          Set a release date on this movie first — run weeks are counted from the
-          release date.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs text-ink-muted">
-            Base share is <strong>{movie.share}%</strong>. Leave a week blank to use the
-            base. A week's % applies to every DCR in that run week — including locked
-            ones — without changing the entries.
+      setAppState({
+        ...app,
+        movies: app.movies.map((m) => (m.id === movie.id ? updatedMovie : m)),
+        entries: app.entries.map((e) => (keys.has(entryKey(e)) ? { ...e, share: null } : e)),
+      });
+      setSelected(new Set());
+      setFlash(
+        count
+          ? `Saved rates and cleared ${count} override${count === 1 ? "" : "s"} — those DCRs now use the week rate.`
+          : "Saved rates. The ticked weeks already follow the week rate (no per-day overrides).",
+      );
+    } catch (err) {
+      setFlash("Couldn't apply: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Modal
+        open={open}
+        onClose={() => { if (confirmOpen) { setConfirmOpen(false); return; } onClose(); }}
+        maxWidth="max-w-lg"
+        title={`Weekly share % — ${movie.name}`}
+        actions={
+          <>
+            <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button size="sm" onClick={save} disabled={!movie.release || busy}>Save</Button>
+          </>
+        }
+      >
+        {!movie.release ? (
+          <p className="text-sm text-ink-muted">
+            Set a release date on this movie first — run weeks are counted from the
+            release date.
           </p>
-          <div className="space-y-1.5">
-            {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => (
-              <div key={w} className="flex items-center gap-3">
-                <div className="w-32 shrink-0">
-                  <div className="text-sm font-medium">Week {w}</div>
-                  <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
-                </div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.01}
-                  value={vals[w] ?? ""}
-                  onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
-                  className="h-8 text-right"
-                />
-                <span className="text-sm text-ink-muted">%</span>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs text-ink-muted leading-relaxed">
+              Each run week's % applies to every DCR in that week that has{" "}
+              <strong>no per-day override</strong>. Blank uses the base ({movie.share}%).
+              A per-day override set on an individual DCR wins over the week rate —
+              {canReset ? " tick those weeks and Reset to save the rates and make their DCRs follow the week rate." : " an owner or manager can reset those from here."}
+            </p>
+
+            <div className="rounded-lg border border-line overflow-hidden">
+              <div className="grid grid-cols-[1.25rem_1fr_6rem_5rem] items-center gap-3 px-3 py-2 bg-paper/60 text-[10px] uppercase tracking-wider font-semibold text-ink-muted">
+                {canReset ? (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-amber-600"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all weeks"
+                  />
+                ) : <span />}
+                <span>Run week</span>
+                <span className="text-right">Share %</span>
+                <span className="text-right">DCRs</span>
               </div>
-            ))}
+              {Array.from({ length: weekCount }, (_, i) => i + 1).map((w) => {
+                const ov = overrideByWeek[w] ?? 0;
+                return (
+                  <div
+                    key={w}
+                    className="grid grid-cols-[1.25rem_1fr_6rem_5rem] items-center gap-3 px-3 py-2 border-t border-line"
+                  >
+                    {canReset ? (
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-amber-600"
+                        checked={selected.has(w)}
+                        onChange={() => toggleWeek(w)}
+                        aria-label={`Select week ${w}`}
+                      />
+                    ) : <span />}
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">Week {w}</div>
+                      <div className="text-[10px] text-ink-muted tabular-nums">{rangeLabel(w)}</div>
+                    </div>
+                    <div className="flex items-center justify-end gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={vals[w] ?? ""}
+                        placeholder={String(movie.share)}
+                        onChange={(e) => setVals((p) => ({ ...p, [w]: e.target.value }))}
+                        className="h-8 text-right w-16"
+                      />
+                      <span className="text-sm text-ink-muted">%</span>
+                    </div>
+                    <div className="text-right text-[11px] tabular-nums whitespace-nowrap">
+                      <span className="text-ink-muted">{totalByWeek[w] ?? 0}</span>
+                      {ov ? <span className="block text-amber-600">{ov} override{ov === 1 ? "" : "s"}</span> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {canReset ? (
+              <div className="flex items-start justify-between gap-3 border-t border-line pt-3">
+                <div className="text-[11px] text-ink-muted leading-relaxed">
+                  {selected.size
+                    ? (targetEntries.length
+                        ? <>Saves the rates and clears <strong className="text-ink">{targetEntries.length}</strong> per-day override{targetEntries.length === 1 ? "" : "s"} in the ticked week{selected.size === 1 ? "" : "s"}.</>
+                        : <>Saves the rates. The ticked week{selected.size === 1 ? "" : "s"} have no per-day overrides — those DCRs already follow the week rate.</>)
+                    : "Tick the weeks whose DCRs should follow the week rate, then Reset."}
+                  {flash ? <span className="block text-ink">{flash}</span> : null}
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={selected.size === 0 || busy}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {busy ? "Applying…" : "Reset selected weeks"}
+                </Button>
+              </div>
+            ) : null}
           </div>
-        </div>
-      )}
-    </Modal>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Reset selected weeks?"
+        confirmLabel="Reset weeks"
+        onConfirm={applyToSelected}
+        onCancel={() => setConfirmOpen(false)}
+      >
+        <p>
+          Saves the week rates and clears the per-day share override on{" "}
+          <strong>{targetEntries.length}</strong> DCR{targetEntries.length === 1 ? "" : "s"} in{" "}
+          {selected.size} ticked week{selected.size === 1 ? "" : "s"} of{" "}
+          <strong>{movie.name}</strong>, so those DCRs follow the week rate
+          (or the base {movie.share}%).
+        </p>
+        <p className="mt-2 text-ink-muted">
+          This updates the share % on locked DCRs too, and isn't undoable in bulk.
+        </p>
+      </ConfirmDialog>
+    </>
   );
 }
 
