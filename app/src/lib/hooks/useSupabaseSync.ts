@@ -270,12 +270,17 @@ export function useSupabaseSync(): SyncApi {
         cfgDirty ? cfgPayload(prevState!) : cfg,
       ) as AppState;
       synced.current.cinemaId = catalogRes?.cinemaId ?? null;
-      synced.current.catalog  = catalogCacheFromAppState(next);
 
-      // Refresh delta cache so pushDeltas only sends what's actually new. When
-      // the catalog is dirty, keep the existing cfg signature so the pending
-      // edit is still detected and pushed.
-      if (!cfgDirty) synced.current.cfg = JSON.stringify(cfgPayload(next));
+      // Refresh the catalog delta caches so pushDeltas only sends what's
+      // actually new. When the catalog is dirty (an unpushed local edit), keep
+      // BOTH the cfg signature and the catalog-mirror ID cache at their
+      // last-pushed values, so the pending edit — including any catalog-row
+      // DELETION — is still detected and pushed (resetting the cache to the
+      // preserved-local set would hide a pending delete from pushCatalogDeltas).
+      if (!cfgDirty) {
+        synced.current.catalog = catalogCacheFromAppState(next);
+        synced.current.cfg = JSON.stringify(cfgPayload(next));
+      }
       synced.current.ent = {};
       entries.forEach((e) => {
         synced.current.ent[entryKey(e)] = entrySignature(e);
