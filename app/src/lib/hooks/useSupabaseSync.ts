@@ -255,12 +255,27 @@ export function useSupabaseSync(): SyncApi {
       // (RLS hiccup, partial write, etc.) we don't want stale reads to
       // erase a user's just-saved edit. catalogRes is queried only to
       // resolve cinemaId for the dual-write path.
-      const next = applyConfigPayload(base, cfg) as AppState;
+      // If there's an unpushed local catalog edit (the debounced config push
+      // hasn't fired yet), don't let a pull — e.g. one triggered by our own
+      // direct entries write — clobber it with the older cloud config. Keep the
+      // local catalog and leave the delta cache at the last-pushed signature so
+      // the pending edit is still detected and pushed. Fresh entries / F&B from
+      // this pull are always taken; only the catalog half is preserved.
+      const prevState = localState.current;
+      const cfgDirty =
+        prevState != null &&
+        synced.current.cfg !== JSON.stringify(cfgPayload(prevState));
+      const next = applyConfigPayload(
+        base,
+        cfgDirty ? cfgPayload(prevState!) : cfg,
+      ) as AppState;
       synced.current.cinemaId = catalogRes?.cinemaId ?? null;
       synced.current.catalog  = catalogCacheFromAppState(next);
 
-      // Refresh delta cache so pushDeltas only sends what's actually new.
-      synced.current.cfg = JSON.stringify(cfgPayload(next));
+      // Refresh delta cache so pushDeltas only sends what's actually new. When
+      // the catalog is dirty, keep the existing cfg signature so the pending
+      // edit is still detected and pushed.
+      if (!cfgDirty) synced.current.cfg = JSON.stringify(cfgPayload(next));
       synced.current.ent = {};
       entries.forEach((e) => {
         synced.current.ent[entryKey(e)] = entrySignature(e);
