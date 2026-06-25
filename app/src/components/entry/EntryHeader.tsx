@@ -1,5 +1,5 @@
 import { Card, CardBody } from "../ui/Card";
-import { Input, Select, Field } from "../ui/Input";
+import { Input, Select, SearchSelect, Field } from "../ui/Input";
 import type { AppState, DateISO, UUID } from "../../lib/types";
 
 interface Props {
@@ -52,21 +52,14 @@ export function EntryHeader({
         </Field>
 
         <Field label="Movie">
-          <Select
+          {/* Switching movies clears any staged per-day override; the new
+              movie's week/base rate is resolved by the parent. */}
+          <SearchSelect
             value={movieId}
-            onChange={(e) => {
-              // Switching movies clears any staged per-day override; the new
-              // movie's week/base rate is resolved by the parent.
-              onChange({ movieId: e.target.value as UUID | "" });
-            }}
-          >
-            <option value="">— pick —</option>
-            {state.movies.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => onChange({ movieId: v as UUID | "" })}
+            options={state.movies.map((m) => ({ value: m.id, label: m.name }))}
+            placeholder="Search movie…"
+          />
         </Field>
 
         <Field label="Screen">

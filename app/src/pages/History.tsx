@@ -31,7 +31,7 @@ import type {
 } from "../lib/types";
 
 import { Card, CardBody } from "../components/ui/Card";
-import { Field, Input, Select } from "../components/ui/Input";
+import { Field, Input, Select, SearchSelect } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { DcrModal } from "../components/dcr/DcrModal";
@@ -234,15 +234,14 @@ function FilterBar({
           />
         </Field>
         <Field label="Movie">
-          <Select
+          <SearchSelect
             value={filters.movieId}
-            onChange={(e) => onChange({ ...filters, movieId: e.target.value as UUID })}
-          >
-            <option value="">All movies</option>
-            {appState.movies.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </Select>
+            onChange={(v) => onChange({ ...filters, movieId: v as UUID })}
+            options={[
+              { value: "", label: "All movies" },
+              ...appState.movies.map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
         </Field>
         <Field label="Screen">
           <Select
