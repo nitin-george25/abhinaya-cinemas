@@ -29,6 +29,7 @@ import { Button } from "../components/ui/Button";
 import { Input, Select, SearchSelect, Field } from "../components/ui/Input";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Badge } from "../components/ui/Badge";
+import { ScheduleImportModal } from "../components/schedule/ScheduleImportModal";
 
 export default function SchedulePage() {
   const { state, setAppState } = useSync();
@@ -37,6 +38,7 @@ export default function SchedulePage() {
 
   const [date, setDate] = useState<DateISO>(todayIso());
   const [copyFrom, setCopyFrom] = useState<{ src: DateISO; label: string } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   if (!appState) {
     return (
@@ -73,6 +75,18 @@ export default function SchedulePage() {
     setCopyFrom(null);
   }
 
+  // Import — replace each (date, screen) present in the file with its rows,
+  // leaving other screens that day untouched. Idempotent on re-upload.
+  function applyImport(rows: ShowSchedule[], importDate: DateISO) {
+    if (!appState) return;
+    const screens = new Set(rows.map((r) => r.screenId));
+    const kept = appState.showSchedules.filter(
+      (s) => !(s.date === importDate && screens.has(s.screenId)),
+    );
+    patch({ ...appState, showSchedules: [...kept, ...rows] });
+    setDate(importDate);
+  }
+
   const dayHasAny = appState.showSchedules.some((s) => s.date === date);
 
   return (
@@ -94,6 +108,9 @@ export default function SchedulePage() {
           </Button>
           <Button variant="secondary" size="sm" onClick={() => requestCopy(7, "last week")}>
             Copy last week
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setImportOpen(true)}>
+            Upload (Vista)
           </Button>
         </div>
       </div>
@@ -138,6 +155,12 @@ export default function SchedulePage() {
           </p>
         ) : null}
       </ConfirmDialog>
+
+      <ScheduleImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={applyImport}
+      />
     </div>
   );
 }

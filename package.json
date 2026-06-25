@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
-    "resend": "^4.0.0"
+    "resend": "^4.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@netlify/functions": "^2.8.0"
