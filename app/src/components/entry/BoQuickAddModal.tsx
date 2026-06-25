@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
-import { Input, Select } from "../ui/Input";
+import { Input, Select, SearchSelect } from "../ui/Input";
 import { ShowCard } from "./ShowCard";
 
 import { useSync } from "../../lib/hooks/SyncContext";
@@ -116,12 +116,12 @@ export function BoQuickAddModal({ open, onClose }: Props) {
           </label>
           <label className="space-y-1">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Movie</span>
-            <Select value={movieId} onChange={(e) => setMovieId(e.target.value as UUID)}>
-              <option value="">— pick —</option>
-              {appState.movies.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </Select>
+            <SearchSelect
+              value={movieId}
+              onChange={(v) => setMovieId(v as UUID)}
+              options={appState.movies.map((m) => ({ value: m.id, label: m.name }))}
+              placeholder="Search movie…"
+            />
           </label>
           <label className="space-y-1 col-span-2 sm:col-span-1">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Screen</span>

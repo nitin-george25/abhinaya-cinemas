@@ -1,10 +1,24 @@
-import type {
-  FocusEvent,
-  InputHTMLAttributes,
-  SelectHTMLAttributes,
-  ReactNode,
-  WheelEvent,
+import {
+  Children,
+  isValidElement,
+  useMemo,
+  useState,
+  type FocusEvent,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type WheelEvent,
 } from "react";
+import {
+  Combobox,
+  ComboboxButton,
+  ComboboxInput,
+  ComboboxOption,
+  ComboboxOptions,
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+} from "@headlessui/react";
 import { cn } from "./cn";
 
 // Mobile minimum touch target: 44px (h-11). Tightens to 40px on sm+ so the
@@ -77,50 +91,180 @@ export function Input({ className, onWheel, onFocus, type, ...rest }: InputProps
   );
 }
 
-interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+// ── shared dropdown styling + icons ───────────────────────────────────────
+
+// Portaled popover panel (Headless UI `anchor` renders it in the top layer
+// and positions it with floating-ui, so it never clips inside a modal/table).
+const panelBase =
+  "z-[80] [--anchor-gap:4px] origin-top max-h-72 overflow-auto rounded-lg " +
+  "border border-line bg-white p-1 shadow-lg focus:outline-none " +
+  "transition duration-100 ease-out data-[closed]:opacity-0 data-[closed]:scale-95";
+
+const optionBase =
+  "group flex items-center justify-between gap-2 rounded-md px-3 py-2 text-base sm:text-sm " +
+  "cursor-pointer select-none data-[focus]:bg-paper " +
+  "data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed";
+
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M5 8l5 5 5-5" />
+    </svg>
+  );
+}
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2.2}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M4 10l4 4 8-8" />
+    </svg>
+  );
+}
+
+export interface SelectOption {
+  value: string;
+  label: ReactNode;
+  disabled?: boolean;
+}
+
+/** Flatten <option> (and fragment/conditional) children into a flat list. */
+function optionsFromChildren(children: ReactNode): SelectOption[] {
+  const out: SelectOption[] = [];
+  const walk = (node: ReactNode) => {
+    Children.forEach(node, (child) => {
+      if (child == null || typeof child === "boolean") return;
+      if (!isValidElement(child)) return;
+      const props = child.props as { value?: unknown; children?: ReactNode; disabled?: boolean };
+      if (child.type === "option") {
+        const label = props.children;
+        // Native <option> semantics: use the `value` attr when present, else
+        // fall back to the text body (a value-less <option>Food</option> has
+        // value "Food") — so options without an explicit value still work.
+        const value =
+          props.value != null
+            ? String(props.value)
+            : typeof label === "string" || typeof label === "number"
+              ? String(label)
+              : "";
+        out.push({ value, label, disabled: props.disabled });
+      } else if (props.children != null) {
+        walk(props.children); // fragment / wrapper
+      }
+    });
+  };
+  walk(children);
+  return out;
+}
+
+interface SelectProps {
+  value?: string | number;
+  /** Native-compatible: handlers read `e.target.value`. */
+  onChange?: (e: { target: { value: string } }) => void;
+  disabled?: boolean;
+  className?: string;
   children: ReactNode;
+  id?: string;
+  "aria-label"?: string;
 }
 
 /**
- * Native <select> wrapped with a chevron overlay so it looks like a
- * proper dropdown instead of an unmarked input. We keep the underlying
- * <select> on purpose: the native picker is accessible, keyboard-
- * friendly, and on mobile uses the OS-provided wheel — a custom popover
- * would lose all three for no real gain at this scale.
- *
- * The wrapping <div> is `relative`; the chevron is `pointer-events-none`
- * so clicks pass through to the select.
+ * Custom dropdown (Headless UI Listbox) that keeps the native
+ * `<Select><option>…</option></Select>` API — `value`, `onChange(e.target.value)`,
+ * `disabled`, and `<option>` children — so it's a drop-in for the old native
+ * select while rendering our own styled, portaled panel. Long, searchable
+ * lists (movies, distributors) should use `<SearchSelect>` instead.
  */
-export function Select({ className, children, disabled, ...rest }: SelectProps) {
+export function Select({ value, onChange, disabled, className, children, id, ...aria }: SelectProps) {
+  const options = useMemo(() => optionsFromChildren(children), [children]);
+  const v = String(value ?? "");
+  const current = options.find((o) => o.value === v);
+  const isEmpty = !current || current.value === "";
   return (
-    <div className={cn("relative", disabled && "opacity-60")}>
-      <select
-        {...rest}
-        disabled={disabled}
-        className={cn(
-          fieldBase,
-          "appearance-none pr-9 cursor-pointer",
-          // Subtle hover affordance on desktop. Mobile ignores hover.
-          "hover:border-ink-muted",
-          className,
-        )}
-      >
-        {children}
-      </select>
-      {/* Chevron — purely decorative, never intercepts clicks. */}
-      <svg
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted"
-      >
-        <path d="M5 8l5 5 5-5" />
-      </svg>
-    </div>
+    <Listbox value={v} onChange={(next: string) => onChange?.({ target: { value: next } })} disabled={disabled}>
+      <div className={cn("relative", disabled && "opacity-60")}>
+        <ListboxButton
+          id={id}
+          aria-label={aria["aria-label"]}
+          className={cn(
+            fieldBase,
+            "flex items-center justify-between gap-2 text-left cursor-pointer hover:border-ink-muted",
+            className,
+          )}
+        >
+          <span className={cn("truncate", isEmpty && "text-ink-muted")}>{current?.label ?? "Select…"}</span>
+          <ChevronIcon className="shrink-0 w-4 h-4 text-ink-muted" />
+        </ListboxButton>
+        <ListboxOptions anchor="bottom start" transition className={cn(panelBase, "w-[var(--button-width)]")}>
+          {options.map((o, i) => (
+            <ListboxOption key={`${o.value}-${i}`} value={o.value} disabled={o.disabled} className={optionBase}>
+              <span className={cn("truncate", o.value === "" && "text-ink-muted")}>{o.label}</span>
+              <CheckIcon className="shrink-0 w-4 h-4 text-amber-600 opacity-0 group-data-[selected]:opacity-100" />
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </div>
+    </Listbox>
+  );
+}
+
+interface SearchSelectProps {
+  value?: string;
+  onChange?: (value: string) => void;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
+  placeholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  id?: string;
+}
+
+/**
+ * Searchable dropdown (Headless UI Combobox) for long lists — type to filter
+ * by label; `value`/`onChange` carry the selected option's `value`. Use the
+ * plain `<Select>` for short, fixed lists.
+ */
+export function SearchSelect({
+  value, onChange, options, placeholder = "Search…", emptyText = "No matches",
+  disabled, className, id,
+}: SearchSelectProps) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = q === "" ? options : options.filter((o) => o.label.toLowerCase().includes(q));
+  return (
+    <Combobox
+      value={value ?? ""}
+      onChange={(next: string | null) => onChange?.(next ?? "")}
+      onClose={() => setQuery("")}
+      disabled={disabled}
+      immediate
+    >
+      <div className={cn("relative", disabled && "opacity-60")}>
+        <ComboboxInput
+          id={id}
+          className={cn(fieldBase, "pr-9 cursor-text", className)}
+          placeholder={placeholder}
+          autoComplete="off"
+          displayValue={(v: string) => options.find((o) => o.value === v)?.label ?? ""}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <ComboboxButton className="absolute inset-y-0 right-0 flex items-center pr-3" aria-label="Toggle options">
+          <ChevronIcon className="w-4 h-4 text-ink-muted" />
+        </ComboboxButton>
+        <ComboboxOptions anchor="bottom start" transition className={cn(panelBase, "w-[var(--input-width)]")}>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-base sm:text-sm text-ink-muted">{emptyText}</div>
+          ) : (
+            filtered.map((o) => (
+              <ComboboxOption key={o.value} value={o.value} disabled={o.disabled} className={optionBase}>
+                <span className="truncate">{o.label}</span>
+                <CheckIcon className="shrink-0 w-4 h-4 text-amber-600 opacity-0 group-data-[selected]:opacity-100" />
+              </ComboboxOption>
+            ))
+          )}
+        </ComboboxOptions>
+      </div>
+    </Combobox>
   );
 }
 

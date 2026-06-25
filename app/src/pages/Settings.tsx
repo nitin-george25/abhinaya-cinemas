@@ -41,7 +41,7 @@ import type {
 } from "../lib/types";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../components/ui/Card";
-import { Field, Input, Select } from "../components/ui/Input";
+import { Field, Input, Select, SearchSelect } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
@@ -1116,30 +1116,27 @@ function MovieRow({
         </td>
         <td className="px-5 py-2"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2">
-          <select
+          <SearchSelect
             value={distributorId}
-            onChange={(e) => setDistributorId(e.target.value)}
-            className="h-8 w-full rounded border border-line bg-white px-2 text-sm"
-          >
-            <option value="">— None —</option>
-            {distributors.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
+            onChange={(v) => setDistributorId(v)}
+            options={[
+              { value: "", label: "— None —" },
+              ...distributors.map((d) => ({ value: d.id, label: d.name })),
+            ]}
+          />
         </td>
         <td className="px-5 py-2"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2 align-top">
-          <select
+          <Select
             value={statusOverride}
             onChange={(e) => setStatusOverride(e.target.value as "" | MovieStatus)}
-            className="h-8 w-full rounded border border-line bg-white px-2 text-sm"
-            title="Auto = calculated from release date + last show"
+            aria-label="Status override — Auto is calculated from release date + last show"
           >
             <option value="">Auto (calculated)</option>
             <option value="coming_soon">Pin: Coming Soon</option>
             <option value="now_showing">Pin: Now Showing</option>
             <option value="past">Pin: Past</option>
-          </select>
+          </Select>
         </td>
         <td className="px-5 py-2 align-top">
           <label className="flex items-center gap-1.5 text-xs mb-1.5 cursor-pointer">
@@ -1581,33 +1578,30 @@ function MovieForm({ onCancel, onSave }: { onCancel: () => void; onSave: (m: Mov
     <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7 items-end">
       <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Empuraan" /></Field>
       <Field label="Distributor">
-        <select
+        <SearchSelect
           value={distributorId}
-          onChange={(e) => setDistributorId(e.target.value)}
-          className="h-9 w-full rounded border border-line bg-white px-2 text-sm"
-        >
-          <option value="">— None —</option>
-          {distributors.map((d) => (
-            <option key={d.id} value={d.id}>{d.name}</option>
-          ))}
-        </select>
+          onChange={(v) => setDistributorId(v)}
+          options={[
+            { value: "", label: "— None —" },
+            ...distributors.map((d) => ({ value: d.id, label: d.name })),
+          ]}
+        />
       </Field>
       <Field label="Release date"><Input type="date" value={release} onChange={(e) => setRelease(e.target.value)} /></Field>
       <Field label="Share %">
         <Input type="number" min={0} max={100} step={0.01} value={share} onChange={(e) => setShare(e.target.value)} className="text-right" />
       </Field>
       <Field label="Status">
-        <select
+        <Select
           value={statusOverride}
           onChange={(e) => setStatusOverride(e.target.value as "" | MovieStatus)}
-          className="h-9 w-full rounded border border-line bg-white px-2 text-sm"
-          title="Auto = calculated from release date + last show"
+          aria-label="Status override — Auto is calculated from release date + last show"
         >
           <option value="">Auto (calculated)</option>
           <option value="coming_soon">Pin: Coming Soon</option>
           <option value="now_showing">Pin: Now Showing</option>
           <option value="past">Pin: Past</option>
-        </select>
+        </Select>
       </Field>
       <Field label="Trailer URL">
         <Input value={trailerUrl} onChange={(e) => setTrailerUrl(e.target.value)} placeholder="YouTube link" />

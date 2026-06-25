@@ -37,7 +37,7 @@ import { LOGO_DATA_URL } from "../../assets/logo";
 import type { Movie } from "../../lib/types";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
-import { Field, Input, Select } from "../../components/ui/Input";
+import { Field, Input, Select, SearchSelect } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { Modal } from "../../components/ui/Modal";
@@ -244,14 +244,15 @@ export default function ReportsPictureEndingPage() {
       <Card>
         <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
           <Field label="Picture">
-            <Select value={movieId} onChange={(e) => setMovieId(e.target.value)}>
-              <option value="">Select a finished movie…</option>
-              {movies.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}{m.release ? ` · ${m.release}` : ""}{m.distributor ? ` · ${m.distributor}` : ""}
-                </option>
-              ))}
-            </Select>
+            <SearchSelect
+              value={movieId}
+              onChange={(v) => setMovieId(v)}
+              options={movies.map((m) => ({
+                value: m.id,
+                label: `${m.name}${m.release ? ` · ${m.release}` : ""}${m.distributor ? ` · ${m.distributor}` : ""}`,
+              }))}
+              placeholder="Search a finished movie…"
+            />
           </Field>
           {movie ? (
             <div className="text-sm text-ink-muted lg:col-span-2">
