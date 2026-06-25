@@ -25,8 +25,9 @@ export interface Cinema {
 export interface WhatsappConfig {
   /** E.164 recipient number, e.g. "+919876543210". */
   recipient?: string;
-  /** When true, the entry-save hook fires send for any show with
-   *  lastShow=true that has no whatsappSentAt yet. */
+  /** When true, the entry-save hook fires send for the day's last show (the
+   *  latest scheduled showtime for that movie+screen) once it's entered and
+   *  has no whatsappSentAt yet. */
   autoSendOnLastShow?: boolean;
   /** Approved template name registered with Meta. */
   templateName?: string;
@@ -182,8 +183,6 @@ export interface Show {
   freePass?: number;
   priceCardId?: UUID;
   rows?: Record<UUID, ShowRow>;   // classId -> { tickets }
-  /** Marks the last show of the day — message generator appends day totals. */
-  lastShow?: boolean;
   /** Optional online ticket sales (₹), used in the after-show message card. */
   online?: number;
   /** ISO timestamp recording when this show's WhatsApp message was sent.

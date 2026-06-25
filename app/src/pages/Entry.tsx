@@ -15,7 +15,12 @@ import {
   updateShowRow,
   upsertEntry,
 } from "../lib/entry";
-import { schedulesForDay, showUnlockState } from "../lib/schedule";
+import {
+  schedulesForDay,
+  showUnlockState,
+  isLastShowOfDay,
+  isLastScheduledShow,
+} from "../lib/schedule";
 import {
   computeEntry,
   hasShareOverride,
@@ -64,8 +69,8 @@ export default function EntryPage() {
     if (!screenId && appState.screens[0]) setScreenId(appState.screens[0].id);
   }, [appState, screenId]);
 
-  // Auto-send hook: any saved show with lastShow=true && !whatsappSentAt fires
-  // the WhatsApp Cloud API send across every entry on this (date, screen).
+  // Auto-send hook: the day's last show (auto-detected from the schedule) with
+  // no whatsappSentAt fires the WhatsApp send, across every entry on (date, screen).
   const sendingRef = useRef<Set<string>>(new Set());
   const dayEntries = useMemo(
     () =>
@@ -80,7 +85,8 @@ export default function EntryPage() {
     if (!wa?.autoSendOnLastShow || !wa.recipient) return;
     dayEntries.forEach((entry) => {
       (entry.shows ?? []).forEach((sh, idx) => {
-        if (!sh.lastShow || sh.whatsappSentAt) return;
+        // "Last show of day" is auto-detected from the schedule now.
+        if (sh.whatsappSentAt || !isLastShowOfDay(appState, entry, idx)) return;
         const key = `${entry.id}__${idx}`;
         if (sendingRef.current.has(key)) return;
         sendingRef.current.add(key);
@@ -493,6 +499,7 @@ function ScheduledShow({
       show={show}
       computed={computedShow}
       metaLocked
+      isLast={isLastScheduledShow(appState, sched)}
       onChange={onPatchShow}
       onChangeRow={onPatchRow}
       onGenerateMessage={

@@ -29,7 +29,7 @@ import {
   upsertEntry,
   blankShow,
 } from "../../lib/entry";
-import { schedulesForDay, showUnlockState } from "../../lib/schedule";
+import { schedulesForDay, showUnlockState, isLastScheduledShow } from "../../lib/schedule";
 import { computeEntry } from "../../lib/engine";
 import type { Show, ShowSchedule, UUID } from "../../lib/types";
 
@@ -112,6 +112,7 @@ export function BoQuickAddModal({ open, onClose }: Props) {
           show={show}
           computed={computedShow}
           metaLocked
+          isLast={isLastScheduledShow(appState, picked)}
           onChange={(patch) => patchShow(picked, patch)}
           onChangeRow={(classId, tickets) => patchRow(picked, classId, tickets)}
         />

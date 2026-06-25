@@ -1,5 +1,6 @@
 import { Input, Select } from "../ui/Input";
 import { Button } from "../ui/Button";
+import { Badge } from "../ui/Badge";
 import { Card, CardBody } from "../ui/Card";
 import { screenById, entryClasses, cardById, N } from "../../lib/engine";
 import { fmtINR, fmtInt } from "../../lib/dashboard";
@@ -27,6 +28,10 @@ interface Props {
    *  shown read-only here (entry stage only records ticket counts / free pass /
    *  last-show). Hides the Remove button (remove a show on the Schedule page). */
   metaLocked?: boolean;
+  /** Auto-detected last show of the movie's day (latest scheduled showtime).
+   *  Replaces the old manual "Last show of day" checkbox — drives the WhatsApp
+   *  day-totals append. */
+  isLast?: boolean;
 }
 
 /**
@@ -46,6 +51,7 @@ export function ShowCard({
   onRemove,
   onGenerateMessage,
   metaLocked = false,
+  isLast = false,
 }: Props) {
   const screen = screenById(state, entry.screenId);
   // Active classes + any historical-era class with tickets in this entry.
@@ -115,14 +121,9 @@ export function ShowCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={!!show.lastShow}
-              onChange={(e) => onChange({ lastShow: e.target.checked })}
-            />
-            Last show of day
-          </label>
+          {isLast ? (
+            <Badge tone="blue" className="whitespace-nowrap">Last show of day</Badge>
+          ) : null}
           <div className="ml-auto flex items-center gap-2">
             {onGenerateMessage ? (
               <Button

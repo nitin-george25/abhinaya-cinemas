@@ -9,7 +9,7 @@
 import { uid } from "./mappers";
 import { minutesSinceShowtime, minutesToHHMM, hhmmToMinutes } from "./dates";
 import type { Role } from "./hooks/useSupabaseSync";
-import type { AppState, DateISO, ShowSchedule, TimeHHMM, UUID } from "./types";
+import type { AppState, DateISO, Entry, ShowSchedule, TimeHHMM, UUID } from "./types";
 
 /** Minutes after a show's start before its ticket entry unlocks (tickets close). */
 export const UNLOCK_GRACE_MIN = 30;
@@ -94,6 +94,45 @@ export function screensScheduledOn(state: AppState, date: DateISO): UUID[] {
   const seen = new Set<UUID>();
   for (const s of state.showSchedules) if (s.date === date) seen.add(s.screenId);
   return [...seen];
+}
+
+/** Latest scheduled showtime for a movie on a screen that day — "" if none.
+ *  Cancelled shows are excluded. This is the show that closes out the day for
+ *  that movie+screen (drives auto "last show of day" detection). */
+export function lastScheduledShowtime(
+  state: AppState,
+  date: DateISO,
+  movieId: UUID,
+  screenId: UUID,
+): TimeHHMM {
+  let max = "";
+  for (const s of state.showSchedules) {
+    if (s.date === date && s.movieId === movieId && s.screenId === screenId &&
+        !s.cancelled && s.showtime > max) {
+      max = s.showtime;
+    }
+  }
+  return max;
+}
+
+/** Whether a scheduled show is the last of its movie's day (latest showtime). */
+export function isLastScheduledShow(state: AppState, sched: ShowSchedule): boolean {
+  if (sched.cancelled) return false;
+  const max = lastScheduledShowtime(state, sched.date, sched.movieId, sched.screenId);
+  return !!max && sched.showtime === max;
+}
+
+/**
+ * Whether the entered show at `showIdx` is the last show of its movie's day —
+ * auto-detected from the schedule (its showtime equals the latest scheduled
+ * showtime for that movie+screen+day). Single source of truth for the WhatsApp
+ * "append day totals" behaviour. Returns false on days with no schedule.
+ */
+export function isLastShowOfDay(state: AppState, entry: Entry, showIdx: number): boolean {
+  const sh = entry.shows?.[showIdx];
+  if (!sh?.showtime) return false;
+  const max = lastScheduledShowtime(state, entry.date ?? "", entry.movieId, entry.screenId);
+  return !!max && sh.showtime === max;
 }
 
 // ── mutations (return fresh AppState; sync hook pushes the delta) ──────────

@@ -5,7 +5,11 @@ import {
   showUnlockState,
   copyScheduleForward,
   isGateEditable,
+  lastScheduledShowtime,
+  isLastScheduledShow,
+  isLastShowOfDay,
 } from "./schedule";
+import type { AppState, Entry } from "./types";
 import {
   istParts,
   todayIstIso,
@@ -125,5 +129,49 @@ describe("copyScheduleForward", () => {
 
   it("returns empty for an empty source", () => {
     expect(copyScheduleForward([], "2026-06-25")).toEqual([]);
+  });
+});
+
+describe("auto last-show detection", () => {
+  const sched = (id: string, showtime: string, cancelled = false): ShowSchedule => ({
+    id, cinemaId: "c", date: "2026-06-25", screenId: "s", movieId: "m",
+    showtime, position: 0, cancelled,
+  });
+  const stateOf = (rows: ShowSchedule[]) => ({ showSchedules: rows }) as unknown as AppState;
+
+  it("lastScheduledShowtime returns the latest non-cancelled showtime", () => {
+    const st = stateOf([sched("a", "11:00"), sched("b", "21:00"), sched("c", "18:00")]);
+    expect(lastScheduledShowtime(st, "2026-06-25", "m", "s")).toBe("21:00");
+  });
+
+  it("excludes a cancelled latest show", () => {
+    const st = stateOf([sched("a", "18:00"), sched("b", "21:00", true)]);
+    expect(lastScheduledShowtime(st, "2026-06-25", "m", "s")).toBe("18:00");
+  });
+
+  it("isLastScheduledShow flags only the latest show", () => {
+    const st = stateOf([sched("a", "18:00"), sched("b", "21:00")]);
+    expect(isLastScheduledShow(st, sched("b", "21:00"))).toBe(true);
+    expect(isLastScheduledShow(st, sched("a", "18:00"))).toBe(false);
+  });
+
+  it("isLastShowOfDay matches the entered show against the schedule", () => {
+    const st = stateOf([sched("a", "18:00"), sched("b", "21:00")]);
+    const entry: Entry = {
+      id: "e", date: "2026-06-25", movieId: "m", screenId: "s", share: null,
+      shows: [{ showtime: "18:00" }, { showtime: "21:00" }],
+    };
+    expect(isLastShowOfDay(st, entry, 1)).toBe(true);
+    expect(isLastShowOfDay(st, entry, 0)).toBe(false);
+  });
+
+  it("returns false on a day with no schedule (no manual flag any more)", () => {
+    const st = stateOf([]);
+    const entry: Entry = {
+      id: "e", date: "2026-06-25", movieId: "m", screenId: "s", share: null,
+      shows: [{ showtime: "18:00" }, { showtime: "21:00" }],
+    };
+    expect(isLastShowOfDay(st, entry, 0)).toBe(false);
+    expect(isLastShowOfDay(st, entry, 1)).toBe(false);
   });
 });

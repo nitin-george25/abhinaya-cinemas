@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { computeEntry, mergedEntries, N } from "./engine";
+import { isLastShowOfDay } from "./schedule";
 import { fmtTime } from "./format";
 import type { AppState, ComputedEntry, Entry } from "./types";
 
@@ -98,7 +99,9 @@ export function showMessageData(
     classes: cs.rows.map((r) => ({ name: r.cls, tickets: N(r.tickets) || 0 })),
     amount: money0(amt),
     online: raw.online ?? "",
-    last: !!raw.lastShow,
+    // Auto-detected from the schedule (latest scheduled showtime for this
+    // movie+screen+day); falls back to the stored flag for legacy days.
+    last: isLastShowOfDay(state, entry, showIdx),
     sum: {
       gross: money0(computed.today.grossColl),
       net:   money2(computed.today.netShare),
