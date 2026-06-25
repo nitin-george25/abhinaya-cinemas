@@ -13,6 +13,7 @@ import type {
   Entry,
   Show,
   ShowRow,
+  ShowSchedule,
   UUID,
 } from "./types";
 
@@ -148,4 +149,51 @@ export function removeShow(entry: Entry, idx: number): Entry {
   const shows = (entry.shows ?? []).slice();
   shows.splice(idx, 1);
   return { ...entry, shows };
+}
+
+// ── schedule → entry ───────────────────────────────────────────────────
+//
+// In the schedule-driven workflow, an entered Show is created lazily from a
+// scheduled show (show_schedules row) the first time tickets are entered, and
+// linked back via Show.scheduleId. These helpers keep the entry's shows[] in
+// step with the programme without the engine ever seeing a phantom show.
+
+/** Index of the Show materialized from `scheduleId` within an entry, or -1. */
+export function showIdxForSchedule(
+  entry: Entry | undefined,
+  scheduleId: UUID,
+): number {
+  if (!entry?.shows) return -1;
+  return entry.shows.findIndex((s) => s.scheduleId === scheduleId);
+}
+
+/**
+ * Ensure the (date, movie, screen) entry exists and holds a Show for this
+ * scheduled show, snapshotting the schedule's showtime + price card onto it.
+ * Returns the next AppState plus the materialized entry and the show's index.
+ * Idempotent — if the show already exists nothing new is created.
+ */
+export function ensureScheduledShow(
+  state: AppState,
+  sched: ShowSchedule,
+): { state: AppState; entry: Entry; showIdx: number } {
+  let entry =
+    findEntry(state, sched.date, sched.movieId, sched.screenId) ??
+    {
+      id: uid(),
+      date: sched.date,
+      movieId: sched.movieId,
+      screenId: sched.screenId,
+      share: null,
+      shows: [],
+    };
+  let idx = showIdxForSchedule(entry, sched.id);
+  if (idx === -1) {
+    const sh = blankShow(state, sched.screenId, sched.priceCardId);
+    sh.showtime = sched.showtime;
+    sh.scheduleId = sched.id;
+    entry = { ...entry, shows: [...(entry.shows ?? []), sh] };
+    idx = (entry.shows ?? []).length - 1;
+  }
+  return { state: upsertEntry(state, entry), entry, showIdx: idx };
 }

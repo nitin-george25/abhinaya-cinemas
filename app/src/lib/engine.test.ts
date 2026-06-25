@@ -91,6 +91,7 @@ function makeDefaultState(): AppState {
     ],
     openings: [],
     entries: [],
+    showSchedules: [],
     fbEntries: [],
     fbProducts: [],
     draft: null,
@@ -329,6 +330,31 @@ describe("computeFund()", () => {
     };
     const s = withEntries([e1]);
     expect(computeFund(s, e1)).toBe(0);
+  });
+});
+
+// ── schedule linkage must not affect the locked math ───────────────────
+
+describe("computeEntry() — Show.scheduleId is ignored by the engine", () => {
+  const state = makeDefaultState();
+  const baseShow = {
+    showtime: "13:00",
+    priceCardId: "pc_1",
+    rows: { cls_royale: { tickets: 10 }, cls_lounge: { tickets: 0 }, cls_prime: { tickets: 0 } },
+  };
+  const plain: Entry = {
+    id: "e1", date: "2025-04-15", movieId: "mov_empuraan", screenId: "scr_abhinaya",
+    share: 60, shows: [baseShow],
+  };
+  const linked: Entry = { ...plain, shows: [{ ...baseShow, scheduleId: "sched-xyz" }] };
+
+  it("produces identical totals with and without a scheduleId", () => {
+    const a = computeEntry({ ...state, entries: [plain] }, plain);
+    const b = computeEntry({ ...state, entries: [linked] }, linked);
+    expect(b.grand).toEqual(a.grand);
+    expect(b.today).toEqual(a.today);
+    expect(b.shows[0]?.totals).toEqual(a.shows[0]?.totals);
+    expect(b.shows[0]?.repBatta).toEqual(a.shows[0]?.repBatta);
   });
 });
 

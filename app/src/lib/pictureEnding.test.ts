@@ -267,6 +267,7 @@ function fixture(entries: Entry[]): AppState {
     serialStarts: [],
     openings: [],
     entries,
+    showSchedules: [],
     fbEntries: [],
     fbProducts: [],
     draft: null,
