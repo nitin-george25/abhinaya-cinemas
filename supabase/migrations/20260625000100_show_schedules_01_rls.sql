@@ -6,11 +6,19 @@
 -- the programme is part of running the day, so the same set that enters box
 -- office may also programme it (product decision).
 --
+-- Gated on is_entry_writer() ONLY — deliberately matching public.entries
+-- (ent_insert / ent_update use is_entry_writer() with no cinema_access check).
+-- An earlier version ANDed cinema_access(cinema_id), but that denied every
+-- write whenever the user's authorized_users.cinema_ids didn't contain the
+-- resolved cinema id — so entries persisted while schedules silently didn't.
+-- Schedules are less sensitive than entries (just programming), so matching the
+-- entries gate is consistent, not a regression. (See 02b align migration.)
+--
 -- No 2-day post-date restriction here (unlike entries): schedule rows are
 -- forward-looking and harmless once past — the +30-min unlock + the entries
 -- edit-lock already govern when ticket data can be written.
 --
--- Idempotent (drop + recreate). Reuses cinema_access() / is_entry_writer().
+-- Idempotent (drop + recreate).
 -- ============================================================================
 
 begin;
@@ -21,26 +29,17 @@ drop policy if exists show_schedules_update on public.show_schedules;
 drop policy if exists show_schedules_delete on public.show_schedules;
 
 create policy show_schedules_read on public.show_schedules
-  for select using (
-    public.cinema_access(cinema_id) and public.is_entry_writer()
-  );
+  for select using (public.is_entry_writer());
 
 create policy show_schedules_insert on public.show_schedules
-  for insert with check (
-    public.cinema_access(cinema_id) and public.is_entry_writer()
-  );
+  for insert with check (public.is_entry_writer());
 
 create policy show_schedules_update on public.show_schedules
-  for update using (
-    public.cinema_access(cinema_id) and public.is_entry_writer()
-  ) with check (
-    public.cinema_access(cinema_id) and public.is_entry_writer()
-  );
+  for update using (public.is_entry_writer())
+        with check (public.is_entry_writer());
 
 create policy show_schedules_delete on public.show_schedules
-  for delete using (
-    public.cinema_access(cinema_id) and public.is_entry_writer()
-  );
+  for delete using (public.is_entry_writer());
 
 commit;
 
