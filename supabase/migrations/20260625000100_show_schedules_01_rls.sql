@@ -42,27 +42,12 @@ create policy show_schedules_delete on public.show_schedules
     public.cinema_access(cinema_id) and public.is_entry_writer()
   );
 
--- ----------------------------------------------------------------------------
--- Realtime — add to the supabase_realtime publication so the client's
--- postgres_changes subscription on `show_schedules` fires cross-device.
--- Guarded: adding a table already in the publication raises, so check first.
--- (entries / fb_entries were added to this publication outside the tracked
--- migrations; this keeps the new table in lockstep.)
--- ----------------------------------------------------------------------------
-do $$
-begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'show_schedules'
-  ) then
-    alter publication supabase_realtime add table public.show_schedules;
-  end if;
-exception
-  when undefined_object then
-    -- publication doesn't exist in this environment; realtime configured elsewhere.
-    raise notice 'supabase_realtime publication not found; skipping.';
-end $$;
-
 commit;
+
+-- NOTE: realtime publication membership is handled in a SEPARATE migration
+-- (02_realtime). It must NOT live in this transaction: altering the
+-- supabase_realtime publication can fail with insufficient_privilege on
+-- managed Supabase, and bundling it here would roll back the policy creation
+-- above — leaving the table with RLS enabled but no policies (every write
+-- silently denied). Keeping policies in their own committed transaction
+-- guarantees they land regardless of realtime.
