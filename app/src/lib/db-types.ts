@@ -21,6 +21,25 @@ export interface EntryRow {
   updated_at: string | null; // ISO timestamp
 }
 
+/** `public.show_schedules` — the programme: one row per scheduled show
+ *  (date × screen × showtime). Drives the schedule→entry workflow. */
+export interface ShowScheduleRow {
+  id: string;
+  cinema_id: string;
+  schedule_date: string;     // YYYY-MM-DD
+  screen_id: string;
+  movie_id: string;
+  price_card_id: string | null;
+  showtime: string;          // "HH:MM:SS" from Postgres `time`; mapper truncates
+  position: number | null;
+  cancelled: boolean | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  updated_by: string | null;
+  updated_at: string | null; // ISO timestamp
+}
+
 /** `public.config` — singleton row id=1 holding all catalog data. */
 export interface ConfigRow {
   id: number;

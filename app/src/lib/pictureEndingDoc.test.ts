@@ -40,7 +40,7 @@ function fixture(): AppState {
     serialStarts: [], openings: [],
     entries: [entry("2025-03-27", [100, 90, 80]), entry("2025-03-28", [30, 20, 10]),
       entry("2025-04-03", [40, 30])],
-    fbEntries: [], fbProducts: [], draft: null,
+    showSchedules: [], fbEntries: [], fbProducts: [], draft: null,
   };
 }
 

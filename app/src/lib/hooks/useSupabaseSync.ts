@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getSupabase } from "../supabase";
+import { todayIso, addDaysIso } from "../dates";
 import {
   applyConfigPayload,
   cfgPayload,
@@ -43,6 +44,13 @@ import {
   rowToEntry,
 } from "../mappers";
 import { planFbSync } from "../fbSync";
+import { planScheduleSync } from "../scheduleSync";
+import {
+  rowToShowSchedule,
+  showScheduleKey,
+  showScheduleSignature,
+  showScheduleToRow,
+} from "../mappers/schedule";
 import {
   catalogCacheFromAppState,
   emptyCatalogSyncCache,
@@ -56,8 +64,15 @@ import type {
   EntryRow,
   FbEntryRow,
   FbProductRow,
+  ShowScheduleRow,
 } from "../db-types";
-import type { AppState, Entry, FbEntry, FbProduct } from "../types";
+import type {
+  AppState,
+  Entry,
+  FbEntry,
+  FbProduct,
+  ShowSchedule,
+} from "../types";
 
 export type SyncStatus =
   | "booting"
@@ -119,6 +134,10 @@ export interface SyncApi {
 
 const PUSH_DEBOUNCE_MS = 900;
 const PULL_DEBOUNCE_MS = 700;
+/** How far back the programme is pulled. The Entry page needs recently-closed
+ *  shows (within the 2-day edit window) + everything ahead; History reads
+ *  `entries`, not schedules, so a week of look-back is ample. */
+const SCHEDULE_PULL_LOOKBACK_DAYS = 7;
 
 /**
  * Top-level sync hook. Mount once near the app root and pass the result down
@@ -161,6 +180,8 @@ export function useSupabaseSync(): SyncApi {
      *  NEVER upserts or reaps these — Zoho Books is the source of truth for
      *  F&B sales. Populated from pullAll; consulted in pushDeltas. */
     fbZohoDates: Set<string>;
+    /** Schedule delta cache: row id → signature (the programme). */
+    sched: Record<string, string>;
     /** Cinema id resolved at boot — used for cinema-scoped writes (Phase 3). */
     cinemaId: string | null;
     /** Catalog sync cache for new-table delta detection. */
@@ -170,6 +191,7 @@ export function useSupabaseSync(): SyncApi {
     ent: {},
     fb: {},
     fbZohoDates: new Set(),
+    sched: {},
     cinemaId: null,
     catalog: emptyCatalogSyncCache(),
   });
@@ -211,7 +233,12 @@ export function useSupabaseSync(): SyncApi {
         return out;
       };
 
-      const [catalogRes, cfgRes, entRes, fbRes, prodRes] = await Promise.all([
+      // The Schedule + Entry pages only ever need recent + future programme;
+      // History reads `entries`, never schedules. Scope the pull to a small
+      // window so the programme stays cheap even after years of use.
+      const schedCutoff = addDaysIso(todayIso(), -SCHEDULE_PULL_LOOKBACK_DAYS);
+
+      const [catalogRes, cfgRes, entRes, fbRes, prodRes, schedRes] = await Promise.all([
         readCatalog(sb).catch((err) => {
           console.error("readCatalog failed; falling back to config.data", err);
           return null;
@@ -220,6 +247,7 @@ export function useSupabaseSync(): SyncApi {
         fetchAllEntries(),
         sb.from("fb_entries").select("*"),
         sb.from("fb_products").select("*"),
+        sb.from("show_schedules").select("*").gte("schedule_date", schedCutoff),
       ]);
 
       const cfg = (cfgRes.data as Pick<ConfigRow, "data"> | null)?.data ?? null;
@@ -231,6 +259,9 @@ export function useSupabaseSync(): SyncApi {
 
       const prodRows = ((prodRes.data as FbProductRow[]) || []);
       const fbProducts: FbProduct[] = prodRows.map(fbProductRowToProduct);
+
+      const schedRows = ((schedRes.data as ShowScheduleRow[]) || []);
+      const showSchedules: ShowSchedule[] = schedRows.map(rowToShowSchedule);
 
       // Build a fresh AppState. Catalog prefers the new tables; falls back
       // to config.data when the normalized read returned nothing.
@@ -245,6 +276,7 @@ export function useSupabaseSync(): SyncApi {
         serialStarts: [],
         openings: [],
         entries,
+        showSchedules,
         fbEntries,
         fbProducts,
         draft,
@@ -297,6 +329,14 @@ export function useSupabaseSync(): SyncApi {
         } else {
           synced.current.fb[k] = fbEntrySignature(e);
         }
+      });
+      // Seed the schedule delta cache (id → signature). The pull is windowed
+      // (recent + future), so the cache only ever covers ids the client can
+      // see — a row that aged out of the window is simply no longer tracked,
+      // never reaped.
+      synced.current.sched = {};
+      showSchedules.forEach((s) => {
+        synced.current.sched[showScheduleKey(s)] = showScheduleSignature(s);
       });
 
       localState.current = next;
@@ -413,6 +453,32 @@ export function useSupabaseSync(): SyncApi {
         del.then((r) => {
           if (r.error) console.error(r.error);
           else delete synced.current.fb[k];
+        }),
+      );
+    });
+
+    // Show schedules — upsert changed rows, reap deleted ids. Owner / manager /
+    // daily_manager all write (accountant + cashier already returned above).
+    // Keyed by row id, so a not-yet-pushed new row is never wrongly reaped.
+    const schedPlan = planScheduleSync(s.showSchedules, synced.current.sched);
+    schedPlan.upserts.forEach((sc) => {
+      const k = showScheduleKey(sc);
+      const sig = showScheduleSignature(sc);
+      ops.push(
+        sb.from("show_schedules").upsert(
+          showScheduleToRow(sc, email, synced.current.cinemaId),
+          { onConflict: "id" },
+        ).then((r) => {
+          if (r.error) console.error(r.error);
+          else synced.current.sched[k] = sig;
+        }),
+      );
+    });
+    schedPlan.deletes.forEach((k) => {
+      ops.push(
+        sb.from("show_schedules").delete().eq("id", k).then((r) => {
+          if (r.error) console.error(r.error);
+          else delete synced.current.sched[k];
         }),
       );
     });
@@ -574,6 +640,7 @@ export function useSupabaseSync(): SyncApi {
       .on("postgres_changes", { event: "*", schema: "public", table: "config" },           onRemote)
       .on("postgres_changes", { event: "*", schema: "public", table: "fb_entries" },       onRemote)
       .on("postgres_changes", { event: "*", schema: "public", table: "fb_products" },      onRemote)
+      .on("postgres_changes", { event: "*", schema: "public", table: "show_schedules" },   onRemote)
       .on("postgres_changes", { event: "*", schema: "public", table: "realtime_version" }, onRemote)
       .subscribe();
 

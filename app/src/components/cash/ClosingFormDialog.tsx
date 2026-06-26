@@ -325,9 +325,25 @@ function DialogBody({
   // Pull approved petty totals (used to validate the cash count).
   // Counter-scoped from migration 18 — each till only answers for the
   // expenses paid out of its own drawer.
+  //
+  // Shift separation: a closing only counts the day's approved expenses
+  // that aren't already reconciled to another shift's closing (plus any
+  // already reconciled to THIS one, for the re-open case). This mirrors
+  // fn_link_petty_to_closing (cash_18), which sweeps the still-unlinked
+  // approved expenses into this closing when the manager signs — so the
+  // tile previews exactly what the DB will attribute here. Without the
+  // filter the evening closing showed the morning shift's petty too.
   useEffect(() => {
     if (!counterId) return;
+    // A finalized closing already had its petty reconciled and stored;
+    // trust the persisted figure so the tile matches the generated
+    // discrepancy rather than re-sweeping expenses approved later.
+    if (existing && existing.status !== "draft") {
+      setPettyTotal(existing.pettyExpensesPaid);
+      return;
+    }
     let alive = true;
+    const ownId = existing?.id ?? existingId ?? null;
     void listPettyExpenses({
       posCounterId: counterId,
       from: businessDate,
@@ -335,10 +351,13 @@ function DialogBody({
       status: "approved",
     }).then((rows) => {
       if (!alive) return;
-      setPettyTotal(rows.reduce((s, r) => s + r.amount, 0));
+      const mine = rows.filter(
+        (r) => r.reconciledClosingId == null || r.reconciledClosingId === ownId,
+      );
+      setPettyTotal(mine.reduce((s, r) => s + r.amount, 0));
     });
     return () => { alive = false; };
-  }, [counterId, businessDate]);
+  }, [counterId, businessDate, existing, existingId]);
 
   // ── derived ──────────────────────────────────────────────────────────
   const activeMethods  = unitMethods.length > 0 ? unitMethods : refs.paymentMethods;

@@ -7,6 +7,7 @@ import { SignInScreen } from "./components/auth/SignInScreen";
 import { Button } from "./components/ui/Button";
 
 import Dashboard from "./pages/Dashboard";
+import SchedulePage from "./pages/Schedule";
 import EntryPage from "./pages/Entry";
 import HistoryPage from "./pages/History";
 import FBEntryPage from "./pages/fb/Entry";
@@ -139,7 +140,10 @@ function AppGate() {
                 }
               />
               {canEnterBO ? (
-                <Route path="/box-office/entry" element={<EntryPage />} />
+                <>
+                  <Route path="/box-office/schedule" element={<SchedulePage />} />
+                  <Route path="/box-office/entry" element={<EntryPage />} />
+                </>
               ) : null}
               <Route path="/box-office/history" element={<HistoryPage />} />
 

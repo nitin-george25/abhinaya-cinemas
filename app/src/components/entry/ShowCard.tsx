@@ -1,5 +1,6 @@
 import { Input, Select } from "../ui/Input";
 import { Button } from "../ui/Button";
+import { Badge } from "../ui/Badge";
 import { Card, CardBody } from "../ui/Card";
 import { screenById, entryClasses, cardById, N } from "../../lib/engine";
 import { fmtINR, fmtInt } from "../../lib/dashboard";
@@ -20,9 +21,17 @@ interface Props {
   computed: ComputedShow | undefined;
   onChange: (patch: Partial<Show>) => void;
   onChangeRow: (classId: UUID, tickets: number) => void;
-  onRemove: () => void;
+  onRemove?: () => void;
   /** Click → open the after-show WhatsApp message modal for this show. */
   onGenerateMessage?: () => void;
+  /** Schedule-owned: showtime + price card are set on the Schedule page and
+   *  shown read-only here (entry stage only records ticket counts / free pass /
+   *  last-show). Hides the Remove button (remove a show on the Schedule page). */
+  metaLocked?: boolean;
+  /** Auto-detected last show of the movie's day (latest scheduled showtime).
+   *  Replaces the old manual "Last show of day" checkbox — drives the WhatsApp
+   *  day-totals append. */
+  isLast?: boolean;
 }
 
 /**
@@ -41,6 +50,8 @@ export function ShowCard({
   onChangeRow,
   onRemove,
   onGenerateMessage,
+  metaLocked = false,
+  isLast = false,
 }: Props) {
   const screen = screenById(state, entry.screenId);
   // Active classes + any historical-era class with tickets in this entry.
@@ -57,30 +68,42 @@ export function ShowCard({
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Show {showIdx + 1}
             </span>
-            <Input
-              type="time"
-              value={show.showtime ?? ""}
-              onChange={(e) => onChange({ showtime: e.target.value })}
-              className="w-full sm:w-32"
-            />
+            {metaLocked ? (
+              <div className="h-11 sm:h-10 flex items-center font-medium tabular-nums">
+                {show.showtime || "—"}
+              </div>
+            ) : (
+              <Input
+                type="time"
+                value={show.showtime ?? ""}
+                onChange={(e) => onChange({ showtime: e.target.value })}
+                className="w-full sm:w-32"
+              />
+            )}
           </div>
 
           <div className="space-y-1 col-span-2 sm:flex-1 sm:min-w-[180px]">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Price card
             </span>
-            <Select
-              value={show.priceCardId ?? ""}
-              onChange={(e) => onChange({ priceCardId: e.target.value as UUID })}
-              className="w-full"
-            >
-              <option value="">— pick —</option>
-              {cards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
+            {metaLocked ? (
+              <div className="h-11 sm:h-10 flex items-center truncate">
+                {selectedCard?.name ?? "—"}
+              </div>
+            ) : (
+              <Select
+                value={show.priceCardId ?? ""}
+                onChange={(e) => onChange({ priceCardId: e.target.value as UUID })}
+                className="w-full"
+              >
+                <option value="">— pick —</option>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -98,14 +121,9 @@ export function ShowCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={!!show.lastShow}
-              onChange={(e) => onChange({ lastShow: e.target.checked })}
-            />
-            Last show of day
-          </label>
+          {isLast ? (
+            <Badge tone="blue" className="whitespace-nowrap">Last show of day</Badge>
+          ) : null}
           <div className="ml-auto flex items-center gap-2">
             {onGenerateMessage ? (
               <Button
@@ -117,14 +135,16 @@ export function ShowCard({
                 Message
               </Button>
             ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRemove}
-              title="Remove this show"
-            >
-              Remove
-            </Button>
+            {onRemove && !metaLocked ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRemove}
+                title="Remove this show"
+              >
+                Remove
+              </Button>
+            ) : null}
           </div>
         </div>
 

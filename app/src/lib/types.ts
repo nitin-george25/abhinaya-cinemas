@@ -25,8 +25,9 @@ export interface Cinema {
 export interface WhatsappConfig {
   /** E.164 recipient number, e.g. "+919876543210". */
   recipient?: string;
-  /** When true, the entry-save hook fires send for any show with
-   *  lastShow=true that has no whatsappSentAt yet. */
+  /** When true, the entry-save hook fires send for the day's last show (the
+   *  latest scheduled showtime for that movie+screen) once it's entered and
+   *  has no whatsappSentAt yet. */
   autoSendOnLastShow?: boolean;
   /** Approved template name registered with Meta. */
   templateName?: string;
@@ -182,13 +183,18 @@ export interface Show {
   freePass?: number;
   priceCardId?: UUID;
   rows?: Record<UUID, ShowRow>;   // classId -> { tickets }
-  /** Marks the last show of the day — message generator appends day totals. */
-  lastShow?: boolean;
   /** Optional online ticket sales (₹), used in the after-show message card. */
   online?: number;
   /** ISO timestamp recording when this show's WhatsApp message was sent.
    *  Used by the auto-send hook to avoid duplicate fires. */
   whatsappSentAt?: string;
+  /** Links this entered show back to the `show_schedules` row it was created
+   *  from (the two-stage schedule→entry workflow). Set when ticket entry
+   *  materializes the show; lets the Entry UI find/patch the right show and
+   *  compute its per-show unlock gate. NEVER read by the DCR engine — purely
+   *  a UI linkage, so the locked math stays bit-identical. Absent on
+   *  historical (pre-schedule) shows. */
+  scheduleId?: UUID;
 }
 
 export interface Entry {
@@ -212,6 +218,30 @@ export interface Entry {
   cancelledShows?: number;
 }
 
+// ── Show schedule (programme) ──────────────────────────────────────────────
+//
+// One row per scheduled show: a (date, screen) timeline of (showtime, movie,
+// price card). Created ahead of time on the Schedule page; the Entry page reads
+// it to know which shows exist and when each unlocks for ticket entry. Kept
+// SEPARATE from `entries` so the DCR engine never sees a not-yet-played show
+// (see show_schedules migration for the rationale).
+
+export interface ShowSchedule {
+  id: UUID;
+  cinemaId: UUID;
+  date: DateISO;
+  screenId: UUID;
+  movieId: UUID;
+  /** Default price card for the show. Snapshotted onto the entered Show. */
+  priceCardId?: UUID;
+  showtime: TimeHHMM;       // HH:MM IST wall-clock
+  /** Display order within (date, screen). Ties broken by showtime. */
+  position: number;
+  /** Show dropped from the programme (strike, no print, etc.). */
+  cancelled: boolean;
+  notes?: string;
+}
+
 // ── Top-level app state (engine input) ───────────────────────────────────
 
 export interface AppState {
@@ -224,6 +254,8 @@ export interface AppState {
   serialStarts: SerialStart[];
   openings: Opening[];
   entries: Entry[];
+  /** The programme (Schedule page). Drives entry creation + per-show unlock. */
+  showSchedules: ShowSchedule[];
   fbEntries: FbEntry[];
   fbProducts: FbProduct[];
   draft: Entry | null;

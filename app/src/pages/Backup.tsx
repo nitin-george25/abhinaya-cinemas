@@ -107,6 +107,11 @@ export default function BackupPage() {
       entries:    Array.isArray(parsed.entries)    ? parsed.entries    : [],
       fbEntries:  Array.isArray(parsed.fbEntries)  ? parsed.fbEntries  : [],
       fbProducts: Array.isArray(parsed.fbProducts) ? parsed.fbProducts : [],
+      // Keep current schedules if the snapshot predates the feature, so an
+      // older backup doesn't reap the whole programme on the next push.
+      showSchedules: Array.isArray(parsed.showSchedules)
+        ? parsed.showSchedules
+        : appState.showSchedules,
     };
     setAppState(next);
     setImporting(false);

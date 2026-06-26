@@ -1,181 +1,179 @@
 // ============================================================================
-// BO Quick Add — pop-up shortcut to enter ONE show's data for today.
+// BO Quick Add — pop-up shortcut to enter ticket counts for a show that has
+// just closed (the daily/shift manager's mobile flow).
 //
-// Designed for the daily/shift manager flow on mobile: tap FAB → "Enter BO",
-// pick movie + screen, enter a single show, Save. Date is prefilled to today.
-// If a day already exists for that (date, movie, screen), the show is appended
-// to it; otherwise a fresh entry is created.
-//
-// For multi-show editing or share/PDF actions, the user still goes to
-// /box-office/entry — this is purely the quick path.
+// Schedule-driven: pick a screen → tap one of today's OPEN scheduled shows
+// (those whose tickets have closed, i.e. 30 min past start) → enter counts.
+// Edits persist live (same as the Entry page); "Done" closes. Shows that are
+// still upcoming can't be entered here — wait until they close, or use the
+// full Entry page.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
-import { Input, Select, SearchSelect } from "../ui/Input";
+import { Select } from "../ui/Input";
+import { Badge } from "../ui/Badge";
 import { ShowCard } from "./ShowCard";
 
 import { useSync } from "../../lib/hooks/SyncContext";
-import { todayIso, addDaysIso } from "../../lib/dates";
+import { useTickingClock } from "../../lib/hooks/useTickingClock";
+import { todayIso, todayIstIso, daysBetweenIso } from "../../lib/dates";
 import {
-  blankEntry, blankShow, findEntry, upsertEntry,
+  ensureScheduledShow,
+  findEntry,
+  showIdxForSchedule,
+  updateShow,
+  updateShowRow,
+  upsertEntry,
+  blankShow,
 } from "../../lib/entry";
+import { schedulesForDay, showUnlockState, isLastScheduledShow } from "../../lib/schedule";
 import { computeEntry } from "../../lib/engine";
-import type { AppState, Entry, Show, UUID } from "../../lib/types";
+import type { Show, ShowSchedule, UUID } from "../../lib/types";
 
 interface Props {
   open: boolean;
   onClose: () => void;
 }
 
-function freshShow(appState: AppState, screenId: UUID | ""): Show {
-  if (!screenId) return { rows: {} };
-  return blankShow(appState, screenId);
-}
-
 export function BoQuickAddModal({ open, onClose }: Props) {
   const { state, setAppState } = useSync();
   const appState = state.appState;
+  const now = useTickingClock(60_000);
 
-  const [date, setDate] = useState(todayIso());
-  const [movieId, setMovieId] = useState<UUID | "">("");
+  const date = todayIso();
   const [screenId, setScreenId] = useState<UUID | "">("");
-  const [show, setShow] = useState<Show>({ rows: {} });
+  const [pickedId, setPickedId] = useState<UUID | "">("");
 
-  // Reset on each open. Default movie/screen to first available.
   useEffect(() => {
     if (!open || !appState) return;
-    setDate(todayIso());
-    const firstMovieId = appState.movies[0]?.id ?? "";
-    const firstScreenId = appState.screens[0]?.id ?? "";
-    setMovieId(firstMovieId);
-    setScreenId(firstScreenId);
-    setShow(freshShow(appState, firstScreenId));
+    setScreenId(appState.screens[0]?.id ?? "");
+    setPickedId("");
   }, [open, appState]);
-
-  // Re-default the price card + class rows when the screen changes.
-  function pickScreen(id: UUID) {
-    if (!appState) return;
-    setScreenId(id);
-    setShow(freshShow(appState, id));
-  }
-
-  // Build a synthetic "draft" entry for ShowCard + computeEntry preview.
-  // Reuse the existing one for (date, movie, screen), appending the new show
-  // at the end; otherwise fabricate a fresh one-show entry.
-  const existing =
-    appState && movieId && screenId
-      ? findEntry(appState, date, movieId, screenId)
-      : undefined;
-
-  const preview: Entry | null = useMemo(() => {
-    if (!appState || !movieId || !screenId) return null;
-    if (existing) {
-      return { ...existing, shows: [...(existing.shows ?? []), show] };
-    }
-    const fresh = blankEntry(appState, date, movieId as UUID, screenId as UUID);
-    return { ...fresh, shows: [show] };
-  }, [appState, date, movieId, screenId, existing, show]);
-
-  const computed = useMemo(
-    () => (preview && appState ? computeEntry(appState, preview) : null),
-    [appState, preview],
-  );
-  const computedShow = computed?.shows[computed.shows.length - 1];
-
-  // DCR edit lock — non-owners cannot add/edit a show for a date older than
-  // 2 days (editable on D, D+1, D+2 IST). RLS enforces it server-side too
-  // (migration 20260613140000); this keeps the UI honest.
-  const editLocked = state.role !== "owner" && date < addDaysIso(todayIso(), -2);
-
-  function save() {
-    if (!preview || !appState || editLocked) return;
-    setAppState(upsertEntry(appState, preview));
-    onClose();
-  }
 
   if (!appState) return <Modal open={open} onClose={onClose}>{null}</Modal>;
 
-  // The new show is always the LAST in preview.shows.
-  const showIdx = preview ? (preview.shows ?? []).length - 1 : 0;
+  const role = state.role;
+  const twoDayLockActive =
+    role !== "owner" && daysBetweenIso(date, todayIstIso()) > 2; // ~never for today
+
+  const daySchedules = screenId ? schedulesForDay(appState, date, screenId) : [];
+  const gateOf = (s: ShowSchedule) =>
+    showUnlockState({
+      scheduleDate: date,
+      showtime: s.showtime,
+      now,
+      role: (role ?? "cashier") as Parameters<typeof showUnlockState>[0]["role"],
+      twoDayLockActive,
+    });
+  const openShows = daySchedules.filter((s) => {
+    const g = gateOf(s);
+    return g.state === "open" || g.state === "owner-open";
+  });
+  const nextUpcoming = daySchedules
+    .map((s) => gateOf(s))
+    .find((g) => g.state === "upcoming");
+
+  const picked = daySchedules.find((s) => s.id === pickedId) ?? null;
+
+  function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
+    const { state: s1, entry: e1, showIdx } = ensureScheduledShow(appState!, sched);
+    setAppState(upsertEntry(s1, updateShow(e1, showIdx, patch)));
+  }
+  function patchRow(sched: ShowSchedule, classId: UUID, tickets: number) {
+    const { state: s1, entry: e1, showIdx } = ensureScheduledShow(appState!, sched);
+    setAppState(upsertEntry(s1, updateShowRow(e1, showIdx, classId, { tickets })));
+  }
+
+  // Build the show object + computed for the picked show.
+  let cardEl: React.ReactNode = null;
+  if (picked) {
+    const movie = appState.movies.find((m) => m.id === picked.movieId);
+    const entry = findEntry(appState, date, picked.movieId, screenId as UUID);
+    const matIdx = showIdxForSchedule(entry, picked.id);
+    const matShow = matIdx >= 0 ? entry!.shows![matIdx] : undefined;
+    const show: Show =
+      matShow ?? {
+        ...blankShow(appState, screenId as UUID, picked.priceCardId),
+        showtime: picked.showtime,
+        scheduleId: picked.id,
+      };
+    const computedShow =
+      matIdx >= 0 ? computeEntry(appState, entry!).shows[matIdx] : undefined;
+    cardEl = (
+      <div className="space-y-2">
+        <div className="text-sm font-medium">{movie?.name ?? "Show"} · {picked.showtime}</div>
+        <ShowCard
+          state={appState}
+          entry={entry ?? { id: "", date, movieId: picked.movieId, screenId: screenId as UUID, share: null, shows: [show] }}
+          showIdx={0}
+          show={show}
+          computed={computedShow}
+          metaLocked
+          isLast={isLastScheduledShow(appState, picked)}
+          onChange={(patch) => patchShow(picked, patch)}
+          onChangeRow={(classId, tickets) => patchRow(picked, classId, tickets)}
+        />
+      </div>
+    );
+  }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Quick add — BO show"
-      maxWidth="max-w-2xl"
-    >
+    <Modal open={open} onClose={onClose} title="Enter BO — show" maxWidth="max-w-2xl">
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <label className="space-y-1">
-            <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Date</span>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </label>
-          <label className="space-y-1">
-            <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Movie</span>
-            <SearchSelect
-              value={movieId}
-              onChange={(v) => setMovieId(v as UUID)}
-              options={appState.movies.map((m) => ({ value: m.id, label: m.name }))}
-              placeholder="Search movie…"
-            />
-          </label>
-          <label className="space-y-1 col-span-2 sm:col-span-1">
-            <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Screen</span>
-            <Select
-              value={screenId}
-              onChange={(e) => pickScreen(e.target.value as UUID)}
-            >
-              <option value="">— pick —</option>
-              {appState.screens.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </Select>
-          </label>
-        </div>
+        <label className="space-y-1 block max-w-xs">
+          <span className="block text-[11px] uppercase tracking-wider text-ink-muted">Screen</span>
+          <Select value={screenId} onChange={(e) => { setScreenId(e.target.value as UUID); setPickedId(""); }}>
+            <option value="">— pick —</option>
+            {appState.screens.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </Select>
+        </label>
 
-        {editLocked ? (
+        {!screenId ? (
+          <p className="text-sm text-ink-muted">Pick a screen to see its open shows.</p>
+        ) : daySchedules.length === 0 ? (
+          <p className="text-sm text-ink-muted">No shows scheduled today for this screen.</p>
+        ) : openShows.length === 0 ? (
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-ink-soft">
-            {date} is more than 2 days old. Entries lock after 2 days — ask the
-            owner if a correction is needed.
+            Nothing open for entry yet — shows open 30 min after they start.
+            {nextUpcoming && nextUpcoming.state === "upcoming"
+              ? ` Next opens at ${nextUpcoming.opensAtHHMM}.`
+              : ""}
           </div>
-        ) : existing ? (
-          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-ink-soft">
-            A day already exists for {date}. This show will be appended as
-            Show #{(existing.shows ?? []).length + 1}.
-          </div>
-        ) : null}
-
-        {preview && movieId && screenId ? (
-          <ShowCard
-            state={appState}
-            entry={preview}
-            showIdx={showIdx}
-            show={show}
-            computed={computedShow}
-            onChange={(patch) => setShow((s) => ({ ...s, ...patch }))}
-            onChangeRow={(classId, tickets) =>
-              setShow((s) => ({
-                ...s,
-                rows: { ...(s.rows ?? {}), [classId]: { tickets } },
-              }))
-            }
-            onRemove={onClose}
-          />
         ) : (
-          <p className="text-sm text-ink-muted">
-            Pick a movie and screen above to start.
-          </p>
+          <div className="flex flex-wrap gap-2">
+            {openShows.map((s) => {
+              const m = appState.movies.find((mv) => mv.id === s.movieId);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setPickedId(s.id)}
+                  className={
+                    "rounded-lg border px-3 py-2 text-sm text-left " +
+                    (pickedId === s.id
+                      ? "border-amber-400 bg-amber-50"
+                      : "border-line bg-white hover:border-ink-muted")
+                  }
+                >
+                  <div className="font-medium tabular-nums">{s.showtime}</div>
+                  <div className="text-xs text-ink-muted truncate max-w-[10rem]">{m?.name ?? "—"}</div>
+                </button>
+              );
+            })}
+          </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={!preview || !movieId || !screenId || editLocked}>
-            Save show
-          </Button>
+        {cardEl}
+
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <span className="text-xs text-ink-muted">
+            {picked ? <Badge tone="green">Saving live</Badge> : null}
+          </span>
+          <Button onClick={onClose}>Done</Button>
         </div>
       </div>
     </Modal>

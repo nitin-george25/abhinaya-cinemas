@@ -75,8 +75,9 @@ export const NAV: NavItem[] = [
     Icon: IconEntry,
     roles: ALL,
     children: [
-      { kind: "leaf", to: "/box-office/entry",   label: "Entry",   roles: ENTRY_ROLES },
-      { kind: "leaf", to: "/box-office/history", label: "History", roles: BO_HISTORY_ROLES },
+      { kind: "leaf", to: "/box-office/schedule", label: "Schedule", roles: ENTRY_ROLES },
+      { kind: "leaf", to: "/box-office/entry",    label: "Entry",   roles: ENTRY_ROLES },
+      { kind: "leaf", to: "/box-office/history",  label: "History", roles: BO_HISTORY_ROLES },
     ],
   },
   {
