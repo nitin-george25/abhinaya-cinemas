@@ -236,7 +236,11 @@ function MovieSection({
     () => (entry ? computeEntry(appState, entry) : null),
     [appState, entry],
   );
-  const [msg, setMsg] = useState<{ entry: Entry; idx: number } | null>(null);
+  // The after-show message modal. Store only the entry.shows index — the modal
+  // reads the LIVE entry from this scope so edits (e.g. the online ₹ field)
+  // reflect immediately. (Storing a snapshot here froze the field's value and
+  // made it look un-editable.)
+  const [msgIdx, setMsgIdx] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
@@ -346,7 +350,7 @@ function MovieSection({
             computed={computed}
             onPatchShow={(patch) => patchShow(sched, patch)}
             onPatchRow={(classId, tickets) => patchRow(sched, classId, tickets)}
-            onMessage={(e2, idx) => setMsg({ entry: e2, idx })}
+            onMessage={(idx) => setMsgIdx(idx)}
           />
         ))}
 
@@ -375,15 +379,15 @@ function MovieSection({
 
         {computed ? <EntryPreview computed={computed} /> : null}
 
-        {msg ? (
+        {msgIdx !== null && entry && computed ? (
           <MessageModal
-            open={msg !== null}
+            open
             state={appState}
-            entry={msg.entry}
-            showIdx={msg.idx}
-            computed={computeEntry(appState, msg.entry)}
-            onPatchShow={(i, patch) => setAppState(upsertEntry(appState, updateShow(msg.entry, i, patch)))}
-            onClose={() => setMsg(null)}
+            entry={entry}
+            showIdx={msgIdx}
+            computed={computed}
+            onPatchShow={(i, patch) => setAppState(upsertEntry(appState, updateShow(entry, i, patch)))}
+            onClose={() => setMsgIdx(null)}
           />
         ) : null}
 
@@ -436,7 +440,7 @@ function ScheduledShow({
   computed: ReturnType<typeof computeEntry> | null;
   onPatchShow: (patch: Partial<Show>) => void;
   onPatchRow: (classId: UUID, tickets: number) => void;
-  onMessage: (entry: Entry, idx: number) => void;
+  onMessage: (idx: number) => void;
 }) {
   const gate = showUnlockState({
     scheduleDate: date,
@@ -503,7 +507,7 @@ function ScheduledShow({
       onChange={onPatchShow}
       onChangeRow={onPatchRow}
       onGenerateMessage={
-        entry && matIdx >= 0 ? () => onMessage(entry, matIdx) : undefined
+        entry && matIdx >= 0 ? () => onMessage(matIdx) : undefined
       }
     />
   );
