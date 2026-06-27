@@ -138,6 +138,18 @@ export const NAV: NavItem[] = [
       },
       { kind: "leaf", to: "/reports/fb",             label: "F&B",            roles: REPORT_ROLES },
       {
+        // POS reports — over the daily till closings (cash_* schema). The
+        // cash-closing summary spans every unit's counters for one business
+        // day. Route lives under /reports/pos/*.
+        kind: "subgroup",
+        id: "reports-pos",
+        label: "POS",
+        roles: REPORT_ROLES,
+        children: [
+          { kind: "leaf", to: "/reports/pos/cash-closing", label: "Cash Closing", roles: REPORT_ROLES },
+        ],
+      },
+      {
         // Finance reports — read-only views over the bank-side money.
         // Routes stay under /cash/* ; only the menu placement changed.
         kind: "subgroup",
@@ -163,6 +175,9 @@ export const NAV: NavItem[] = [
       // Cashier sees this so they can find closings awaiting their signature
       // and raise petty expenses in the same surface as everyone else.
       { kind: "leaf", to: "/cash/closings", label: "Cash Closing",   roles: ["owner", "manager", "daily_manager", "accountant", "cashier"] },
+      // Day's closing summary report — same page as Reports › POS › Cash
+      // Closing. Management view, so narrower than the Cash group's roles.
+      { kind: "leaf", to: "/cash/closing-summary", label: "Closing Summary", roles: REPORT_ROLES },
       { kind: "leaf", to: "/cash/petty",    label: "Petty Expenses", roles: [...PETTY_QUEUE_ROLES, "accountant"] },
       { kind: "leaf", to: "/cash/petty/mine", label: "My Expenses",  roles: ["owner", "manager", "daily_manager", "cashier"] },
     ],
