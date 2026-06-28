@@ -1,7 +1,7 @@
 # PM Finance Flow — build handoff (pipeline #18)
 
 Feature: expense approval & payment flow for the Project Management → Finances tab.
-Design spec: `Operations/Project Management/PM Finances Redesign - User Flow.md`.
+Design spec: `docs/PM Finances Redesign - User Flow.md`.
 Files written into the working tree (currently on `feat/guides-page` — move to a clean branch below).
 
 ## What was added / changed
