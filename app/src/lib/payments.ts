@@ -776,26 +776,38 @@ export async function netAdvances(finalPaymentId: string, apps: AdvanceApplicati
 }
 
 // ── Slack approval card (phase 3) ───────────────────────────────────────────
-// Best-effort: a Slack hiccup must never block the underlying transition.
+// Best-effort: a Slack hiccup must never block the underlying transition. But
+// `functions.invoke` returns a non-2xx as `{ error }` (it does NOT throw), so we
+// must inspect it — and read the Edge Function's response body — to surface why
+// a card wasn't sent (missing secret, bot not in channel, …).
 
-/** Post the interactive #payments approval card after a payment is submitted. */
-export async function postPaymentCard(id: string, deepLink?: string | null): Promise<void> {
+async function invokeEdge(fn: string, body: Record<string, unknown>): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
   try {
-    await sb.functions.invoke("notify-slack", {
-      body: { kind: "payment_card", paymentId: id, deepLink: deepLink ?? null },
-    });
-  } catch (e) { console.warn("[payments] postPaymentCard", (e as Error).message); }
+    const { error } = await sb.functions.invoke(fn, { body });
+    if (error) {
+      let detail = error.message;
+      // FunctionsHttpError carries the original Response on `.context`.
+      const ctx = (error as unknown as { context?: Response }).context;
+      if (ctx && typeof ctx.text === "function") {
+        try { detail = await ctx.text(); } catch { /* keep message */ }
+      }
+      console.warn(`[payments] ${fn} (${String(body.kind ?? "")}) failed:`, detail);
+    }
+  } catch (e) {
+    console.warn(`[payments] ${fn} threw:`, (e as Error).message);
+  }
+}
+
+/** Post the interactive #payments approval card after a payment is submitted. */
+export async function postPaymentCard(id: string, deepLink?: string | null): Promise<void> {
+  await invokeEdge("notify-slack", { kind: "payment_card", paymentId: id, deepLink: deepLink ?? null });
 }
 
 /** Edit the posted card in place after a console-side decision. */
 export async function syncPaymentCard(id: string): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) return;
-  try {
-    await sb.functions.invoke("notify-slack", { body: { kind: "payment_card_decided", paymentId: id } });
-  } catch (e) { console.warn("[payments] syncPaymentCard", (e as Error).message); }
+  await invokeEdge("notify-slack", { kind: "payment_card_decided", paymentId: id });
 }
 
 // ── Zoho F&B push (phase 6) ─────────────────────────────────────────────────
@@ -808,10 +820,7 @@ export interface ZohoPushStatus {
 
 /** Best-effort: a Zoho hiccup must never block the payment being paid. */
 export async function pushPaymentToZoho(id: string): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) return;
-  try { await sb.functions.invoke("payments-zoho-push", { body: { paymentId: id } }); }
-  catch (e) { console.warn("[payments] pushPaymentToZoho", (e as Error).message); }
+  await invokeEdge("payments-zoho-push", { paymentId: id });
 }
 
 export async function getZohoPushStatus(id: string): Promise<ZohoPushStatus | null> {
