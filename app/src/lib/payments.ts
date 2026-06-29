@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { getSupabase } from "./supabase";
-import { uploadPaymentReceipt } from "./cash";
+import { uploadPaymentReceipt, listPettyExpenses } from "./cash";
 import type { PaymentRequestMode } from "./db-types";
 import type { DateISO } from "./types";
 
@@ -290,4 +290,290 @@ export async function createPayment(d: CreatePaymentInput): Promise<string> {
     .single();
   if (error || !data) throw new Error(error?.message ?? "createPayment failed");
   return (data as { id: string }).id;
+}
+
+// ── Inbox (phase 2) ─────────────────────────────────────────────────────────
+
+export type PaymentKind = "payment" | "project" | "petty";
+export type PaymentLane = "draft" | "awaiting" | "approved" | "paid" | "petty" | "other";
+
+/** Group a status (+ origin) into one of the inbox lanes. */
+export function laneOf(status: string, kind: PaymentKind): PaymentLane {
+  if (kind === "petty") return "petty";
+  switch (status) {
+    case "draft":
+      return "draft";
+    case "pending":
+    case "awaiting_approval":
+    case "awaiting_payment_approval":
+    case "quoting":
+    case "quote_approved":
+    case "invoiced":
+    case "payment_requested":           // project-expense ready-to-pay
+      return "awaiting";
+    case "approved":
+      return "approved";
+    case "paid":
+    case "posted":
+      return "paid";
+    default:
+      return "other";                    // rejected / cancelled
+  }
+}
+
+export interface PaymentInboxRow {
+  id:             string;
+  kind:           PaymentKind;
+  payee:          string;
+  typeLabel:      string;
+  accountingHead: string | null;
+  amount:         number;
+  source:         string;                // "General" | "Project · X" | "Petty"
+  status:         string;
+  lane:           PaymentLane;
+  isAdvance:      boolean;
+  neededBy:       string | null;
+  createdAt:      string | null;
+  readonly:       boolean;
+}
+
+interface InboxPaymentRow {
+  id: string; payee_name: string; amount: number | string; status: string;
+  is_advance: boolean; needed_by: string | null; created_at: string | null;
+  payment_types: { name: string | null; accounting_head: string | null } | null;
+}
+
+interface InboxProjectRow {
+  id: string; title: string; approved_vendor: string | null;
+  approved_amount: number | string | null; paid_amount: number | string | null;
+  status: string; created_at: string | null;
+  projects: { name: string | null } | null;
+}
+
+/**
+ * The unified worklist — general payments (the money-out engine) plus the
+ * read-only feeders the accountant expects to *see* but not action here:
+ * PM project expenses that are ready/paid, and petty till expenses.
+ */
+export async function listInbox(
+  unitIds: string[],
+  cinemaId: string | null,
+): Promise<PaymentInboxRow[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const rows: PaymentInboxRow[] = [];
+
+  // 1) General payments (incl. the typed ones from the create form).
+  if (unitIds.length > 0) {
+    const { data, error } = await sb
+      .from("payment_requests")
+      .select("id, payee_name, amount, status, is_advance, needed_by, created_at, payment_types(name, accounting_head)")
+      .in("operating_unit_id", unitIds)
+      .order("created_at", { ascending: false });
+    if (error) console.warn("[payments] listInbox/payments", error.message);
+    for (const r of (data as InboxPaymentRow[] | null ?? [])) {
+      rows.push({
+        id: r.id, kind: "payment", payee: r.payee_name,
+        typeLabel: r.payment_types?.name ?? "Payment",
+        accountingHead: r.payment_types?.accounting_head ?? null,
+        amount: Number(r.amount), source: "General",
+        status: r.status, lane: laneOf(r.status, "payment"),
+        isAdvance: !!r.is_advance, neededBy: r.needed_by, createdAt: r.created_at,
+        readonly: false,
+      });
+    }
+  }
+
+  // 2) PM project expenses ready/paid — read-only window onto the same object.
+  if (cinemaId) {
+    const { data, error } = await sb
+      .from("project_expenses")
+      .select("id, title, approved_vendor, approved_amount, paid_amount, status, created_at, projects!inner(name, cinema_id)")
+      .eq("projects.cinema_id", cinemaId)
+      .in("status", ["payment_requested", "paid"])
+      .order("created_at", { ascending: false });
+    if (error) console.warn("[payments] listInbox/project", error.message);
+    for (const r of (data as InboxProjectRow[] | null ?? [])) {
+      rows.push({
+        id: r.id, kind: "project",
+        payee: r.approved_vendor ?? r.title,
+        typeLabel: r.title,
+        accountingHead: "Project capex",
+        amount: Number(r.paid_amount ?? r.approved_amount ?? 0),
+        source: `Project · ${r.projects?.name ?? "—"}`,
+        status: r.status, lane: laneOf(r.status, "project"),
+        isAdvance: false, neededBy: null, createdAt: r.created_at,
+        readonly: true,
+      });
+    }
+  }
+
+  // 3) Petty till expenses — always read-only here.
+  try {
+    const petty = await listPettyExpenses();
+    for (const p of petty) {
+      rows.push({
+        id: p.id, kind: "petty",
+        payee: p.paidTo ?? p.description,
+        typeLabel: p.category ?? "Petty expense",
+        accountingHead: "Petty cash",
+        amount: p.amount, source: "Petty",
+        status: p.status === "approved" ? "paid" : p.status,
+        lane: "petty",
+        isAdvance: false, neededBy: null, createdAt: p.createdAt,
+        readonly: true,
+      });
+    }
+  } catch (e) { console.warn("[payments] listInbox/petty", (e as Error).message); }
+
+  rows.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return rows;
+}
+
+// ── Detail + audit ──────────────────────────────────────────────────────────
+
+export interface PaymentDetail {
+  id:                   string;
+  operatingUnitId:      string;
+  paymentTypeId:        string | null;
+  typeName:             string | null;
+  accountingHead:       string | null;
+  invoiceRule:          PaymentInvoiceRule | null;
+  isAsset:              boolean;
+  payeeName:            string;
+  amount:               number;
+  paidAmount:           number | null;
+  status:               string;
+  isAdvance:            boolean;
+  purpose:              string | null;
+  neededBy:             string | null;
+  invoiceUrl:           string | null;
+  proformaUrl:          string | null;
+  bankAccountId:        string | null;
+  paidViaBankAccountId: string | null;
+  bankReference:        string | null;
+  rejectedReason:       string | null;
+  approvedByEmail:      string | null;
+  approvedBySlackUser:  string | null;
+  approvedAt:           string | null;
+  paidAt:               string | null;
+  createdAt:            string | null;
+}
+
+interface PaymentDetailRow {
+  id: string; operating_unit_id: string; payment_type_id: string | null;
+  payee_name: string; amount: number | string; paid_amount: number | string | null;
+  status: string; is_advance: boolean; purpose: string | null; needed_by: string | null;
+  invoice_url: string | null; proforma_url: string | null; bank_account_id: string | null;
+  paid_via_bank_account_id: string | null; bank_reference: string | null;
+  rejected_reason: string | null; approved_by_email: string | null;
+  approved_by_slack_user: string | null; approved_at: string | null;
+  paid_at: string | null; created_at: string | null;
+  payment_types: { name: string | null; accounting_head: string | null;
+                   invoice_rule: PaymentInvoiceRule | null; is_asset: boolean } | null;
+}
+
+export async function getPaymentDetail(id: string): Promise<PaymentDetail | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from("payment_requests")
+    .select("*, payment_types(name, accounting_head, invoice_rule, is_asset)")
+    .eq("id", id)
+    .single();
+  if (error || !data) return null;
+  const r = data as PaymentDetailRow;
+  return {
+    id: r.id, operatingUnitId: r.operating_unit_id, paymentTypeId: r.payment_type_id,
+    typeName: r.payment_types?.name ?? null,
+    accountingHead: r.payment_types?.accounting_head ?? null,
+    invoiceRule: r.payment_types?.invoice_rule ?? null,
+    isAsset: !!r.payment_types?.is_asset,
+    payeeName: r.payee_name, amount: Number(r.amount),
+    paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
+    status: r.status, isAdvance: !!r.is_advance, purpose: r.purpose, neededBy: r.needed_by,
+    invoiceUrl: r.invoice_url, proformaUrl: r.proforma_url,
+    bankAccountId: r.bank_account_id, paidViaBankAccountId: r.paid_via_bank_account_id,
+    bankReference: r.bank_reference, rejectedReason: r.rejected_reason,
+    approvedByEmail: r.approved_by_email, approvedBySlackUser: r.approved_by_slack_user,
+    approvedAt: r.approved_at, paidAt: r.paid_at, createdAt: r.created_at,
+  };
+}
+
+export interface PaymentAuditEntry {
+  id: string; fromStatus: string | null; toStatus: string | null;
+  actorEmail: string | null; actorSlackUser: string | null;
+  note: string | null; createdAt: string;
+}
+
+export async function listPaymentAudit(id: string): Promise<PaymentAuditEntry[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("payment_audit")
+    .select("*")
+    .eq("payment_id", id)
+    .order("created_at", { ascending: true });
+  if (error) { console.warn("[payments] listPaymentAudit", error.message); return []; }
+  return (data as Array<{
+    id: string; from_status: string | null; to_status: string | null;
+    actor_email: string | null; actor_slack_user: string | null;
+    note: string | null; created_at: string;
+  }> | null ?? []).map((r) => ({
+    id: r.id, fromStatus: r.from_status, toStatus: r.to_status,
+    actorEmail: r.actor_email, actorSlackUser: r.actor_slack_user,
+    note: r.note, createdAt: r.created_at,
+  }));
+}
+
+// ── Transitions (SECURITY DEFINER RPCs) ─────────────────────────────────────
+
+export async function submitPayment(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_submit", { p_payment_id: id });
+  if (error) throw new Error(error.message);
+}
+
+export async function approvePayment(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_approve", { p_payment_id: id });
+  if (error) throw new Error(error.message);
+}
+
+export async function rejectPayment(id: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_reject", { p_payment_id: id, p_reason: reason });
+  if (error) throw new Error(error.message);
+}
+
+export interface MarkPaidInput {
+  bankAccountId: string;
+  reference?:    string | null;
+  paidAmount?:   number | null;
+  paidReason?:   string | null;
+  paidDate?:     DateISO | null;
+}
+
+export async function markPaid(id: string, d: MarkPaidInput): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_mark_paid", {
+    p_payment_id:     id,
+    p_bank_account_id: d.bankAccountId,
+    p_reference:      d.reference ?? null,
+    p_paid_amount:    d.paidAmount ?? null,
+    p_paid_reason:    d.paidReason ?? null,
+    p_paid_date:      d.paidDate ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function cancelPayment(id: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_cancel", { p_payment_id: id, p_reason: reason });
+  if (error) throw new Error(error.message);
 }

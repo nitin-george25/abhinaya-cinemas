@@ -37,6 +37,7 @@ import CashPaymentsPage from "./pages/cash/Payments";
 import CashSettlementsPage from "./pages/cash/Settlements";
 import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
+import PaymentsInboxPage from "./pages/payments/Inbox";
 import PaymentsCreatePage from "./pages/payments/Create";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
@@ -254,8 +255,9 @@ function AppGate() {
               ) : null}
               {canApprovePayments ? (
                 <>
-                  {/* Unified Payments — typed creation form (phase 1). Inbox +
-                      lifecycle land in phase 2. */}
+                  {/* Unified Payments — inbox (phase 2) + typed creation form
+                      (phase 1). */}
+                  <Route path="/payments"         element={<PaymentsInboxPage />} />
                   <Route path="/payments/create"  element={<PaymentsCreatePage />} />
                   <Route path="/cash/payments"    element={<CashPaymentsPage />} />
                   <Route path="/cash/settlements" element={<CashSettlementsPage />} />
