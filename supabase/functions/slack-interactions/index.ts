@@ -20,6 +20,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ephemeral, reply, slackApi, verifySlackSignature } from "../_shared/slack.ts";
 import { authorizePettyApprover, loadPettyExpense, pettyBlocks } from "../_shared/petty.ts";
+import { loadPaymentForSlack, paymentBlocks } from "../_shared/payments.ts";
+
+/** Friendly text for the coded exceptions fn_slack_payment_decide raises. */
+function paymentDecideError(msg: string): string {
+  if (msg.includes("SLACK_USER_UNMAPPED")) return "Your Slack account isn't linked to a console user. Ask an admin to set your slack_user_id.";
+  if (msg.includes("NOT_OWNER")) return "Only the owner can approve payments.";
+  if (msg.includes("NOT_AWAITING")) return "This payment isn't awaiting approval anymore.";
+  if (msg.includes("NOT_FOUND")) return "That payment no longer exists.";
+  if (msg.includes("REASON_REQUIRED")) return "A reason is required to reject.";
+  return "Couldn't record your decision. Try the console.";
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return reply("method not allowed", 405);
@@ -56,10 +67,58 @@ Deno.serve(async (req: Request) => {
   // --------------------------------------------------------------------------
   if (payload.type === "block_actions") {
     const action = payload.actions?.[0];
-    const expenseId = action?.value as string | undefined;
     const responseUrl = payload.response_url as string;
     const slackUserId = payload.user?.id as string;
-    if (!action || !expenseId) return reply();
+    if (!action) return reply();
+
+    // ── Unified payments card (Approve / Reject) ──────────────────────────
+    if (action.action_id === "payment_approve" || action.action_id === "payment_reject") {
+      const paymentId = action.value as string;
+      const payment = await loadPaymentForSlack(svc, paymentId);
+      if (!payment) { await ephemeral(responseUrl, "That payment no longer exists."); return reply(); }
+      const channel = payload.container?.channel_id ?? payment.slack_channel;
+      const ts = payload.message?.ts ?? payment.slack_ts;
+
+      if (!["pending", "awaiting_approval", "awaiting_payment_approval"].includes(payment.status)) {
+        await slackApi("chat.update", BOT_TOKEN, { channel, ts, text: `Payment ${payment.status}`, blocks: paymentBlocks(payment, true) });
+        await ephemeral(responseUrl, `Already ${payment.status}.`);
+        return reply();
+      }
+
+      if (action.action_id === "payment_approve") {
+        const { error } = await svc.rpc("fn_slack_payment_decide", {
+          p_payment_id: paymentId, p_slack_user_id: slackUserId, p_decision: "approve", p_reason: null,
+        });
+        if (error) { await ephemeral(responseUrl, paymentDecideError(error.message)); return reply(); }
+        const fresh = await loadPaymentForSlack(svc, paymentId);
+        await slackApi("chat.update", BOT_TOKEN, { channel, ts, text: "Payment approved", blocks: paymentBlocks(fresh, true) });
+        return reply();
+      }
+
+      // payment_reject → open a modal to capture the reason.
+      const res = await slackApi("views.open", BOT_TOKEN, {
+        trigger_id: payload.trigger_id,
+        view: {
+          type: "modal",
+          callback_id: "payment_reject_modal",
+          private_metadata: JSON.stringify({ paymentId, channel, ts }),
+          title: { type: "plain_text", text: "Reject payment" },
+          submit: { type: "plain_text", text: "Reject" },
+          close: { type: "plain_text", text: "Cancel" },
+          blocks: [{
+            type: "input", block_id: "reason_block",
+            label: { type: "plain_text", text: "Reason for rejection" },
+            element: { type: "plain_text_input", action_id: "reason", multiline: true },
+          }],
+        },
+      });
+      if (!res.ok) await ephemeral(responseUrl, `Couldn't open the reject dialog: ${res.error}`);
+      return reply();
+    }
+
+    // ── Petty-expense card (existing) ─────────────────────────────────────
+    const expenseId = action?.value as string | undefined;
+    if (!expenseId) return reply();
 
     const expense = await loadPettyExpense(svc, expenseId);
     if (!expense) { await ephemeral(responseUrl, "That expense no longer exists."); return reply(); }
@@ -120,7 +179,32 @@ Deno.serve(async (req: Request) => {
   }
 
   // --------------------------------------------------------------------------
-  // 2) Reject-reason modal submitted.
+  // 2a) Payment reject-reason modal submitted.
+  // --------------------------------------------------------------------------
+  if (payload.type === "view_submission" && payload.view?.callback_id === "payment_reject_modal") {
+    let meta: { paymentId: string; channel: string; ts: string };
+    try { meta = JSON.parse(payload.view.private_metadata); }
+    catch { return reply({ response_action: "clear" }); }
+
+    const reason = payload.view.state?.values?.reason_block?.reason?.value?.trim() ?? "";
+    if (!reason) {
+      return reply({ response_action: "errors", errors: { reason_block: "Please give a reason." } });
+    }
+    const { error } = await svc.rpc("fn_slack_payment_decide", {
+      p_payment_id: meta.paymentId, p_slack_user_id: payload.user?.id, p_decision: "reject", p_reason: reason,
+    });
+    if (error) {
+      return reply({ response_action: "errors", errors: { reason_block: paymentDecideError(error.message) } });
+    }
+    const fresh = await loadPaymentForSlack(svc, meta.paymentId);
+    await slackApi("chat.update", BOT_TOKEN, {
+      channel: meta.channel, ts: meta.ts, text: "Payment rejected", blocks: paymentBlocks(fresh, true),
+    });
+    return reply({ response_action: "clear" });
+  }
+
+  // --------------------------------------------------------------------------
+  // 2b) Petty reject-reason modal submitted.
   // --------------------------------------------------------------------------
   if (payload.type === "view_submission" && payload.view?.callback_id === "petty_reject_modal") {
     let meta: { expenseId: string; channel: string; ts: string };

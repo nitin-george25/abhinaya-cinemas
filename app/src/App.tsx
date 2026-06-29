@@ -39,6 +39,8 @@ import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
 import PaymentsInboxPage from "./pages/payments/Inbox";
 import PaymentsCreatePage from "./pages/payments/Create";
+import PaymentsQuotationsPage from "./pages/payments/Quotations";
+import PaymentsAdvancesPage from "./pages/payments/Advances";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
 import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
@@ -259,6 +261,8 @@ function AppGate() {
                       (phase 1). */}
                   <Route path="/payments"         element={<PaymentsInboxPage />} />
                   <Route path="/payments/create"  element={<PaymentsCreatePage />} />
+                  <Route path="/payments/quotations" element={<PaymentsQuotationsPage />} />
+                  <Route path="/payments/advances" element={<PaymentsAdvancesPage />} />
                   <Route path="/cash/payments"    element={<CashPaymentsPage />} />
                   <Route path="/cash/settlements" element={<CashSettlementsPage />} />
                   <Route path="/cash/ledger"      element={<CashLedgerPage />} />
