@@ -193,6 +193,7 @@ export const NAV: NavItem[] = [
     children: [
       // Purchase invoices (Zoho Books Bills) — accounts payable register.
       { kind: "leaf", to: "/invoices",         label: "Invoices",    roles: REPORT_ROLES },
+      { kind: "leaf", to: "/payments/create",  label: "Make a Payment", roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/payments",    label: "Payments",    roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
     ],
@@ -231,6 +232,7 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/cash",    label: "Cash",              roles: ["owner", "accountant"] },
+      { kind: "leaf", to: "/settings/payment-types", label: "Payment Types", roles: OWNER_ONLY },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/whatsapp", label: "WhatsApp",          roles: OWNER_ONLY },
     ],
