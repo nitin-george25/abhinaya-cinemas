@@ -43,7 +43,7 @@ export default function PaymentsQuotationsPage() {
     if (refs.loading) return;
     const rows = await listAssetPayments(unitIds);
     setList(rows);
-    if (!selId && rows.length > 0) setSelId(rows[0].id);
+    if (!selId && rows[0]) setSelId(rows[0].id);
   }
   useEffect(() => { void reloadList(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [refs.loading, unitIds.join(",")]);
 

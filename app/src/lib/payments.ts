@@ -678,7 +678,9 @@ export async function listAssetPayments(unitIds: string[]): Promise<PaymentInbox
     .in("status", ["draft", "quoting", "quote_approved", "invoiced"])
     .order("created_at", { ascending: false });
   if (error) { console.warn("[payments] listAssetPayments", error.message); return []; }
-  return (data as InboxPaymentRow[] | null ?? []).map((r) => ({
+  // The typed client infers the `!inner` embed as an array; at runtime a
+  // many-to-one embed is a single object — cast through unknown and read it so.
+  return ((data ?? []) as unknown as InboxPaymentRow[]).map((r) => ({
     id: r.id, kind: "payment" as PaymentKind, payee: r.payee_name,
     typeLabel: r.payment_types?.name ?? "Asset", accountingHead: r.payment_types?.accounting_head ?? null,
     amount: Number(r.amount), source: "General", status: r.status, lane: laneOf(r.status, "payment"),

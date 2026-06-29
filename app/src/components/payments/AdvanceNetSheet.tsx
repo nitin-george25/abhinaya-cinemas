@@ -72,7 +72,7 @@ export function AdvanceNetSheet({
                   </div>
                   {on ? (
                     <div className="w-32">
-                      <MoneyInput value={sel[a.id]} onChange={(v) => setSel((p) => ({ ...p, [a.id]: v }))} />
+                      <MoneyInput value={sel[a.id] ?? ""} onChange={(v) => setSel((p) => ({ ...p, [a.id]: v }))} />
                     </div>
                   ) : null}
                 </li>
