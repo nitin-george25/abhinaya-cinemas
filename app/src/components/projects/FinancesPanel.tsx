@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
@@ -302,6 +303,11 @@ export function FinancesPanel(props: FinancesPanelProps) {
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-display text-sm font-semibold">
             Expenses <span className="font-normal text-ink-muted">({liveExpenses.length})</span>
+            {/* Two windows on the same object: a project expense ready/paid also
+                surfaces in the unified Payments inbox. */}
+            <Link to="/payments" className="ml-2 text-xs font-normal text-amber-700 hover:underline">
+              Open in Payments →
+            </Link>
           </h3>
           {isMember ? (
             <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowAddExpense((v) => !v)}>
