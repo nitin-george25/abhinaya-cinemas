@@ -18,7 +18,7 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -36,6 +36,8 @@ import {
   createPayment,
   createProforma,
   uploadPaymentFile,
+  submitPayment,
+  postPaymentCard,
   usesDistributorPayee,
   usesNoPayee,
   PAYEE_CATEGORY_LABEL,
@@ -56,6 +58,7 @@ function partyTypeFor(t: PaymentType): PartyType {
 export default function PaymentsCreatePage() {
   const { state } = useSync();
   const refs = useCashRefs();
+  const navigate = useNavigate();
   const role = state.role;
   const canRaise = role === "owner" || role === "manager" || role === "accountant";
 
@@ -214,8 +217,16 @@ export default function PaymentsCreatePage() {
         note: note || null,
         typeName: type.name,
         requestedByEmail: state.email,
-        status: asDraft ? "draft" : "pending",
+        status: "draft",
       });
+      // Asset types must gather quotations before any payment — route there.
+      if (type.isAsset) { navigate("/payments/quotations"); return; }
+      // Submitting routes through the lifecycle (draft → awaiting_approval) and
+      // posts the interactive approval card to #payments. Saving leaves a draft.
+      if (!asDraft) {
+        await submitPayment(id);
+        await postPaymentCard(id, `${window.location.origin}/payments`);
+      }
       setCreatedId(id);
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
@@ -477,12 +488,20 @@ export default function PaymentsCreatePage() {
             <div className="flex flex-wrap justify-between gap-2">
               <Button variant="ghost" onClick={() => setStep(2)}>Back</Button>
               <div className="flex gap-2">
-                <Button variant="secondary" disabled={busy} onClick={() => void submit(true)}>
-                  {busy ? "Saving…" : "Save draft"}
-                </Button>
-                <Button disabled={busy} onClick={() => void submit(false)}>
-                  {busy ? "Submitting…" : "Submit for approval"}
-                </Button>
+                {type.isAsset ? (
+                  <Button disabled={busy} onClick={() => void submit(true)}>
+                    {busy ? "Saving…" : "Save & add quotations"}
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="secondary" disabled={busy} onClick={() => void submit(true)}>
+                      {busy ? "Saving…" : "Save draft"}
+                    </Button>
+                    <Button disabled={busy} onClick={() => void submit(false)}>
+                      {busy ? "Submitting…" : "Submit for approval"}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </CardBody>

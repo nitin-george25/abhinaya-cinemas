@@ -195,6 +195,8 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/invoices",         label: "Invoices",    roles: REPORT_ROLES },
       { kind: "leaf", to: "/payments",         label: "Payments Inbox", roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/payments/create",  label: "Make a Payment", roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/payments/quotations", label: "Asset Quotations", roles: CASH_PAYMENTS_ROLES },
+      { kind: "leaf", to: "/payments/advances", label: "Advances", roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/payments",    label: "Payments (legacy)", roles: CASH_PAYMENTS_ROLES },
       { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
     ],

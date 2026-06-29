@@ -19,6 +19,7 @@ import { Field, Input } from "../ui/Input";
 import { cn } from "../ui/cn";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 import { MarkPaidModal } from "./MarkPaidModal";
+import { AdvanceNetSheet } from "./AdvanceNetSheet";
 import { fmtINR } from "../../lib/dashboard";
 import {
   getPaymentDetail,
@@ -27,9 +28,16 @@ import {
   approvePayment,
   rejectPayment,
   cancelPayment,
+  postPaymentCard,
+  syncPaymentCard,
+  appliedTotalForPayment,
+  listOutstandingAdvances,
+  getZohoPushStatus,
   type PaymentInboxRow,
   type PaymentDetail,
   type PaymentAuditEntry,
+  type OutstandingAdvance,
+  type ZohoPushStatus,
 } from "../../lib/payments";
 
 const STEPS = ["Draft", "Awaiting owner", "Approved", "Paid"];
@@ -77,12 +85,27 @@ export function PaymentDrawer({
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [showCancel, setShowCancel] = useState(false);
+  const [appliedTotal, setAppliedTotal] = useState(0);
+  const [showNet, setShowNet] = useState(false);
+  const [candidates, setCandidates] = useState<OutstandingAdvance[]>([]);
+  const [zoho, setZoho] = useState<ZohoPushStatus | null>(null);
 
   async function load() {
     if (!isPayment) return;
     setLoading(true);
-    const [d, a] = await Promise.all([getPaymentDetail(row.id), listPaymentAudit(row.id)]);
-    setDetail(d); setAudit(a); setLoading(false);
+    const [d, a, applied, z] = await Promise.all([
+      getPaymentDetail(row.id), listPaymentAudit(row.id), appliedTotalForPayment(row.id), getZohoPushStatus(row.id),
+    ]);
+    setDetail(d); setAudit(a); setAppliedTotal(applied); setZoho(z); setLoading(false);
+  }
+
+  async function openNet() {
+    if (!detail) return;
+    const all = await listOutstandingAdvances([detail.operatingUnitId]);
+    setCandidates(all.filter((x) =>
+      x.kind === "vendor" && x.balance > 0 && x.id !== detail.id
+      && (!detail.payeePartyId || x.partyId === detail.payeePartyId)));
+    setShowNet(true);
   }
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [row.id]);
 
@@ -147,6 +170,19 @@ export function PaymentDrawer({
                 ))}
               </ol>
 
+              {appliedTotal > 0 ? (
+                <div className="rounded-lg border border-line bg-paper px-3 py-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-ink-muted">Advances applied</span>
+                    <span className="font-mono tabular-nums">− {fmtINR(appliedTotal, 2)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Net payable</span>
+                    <span className="font-mono tabular-nums">{fmtINR(Math.max(0, detail.amount - appliedTotal), 2)}</span>
+                  </div>
+                </div>
+              ) : null}
+
               {status === "rejected" && detail.rejectedReason ? (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   Rejected — {detail.rejectedReason}
@@ -172,6 +208,14 @@ export function PaymentDrawer({
                   <Line label="Paid amount" value={fmtINR(detail.paidAmount ?? detail.amount, 2)} mono />
                   {detail.bankReference ? <Line label="Reference" value={detail.bankReference} /> : null}
                   {detail.paidAt ? <Line label="Paid on" value={fmtWhen(detail.paidAt)} /> : null}
+                  {zoho ? (
+                    <Line
+                      label="Zoho"
+                      value={zoho.status === "synced" ? "Synced"
+                        : zoho.status === "failed" ? "Failed — retryable"
+                        : zoho.status === "skipped" ? "Skipped" : "Queued"}
+                    />
+                  ) : null}
                 </dl>
               ) : null}
 
@@ -201,18 +245,30 @@ export function PaymentDrawer({
         {isPayment && detail ? (
           <div className="mt-auto flex flex-wrap gap-2 border-t border-line px-5 py-4">
             {status === "draft" ? (
-              <Button disabled={busy || !canRaise} onClick={() => void act(() => submitPayment(detail.id))}>
+              <Button
+                disabled={busy || !canRaise}
+                onClick={() => void act(async () => {
+                  await submitPayment(detail.id);
+                  await postPaymentCard(detail.id, window.location.href);
+                })}
+              >
                 Submit for approval
               </Button>
             ) : null}
             {["pending", "awaiting_approval", "awaiting_payment_approval"].includes(status) && isOwner ? (
               <>
-                <Button disabled={busy} onClick={() => void act(() => approvePayment(detail.id))}>Approve</Button>
+                <Button
+                  disabled={busy}
+                  onClick={() => void act(async () => { await approvePayment(detail.id); await syncPaymentCard(detail.id); })}
+                >Approve</Button>
                 <Button variant="secondary" disabled={busy} onClick={() => setShowReject(true)}>Reject</Button>
               </>
             ) : null}
             {status === "approved" ? (
               <Button disabled={busy || !canMarkPaid} onClick={() => setShowMarkPaid(true)}>Mark paid</Button>
+            ) : null}
+            {!detail.isAdvance && !["paid", "posted", "cancelled"].includes(status) && canMarkPaid ? (
+              <Button variant="secondary" disabled={busy} onClick={() => void openNet()}>Net advances</Button>
             ) : null}
             {status !== "paid" && status !== "posted" && status !== "cancelled" && canRaise ? (
               <Button variant="ghost" disabled={busy} onClick={() => setShowCancel(true)}>Cancel</Button>
@@ -227,8 +283,20 @@ export function PaymentDrawer({
           detail={detail}
           bankAccounts={bankAccounts}
           zohoNotice={zohoNotice}
+          appliedTotal={appliedTotal}
           onClose={() => setShowMarkPaid(false)}
           onPaid={async () => { await load(); await onChanged(); }}
+          onError={setErr}
+        />
+      ) : null}
+
+      {/* Net advances */}
+      {showNet && detail ? (
+        <AdvanceNetSheet
+          detail={detail}
+          candidates={candidates}
+          onClose={() => setShowNet(false)}
+          onNetted={async () => { await load(); await onChanged(); }}
           onError={setErr}
         />
       ) : null}
@@ -245,7 +313,7 @@ export function PaymentDrawer({
               <Button
                 variant="danger"
                 disabled={busy || !rejectReason.trim()}
-                onClick={() => { setShowReject(false); void act(() => rejectPayment(detail.id, rejectReason)).then(() => setRejectReason("")); }}
+                onClick={() => { setShowReject(false); void act(async () => { await rejectPayment(detail.id, rejectReason); await syncPaymentCard(detail.id); }).then(() => setRejectReason("")); }}
               >
                 Reject
               </Button>

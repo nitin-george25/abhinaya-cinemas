@@ -441,6 +441,7 @@ export interface PaymentDetail {
   invoiceRule:          PaymentInvoiceRule | null;
   isAsset:              boolean;
   payeeName:            string;
+  payeePartyId:         string | null;
   amount:               number;
   paidAmount:           number | null;
   status:               string;
@@ -452,6 +453,8 @@ export interface PaymentDetail {
   bankAccountId:        string | null;
   paidViaBankAccountId: string | null;
   bankReference:        string | null;
+  quoteLockedVendor:    string | null;
+  quoteLockedAmount:    number | null;
   rejectedReason:       string | null;
   approvedByEmail:      string | null;
   approvedBySlackUser:  string | null;
@@ -462,10 +465,11 @@ export interface PaymentDetail {
 
 interface PaymentDetailRow {
   id: string; operating_unit_id: string; payment_type_id: string | null;
-  payee_name: string; amount: number | string; paid_amount: number | string | null;
+  payee_name: string; payee_party_id: string | null; amount: number | string; paid_amount: number | string | null;
   status: string; is_advance: boolean; purpose: string | null; needed_by: string | null;
   invoice_url: string | null; proforma_url: string | null; bank_account_id: string | null;
   paid_via_bank_account_id: string | null; bank_reference: string | null;
+  quote_locked_vendor: string | null; quote_locked_amount: number | string | null;
   rejected_reason: string | null; approved_by_email: string | null;
   approved_by_slack_user: string | null; approved_at: string | null;
   paid_at: string | null; created_at: string | null;
@@ -489,12 +493,15 @@ export async function getPaymentDetail(id: string): Promise<PaymentDetail | null
     accountingHead: r.payment_types?.accounting_head ?? null,
     invoiceRule: r.payment_types?.invoice_rule ?? null,
     isAsset: !!r.payment_types?.is_asset,
-    payeeName: r.payee_name, amount: Number(r.amount),
+    payeeName: r.payee_name, payeePartyId: r.payee_party_id, amount: Number(r.amount),
     paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
     status: r.status, isAdvance: !!r.is_advance, purpose: r.purpose, neededBy: r.needed_by,
     invoiceUrl: r.invoice_url, proformaUrl: r.proforma_url,
     bankAccountId: r.bank_account_id, paidViaBankAccountId: r.paid_via_bank_account_id,
-    bankReference: r.bank_reference, rejectedReason: r.rejected_reason,
+    bankReference: r.bank_reference,
+    quoteLockedVendor: r.quote_locked_vendor,
+    quoteLockedAmount: r.quote_locked_amount == null ? null : Number(r.quote_locked_amount),
+    rejectedReason: r.rejected_reason,
     approvedByEmail: r.approved_by_email, approvedBySlackUser: r.approved_by_slack_user,
     approvedAt: r.approved_at, paidAt: r.paid_at, createdAt: r.created_at,
   };
@@ -576,4 +583,244 @@ export async function cancelPayment(id: string, reason: string): Promise<void> {
   if (!sb) throw new Error("Supabase not configured");
   const { error } = await sb.rpc("fn_payment_cancel", { p_payment_id: id, p_reason: reason });
   if (error) throw new Error(error.message);
+}
+
+// ── Asset quotations (phase 4) ──────────────────────────────────────────────
+
+export interface PaymentQuotation {
+  id:          string;
+  paymentId:   string;
+  vendor:      string;
+  amount:      number;
+  fileUrl:     string;
+  leadTime:    string | null;
+  warranty:    string | null;
+  notes:       string | null;
+  status:      "submitted" | "approved" | "rejected";
+  submittedBy: string | null;
+  submittedAt: string;
+}
+
+export async function listQuotations(paymentId: string): Promise<PaymentQuotation[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("payment_quotations")
+    .select("*")
+    .eq("payment_id", paymentId)
+    .order("amount", { ascending: true });
+  if (error) { console.warn("[payments] listQuotations", error.message); return []; }
+  return (data as Array<{
+    id: string; payment_id: string; vendor: string; amount: number | string;
+    file_url: string; lead_time: string | null; warranty: string | null;
+    notes: string | null; status: PaymentQuotation["status"];
+    submitted_by: string | null; submitted_at: string;
+  }> | null ?? []).map((r) => ({
+    id: r.id, paymentId: r.payment_id, vendor: r.vendor, amount: Number(r.amount),
+    fileUrl: r.file_url, leadTime: r.lead_time, warranty: r.warranty, notes: r.notes,
+    status: r.status, submittedBy: r.submitted_by, submittedAt: r.submitted_at,
+  }));
+}
+
+export interface QuotationDraft {
+  vendor: string; amount: number; fileUrl: string;
+  leadTime?: string | null; warranty?: string | null; notes?: string | null;
+}
+
+export async function addQuotation(paymentId: string, d: QuotationDraft): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_quote_add", {
+    p_payment_id: paymentId, p_vendor: d.vendor, p_amount: d.amount, p_file_url: d.fileUrl,
+    p_lead_time: d.leadTime ?? null, p_warranty: d.warranty ?? null, p_notes: d.notes ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function approveQuotation(quotationId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_quote_approve", { p_quotation_id: quotationId });
+  if (error) throw new Error(error.message);
+}
+
+export async function skipQuotation(paymentId: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_quote_skip", { p_payment_id: paymentId, p_reason: reason });
+  if (error) throw new Error(error.message);
+}
+
+export interface AssetInvoiceInput {
+  subtotal: number; gst?: number | null; freight?: number | null;
+  fileUrl: string; deviationReason?: string | null;
+}
+
+export async function attachAssetInvoice(paymentId: string, d: AssetInvoiceInput): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_attach_invoice", {
+    p_payment_id: paymentId, p_subtotal: d.subtotal, p_gst: d.gst ?? 0, p_freight: d.freight ?? 0,
+    p_file_url: d.fileUrl, p_deviation_reason: d.deviationReason ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Asset payments still in the quotation/invoice stages (for the Quotations page). */
+export async function listAssetPayments(unitIds: string[]): Promise<PaymentInboxRow[]> {
+  const sb = getSupabase();
+  if (!sb || unitIds.length === 0) return [];
+  const { data, error } = await sb
+    .from("payment_requests")
+    .select("id, payee_name, amount, status, is_advance, needed_by, created_at, payment_types!inner(name, accounting_head, is_asset)")
+    .in("operating_unit_id", unitIds)
+    .eq("payment_types.is_asset", true)
+    .in("status", ["draft", "quoting", "quote_approved", "invoiced"])
+    .order("created_at", { ascending: false });
+  if (error) { console.warn("[payments] listAssetPayments", error.message); return []; }
+  return (data as InboxPaymentRow[] | null ?? []).map((r) => ({
+    id: r.id, kind: "payment" as PaymentKind, payee: r.payee_name,
+    typeLabel: r.payment_types?.name ?? "Asset", accountingHead: r.payment_types?.accounting_head ?? null,
+    amount: Number(r.amount), source: "General", status: r.status, lane: laneOf(r.status, "payment"),
+    isAdvance: !!r.is_advance, neededBy: r.needed_by, createdAt: r.created_at, readonly: false,
+  }));
+}
+
+// ── Advances & netting (phase 5) ────────────────────────────────────────────
+
+export interface OutstandingAdvance {
+  id:            string;
+  payee:         string;
+  kind:          "vendor" | "distributor";
+  partyId:       string | null;
+  distributorId: string | null;
+  paid:          number;
+  applied:       number;
+  balance:       number;
+  createdAt:     string | null;
+}
+
+interface AdvanceRow {
+  id: string; payee_name: string; amount: number | string;
+  advance_party_id: string | null; payee_party_id: string | null;
+  payee_distributor_id: string | null; created_at: string | null;
+}
+
+/** All paid advances (vendor + distributor) with how much has been netted. */
+export async function listOutstandingAdvances(unitIds: string[]): Promise<OutstandingAdvance[]> {
+  const sb = getSupabase();
+  if (!sb || unitIds.length === 0) return [];
+  const { data, error } = await sb
+    .from("payment_requests")
+    .select("id, payee_name, amount, advance_party_id, payee_party_id, payee_distributor_id, created_at")
+    .in("operating_unit_id", unitIds)
+    .eq("is_advance", true)
+    .in("status", ["paid", "posted"]);
+  if (error) { console.warn("[payments] listOutstandingAdvances", error.message); return []; }
+  const rows = (data as AdvanceRow[] | null ?? []);
+  const ids = rows.map((r) => r.id);
+  const applied = await appliedByAdvance(ids);
+  return rows.map((r) => {
+    const paid = Number(r.amount);
+    const used = applied[r.id] ?? 0;
+    return {
+      id: r.id, payee: r.payee_name,
+      kind: r.payee_distributor_id ? "distributor" : "vendor",
+      partyId: r.advance_party_id ?? r.payee_party_id,
+      distributorId: r.payee_distributor_id,
+      paid, applied: used, balance: paid - used, createdAt: r.created_at,
+    };
+  });
+}
+
+/** Sum of amount_applied per advance payment id. */
+async function appliedByAdvance(advanceIds: string[]): Promise<Record<string, number>> {
+  const sb = getSupabase();
+  if (!sb || advanceIds.length === 0) return {};
+  const { data } = await sb
+    .from("payment_advance_links")
+    .select("advance_payment_id, amount_applied")
+    .in("advance_payment_id", advanceIds);
+  const out: Record<string, number> = {};
+  for (const r of (data as Array<{ advance_payment_id: string; amount_applied: number | string }> | null ?? [])) {
+    out[r.advance_payment_id] = (out[r.advance_payment_id] ?? 0) + Number(r.amount_applied);
+  }
+  return out;
+}
+
+/** Total advances already applied to a final payment (for the net at mark-paid). */
+export async function appliedTotalForPayment(finalPaymentId: string): Promise<number> {
+  const sb = getSupabase();
+  if (!sb) return 0;
+  const { data } = await sb
+    .from("payment_advance_links")
+    .select("amount_applied")
+    .eq("final_payment_id", finalPaymentId);
+  return (data as Array<{ amount_applied: number | string }> | null ?? [])
+    .reduce((a, r) => a + Number(r.amount_applied), 0);
+}
+
+export interface AdvanceApplication { advanceId: string; amount: number; }
+
+export async function netAdvances(finalPaymentId: string, apps: AdvanceApplication[]): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_net_advances", {
+    p_final_payment_id: finalPaymentId,
+    p_advance_ids: apps.map((a) => a.advanceId),
+    p_amounts: apps.map((a) => a.amount),
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ── Slack approval card (phase 3) ───────────────────────────────────────────
+// Best-effort: a Slack hiccup must never block the underlying transition.
+
+/** Post the interactive #payments approval card after a payment is submitted. */
+export async function postPaymentCard(id: string, deepLink?: string | null): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  try {
+    await sb.functions.invoke("notify-slack", {
+      body: { kind: "payment_card", paymentId: id, deepLink: deepLink ?? null },
+    });
+  } catch (e) { console.warn("[payments] postPaymentCard", (e as Error).message); }
+}
+
+/** Edit the posted card in place after a console-side decision. */
+export async function syncPaymentCard(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  try {
+    await sb.functions.invoke("notify-slack", { body: { kind: "payment_card_decided", paymentId: id } });
+  } catch (e) { console.warn("[payments] syncPaymentCard", (e as Error).message); }
+}
+
+// ── Zoho F&B push (phase 6) ─────────────────────────────────────────────────
+
+export interface ZohoPushStatus {
+  status:        "queued" | "synced" | "failed" | "skipped";
+  error:         string | null;
+  zohoExpenseId: string | null;
+}
+
+/** Best-effort: a Zoho hiccup must never block the payment being paid. */
+export async function pushPaymentToZoho(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  try { await sb.functions.invoke("payments-zoho-push", { body: { paymentId: id } }); }
+  catch (e) { console.warn("[payments] pushPaymentToZoho", (e as Error).message); }
+}
+
+export async function getZohoPushStatus(id: string): Promise<ZohoPushStatus | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data } = await sb
+    .from("payment_zoho_pushes")
+    .select("status, error, zoho_expense_id")
+    .eq("payment_id", id)
+    .maybeSingle();
+  if (!data) return null;
+  const d = data as { status: ZohoPushStatus["status"]; error: string | null; zoho_expense_id: string | null };
+  return { status: d.status, error: d.error, zohoExpenseId: d.zoho_expense_id };
 }

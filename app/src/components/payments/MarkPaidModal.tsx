@@ -13,12 +13,13 @@ import { Button } from "../ui/Button";
 import { Field, Input, Select } from "../ui/Input";
 import { MoneyInput } from "./MoneyInput";
 import { fmtINR } from "../../lib/dashboard";
-import { markPaid, type PaymentDetail } from "../../lib/payments";
+import { markPaid, pushPaymentToZoho, type PaymentDetail } from "../../lib/payments";
 
 export function MarkPaidModal({
   detail,
   bankAccounts,
   zohoNotice,
+  appliedTotal = 0,
   onClose,
   onPaid,
   onError,
@@ -26,11 +27,13 @@ export function MarkPaidModal({
   detail: PaymentDetail;
   bankAccounts: { id: string; name: string; isPrimary: boolean }[];
   zohoNotice: boolean;
+  appliedTotal?: number;
   onClose: () => void;
   onPaid: () => void | Promise<void>;
   onError: (m: string) => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
+  const net = Math.max(0, detail.amount - appliedTotal);
   const [bankId, setBankId] = useState(
     detail.bankAccountId
       ?? bankAccounts.find((b) => b.isPrimary)?.id
@@ -38,12 +41,12 @@ export function MarkPaidModal({
       ?? "",
   );
   const [reference, setReference] = useState("");
-  const [amount, setAmount] = useState(String(detail.amount));
+  const [amount, setAmount] = useState(String(net));
   const [reason, setReason] = useState("");
   const [paidDate, setPaidDate] = useState(today);
   const [busy, setBusy] = useState(false);
 
-  const differs = Number(amount) !== detail.amount;
+  const differs = Number(amount) !== net;
 
   async function confirm() {
     if (!bankId) { onError("Pick a bank account."); return; }
@@ -61,6 +64,8 @@ export function MarkPaidModal({
         paidReason: differs ? reason : null,
         paidDate: paidDate || null,
       });
+      // F&B payments push to Zoho Books — best-effort, never blocks the payment.
+      if (zohoNotice) await pushPaymentToZoho(detail.id);
       await onPaid();
       onClose();
     } catch (e) { onError((e as Error).message); }
@@ -75,11 +80,23 @@ export function MarkPaidModal({
       title={`Mark paid — ${detail.payeeName}`}
     >
       <div className="space-y-4">
-        <div className="rounded-lg border border-line bg-paper px-3 py-2 text-sm">
+        <div className="space-y-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm">
           <div className="flex justify-between">
             <span className="text-ink-muted">Requested</span>
             <span className="font-mono tabular-nums">{fmtINR(detail.amount, 2)}</span>
           </div>
+          {appliedTotal > 0 ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">Advances applied</span>
+                <span className="font-mono tabular-nums">− {fmtINR(appliedTotal, 2)}</span>
+              </div>
+              <div className="flex justify-between border-t border-line pt-1 font-medium">
+                <span>Net payable</span>
+                <span className="font-mono tabular-nums">{fmtINR(net, 2)}</span>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <Field label="Paid from (bank account)">
