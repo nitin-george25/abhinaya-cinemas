@@ -22,6 +22,7 @@ import SettingsScreensPage from "./pages/settings/Screens";
 import SettingsTaxPage from "./pages/settings/Tax";
 import SettingsUsersPage from "./pages/settings/Users";
 import SettingsCashPage from "./pages/settings/Cash";
+import SettingsPaymentTypesPage from "./pages/settings/PaymentTypes";
 import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import ReportsBoPage from "./pages/reports/Bo";
 import ReportsFbPage from "./pages/reports/Fb";
@@ -36,6 +37,7 @@ import CashPaymentsPage from "./pages/cash/Payments";
 import CashSettlementsPage from "./pages/cash/Settlements";
 import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
+import PaymentsCreatePage from "./pages/payments/Create";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
 import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
@@ -201,6 +203,12 @@ function AppGate() {
                 <Route path="/settings/cash" element={<SettingsCashPage />} />
               ) : null}
 
+              {/* Settings · Payment Types — owner-managed taxonomy (RLS write =
+                  owner). The page also enforces owner-only. */}
+              {role === "owner" ? (
+                <Route path="/settings/payment-types" element={<SettingsPaymentTypesPage />} />
+              ) : null}
+
               {/* Admin-only: Dashboard, Activity, Backup, Settings */}
               {canSeeAdmin ? (
                 <>
@@ -246,6 +254,9 @@ function AppGate() {
               ) : null}
               {canApprovePayments ? (
                 <>
+                  {/* Unified Payments — typed creation form (phase 1). Inbox +
+                      lifecycle land in phase 2. */}
+                  <Route path="/payments/create"  element={<PaymentsCreatePage />} />
                   <Route path="/cash/payments"    element={<CashPaymentsPage />} />
                   <Route path="/cash/settlements" element={<CashSettlementsPage />} />
                   <Route path="/cash/ledger"      element={<CashLedgerPage />} />
