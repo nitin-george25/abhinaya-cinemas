@@ -44,9 +44,13 @@ verify_jwt = false
 # PM expense flow (#18): posts payment requests → #payments and invoice
 # uploads → #invoices (Incoming Webhooks). ALSO petty-expense two-way approval
 # (cash_21): petty_request/petty_decided post + edit interactive messages in
-# #petty-expenses via the bot token. Caller must be signed in; the function
-# re-checks the caller's role. Secrets per project: SLACK_PAYMENTS_WEBHOOK_URL,
-# SLACK_INVOICES_WEBHOOK_URL, SLACK_BOT_TOKEN, SLACK_PETTY_CHANNEL_ID.
+# #petty-expenses via the bot token. ALSO unified-payments two-way approval
+# (§7): payment_card/payment_card_decided post + edit the interactive
+# Approve/Reject card in #payments via the bot token. Caller must be signed in;
+# the function re-checks the caller's role. Secrets per project:
+# SLACK_PAYMENTS_WEBHOOK_URL, SLACK_INVOICES_WEBHOOK_URL, SLACK_BOT_TOKEN,
+# SLACK_PETTY_CHANNEL_ID, and SLACK_PAYMENTS_CHANNEL_ID (the channel id the
+# interactive payment card is posted to — distinct from the one-way webhook).
 verify_jwt = true
 
 [functions.slack-interactions]
@@ -79,4 +83,14 @@ verify_jwt = false
 # .sql, like daily-digest, so it must accept the cron's anon-key bearer token
 # (verify_jwt=true). Secrets per project: ZOHO_CLIENT_ID/SECRET,
 # ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID, ZOHO_DC.
+verify_jwt = true
+
+[functions.payments-zoho-push]
+# Unified payments (§10, D6): pushes a paid F&B supplier payment to Zoho Books as
+# an expense, best-effort + retryable. Invoked from the console right after
+# mark-paid by a signed-in accountant/owner, so it accepts the caller's JWT
+# (verify_jwt=true). No-ops with 200 when Zoho secrets are absent (e.g. staging).
+# Secrets per project: ZOHO_CLIENT_ID/SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID,
+# ZOHO_DC, plus ZOHO_FB_EXPENSE_ACCOUNT and ZOHO_FB_PAID_THROUGH (Zoho account
+# names for the F&B purchases head and the paying bank account).
 verify_jwt = true
