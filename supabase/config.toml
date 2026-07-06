@@ -85,6 +85,14 @@ verify_jwt = false
 # ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID, ZOHO_DC.
 verify_jwt = true
 
+[functions.extract-invoice]
+# Reads an uploaded invoice (PDF/image) and returns its key fields as structured
+# JSON so a team member only uploads + reviews (pipeline #19). Calls the Claude
+# Messages API (Sonnet 5) with output_config.format. Invoked by a signed-in
+# raiser (verify_jwt=true); best-effort, no-ops when the key is absent. Secret
+# per project: ANTHROPIC_API_KEY.
+verify_jwt = true
+
 [functions.payments-zoho-push]
 # Unified payments (§10, D6): pushes a paid F&B supplier payment to Zoho Books as
 # an expense, best-effort + retryable. Invoked from the console right after

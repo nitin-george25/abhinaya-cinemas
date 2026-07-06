@@ -177,8 +177,14 @@ it out retroactively. Don't repeat.
 ### Backlog (from `project_console_pipeline` memory)
 
 15. Mobile app (PWA install path or native shell).
-16. Zoho integration (CRM / books).
-17. Tally integration (accounts handoff).
+16. Zoho integration (CRM / books). Books side is now subordinate to
+    #17 — Tally chosen as system of record for the merged entity
+    (2026-07-03); F&B stays manual-in-Zoho only for the pre-merger
+    transition, no Zoho adapter build.
+17. Tally integration (accounts handoff). **Roadmap written** —
+    see [Tally Integration - Roadmap.md](./Tally%20Integration%20-%20Roadmap.md)
+    (phased P0–P7, outbox + on-prem bridge, exactly-once posting).
+    Architecture reference: `Tally + Zoho Accounting Integration - Plan.md`.
 18. Ops management — checklists + owner audit (open/close routines,
     food-safety, projector booth).
 18a. **Slack notifications for petty expenses** — post to a Slack

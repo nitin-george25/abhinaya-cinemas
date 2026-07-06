@@ -823,6 +823,53 @@ export async function pushPaymentToZoho(id: string): Promise<void> {
   await invokeEdge("payments-zoho-push", { paymentId: id });
 }
 
+// ── Invoice extraction (pipeline #19) ───────────────────────────────────────
+
+export interface ExtractedInvoice {
+  vendor:      string | null;
+  invoiceNo:   string | null;
+  invoiceDate: string | null;
+  subtotal:    number | null;
+  gst:         number | null;
+  freight:     number | null;
+  total:       number | null;
+  currency:    string | null;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read the file"));
+    reader.onload = () => {
+      const s = String(reader.result);
+      const comma = s.indexOf(","); // strip the "data:<mime>;base64," prefix
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Best-effort: read an uploaded invoice's fields via the extract-invoice Edge
+ * Function. Returns null on any failure so the form falls back to manual entry.
+ */
+export async function extractInvoice(file: File): Promise<ExtractedInvoice | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const fileBase64 = await fileToBase64(file);
+    const { data, error } = await sb.functions.invoke("extract-invoice", {
+      body: { fileBase64, mediaType: file.type || "application/pdf" },
+    });
+    if (error) { console.warn("[payments] extractInvoice", error.message); return null; }
+    const res = data as { ok?: boolean; fields?: ExtractedInvoice } | null;
+    return res?.ok && res.fields ? res.fields : null;
+  } catch (e) {
+    console.warn("[payments] extractInvoice threw", (e as Error).message);
+    return null;
+  }
+}
+
 export async function getZohoPushStatus(id: string): Promise<ZohoPushStatus | null> {
   const sb = getSupabase();
   if (!sb) return null;

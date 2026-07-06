@@ -38,6 +38,7 @@ import {
   uploadPaymentFile,
   submitPayment,
   postPaymentCard,
+  extractInvoice,
   usesDistributorPayee,
   usesNoPayee,
   PAYEE_CATEGORY_LABEL,
@@ -104,6 +105,27 @@ export default function PaymentsCreatePage() {
   const [proforma, setProforma] = useState<File | null>(null);
 
   const [busy, setBusy] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [autofilled, setAutofilled] = useState(false);
+
+  // Read the invoice and pre-fill amount/note (best-effort — never blocks).
+  async function onInvoicePicked(file: File | null) {
+    setInvoice(file);
+    setAutofilled(false);
+    if (!file) return;
+    setExtracting(true);
+    try {
+      const ex = await extractInvoice(file);
+      if (ex) {
+        if (!amount && ex.total != null) setAmount(String(ex.total));
+        if (!note) {
+          const label = [ex.vendor, ex.invoiceNo].filter(Boolean).join(" · ");
+          if (label) setNote(label);
+        }
+        setAutofilled(true);
+      }
+    } finally { setExtracting(false); }
+  }
 
   // Default the operating unit + bank account once refs load.
   useEffect(() => {
@@ -422,10 +444,15 @@ export default function PaymentsCreatePage() {
                 <input
                   type="file"
                   accept="image/*,.pdf"
-                  onChange={(e) => setInvoice(e.target.files?.[0] ?? null)}
+                  onChange={(e) => void onInvoicePicked(e.target.files?.[0] ?? null)}
                   className="block w-full text-sm"
                 />
                 {invoice ? <div className="mt-1 truncate text-xs text-ink-muted">{invoice.name}</div> : null}
+                {extracting ? (
+                  <div className="mt-1 text-xs text-ink-muted">Reading invoice…</div>
+                ) : autofilled ? (
+                  <div className="mt-1 text-xs text-amber-700">Auto-filled from invoice — review the amount and details.</div>
+                ) : null}
               </Field>
             ) : null}
 
