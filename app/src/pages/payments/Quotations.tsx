@@ -22,6 +22,7 @@ import { fmtINR } from "../../lib/dashboard";
 import {
   listAssetPayments, getPaymentDetail, listQuotations, addQuotation, approveQuotation,
   skipQuotation, attachAssetInvoice, uploadPaymentFile, submitPayment, postPaymentCard,
+  extractInvoice,
   type PaymentInboxRow, type PaymentDetail, type PaymentQuotation,
 } from "../../lib/payments";
 
@@ -255,6 +256,23 @@ function AttachInvoiceForm({
   const [freight, setFreight] = useState("");
   const [deviation, setDeviation] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [autofilled, setAutofilled] = useState(false);
+
+  async function onFilePicked(f: File | null) {
+    setFile(f); setAutofilled(false);
+    if (!f) return;
+    setExtracting(true);
+    try {
+      const ex = await extractInvoice(f);
+      if (ex) {
+        if (ex.subtotal != null) setSubtotal(String(ex.subtotal));
+        if (ex.gst != null) setGst(String(ex.gst));
+        if (ex.freight != null) setFreight(String(ex.freight));
+        setAutofilled(true);
+      }
+    } finally { setExtracting(false); }
+  }
 
   const differs = lockedAmount != null && Number(subtotal) !== lockedAmount;
   const total = (Number(subtotal) || 0) + (Number(gst) || 0) + (Number(freight) || 0);
@@ -286,7 +304,12 @@ function AttachInvoiceForm({
         </Field>
       ) : null}
       <Field label="Tax invoice (required)">
-        <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block w-full text-sm" />
+        <input type="file" accept="image/*,.pdf" onChange={(e) => void onFilePicked(e.target.files?.[0] ?? null)} className="block w-full text-sm" />
+        {extracting ? (
+          <div className="mt-1 text-xs text-ink-muted">Reading invoice…</div>
+        ) : autofilled ? (
+          <div className="mt-1 text-xs text-amber-700">Auto-filled from invoice — review before attaching.</div>
+        ) : null}
       </Field>
       <div className="flex items-center justify-between">
         <span className="text-sm text-ink-muted">Total payable: <span className="font-mono tabular-nums">{fmtINR(total, 2)}</span></span>
