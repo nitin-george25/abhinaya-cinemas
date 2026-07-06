@@ -20,6 +20,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, inr, json, postWebhook } from "../_shared/slack.ts";
 import { handlePettyOutbound } from "../_shared/petty.ts";
+import { handlePaymentOutbound } from "../_shared/payments.ts";
 
 interface Body {
   kind?: string;
@@ -36,6 +37,8 @@ interface Body {
   deepLink?: string | null;
   // Petty-expense two-way approval (cash_21).
   pettyExpenseId?: string;
+  // Unified payments interactive card (§7).
+  paymentId?: string;
 }
 
 const PAYMENT_ROLES = new Set(["owner", "accountant"]);
@@ -79,6 +82,11 @@ Deno.serve(async (req: Request) => {
   // Petty-expense two-way kinds (cash_21) — delegated to the shared handler.
   if (kind === "petty_request" || kind === "petty_decided") {
     return await handlePettyOutbound(svc, role, kind, body.pettyExpenseId);
+  }
+
+  // Unified payments interactive card (§7) — delegated to the shared handler.
+  if (kind === "payment_card" || kind === "payment_card_decided") {
+    return await handlePaymentOutbound(svc, role, kind, body.paymentId, body.deepLink ?? null);
   }
 
   // --------------------------------------------------------------------------

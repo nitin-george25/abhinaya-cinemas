@@ -149,18 +149,7 @@ export const NAV: NavItem[] = [
           { kind: "leaf", to: "/reports/pos/cash-closing", label: "Cash Closing", roles: REPORT_ROLES },
         ],
       },
-      {
-        // Finance reports — read-only views over the bank-side money.
-        // Routes stay under /cash/* ; only the menu placement changed.
-        kind: "subgroup",
-        id: "reports-finance",
-        label: "Finance",
-        roles: REPORT_ROLES,
-        children: [
-          { kind: "leaf", to: "/cash/reports", label: "Cashflow",    roles: CASH_LEDGER_ROLES },
-          { kind: "leaf", to: "/cash/ledger",  label: "Bank Ledger", roles: CASH_LEDGER_ROLES },
-        ],
-      },
+      // Bank-side reports (Cashflow, Bank Ledger) now live under Finance › Bank.
     ],
   },
   {
@@ -184,17 +173,40 @@ export const NAV: NavItem[] = [
   },
   {
     // Finance — back-office money movement and reporting (bank-side).
-    // Routes stay under /cash/* ; only the menu grouping changed.
+    // Routes stay under /invoices and /cash/* ; grouped into sub-menus.
     kind: "group",
     id: "finance",
     label: "Finance",
     Icon: IconFinance,
     roles: REPORT_ROLES,
     children: [
-      // Purchase invoices (Zoho Books Bills) — accounts payable register.
-      { kind: "leaf", to: "/invoices",         label: "Invoices",    roles: REPORT_ROLES },
-      { kind: "leaf", to: "/cash/payments",    label: "Payments",    roles: CASH_PAYMENTS_ROLES },
-      { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
+      // Purchase invoices (Zoho Bills + console-uploaded) — accounts payable.
+      { kind: "leaf", to: "/invoices", label: "Invoices", roles: REPORT_ROLES },
+      {
+        // The unified Payments module — one worklist, one creation form.
+        kind: "subgroup",
+        id: "finance-payments",
+        label: "Payments",
+        roles: CASH_PAYMENTS_ROLES,
+        children: [
+          { kind: "leaf", to: "/payments",            label: "Inbox",           roles: CASH_PAYMENTS_ROLES },
+          { kind: "leaf", to: "/payments/create",     label: "Make a Payment",  roles: CASH_PAYMENTS_ROLES },
+          { kind: "leaf", to: "/payments/quotations", label: "Asset Quotations", roles: CASH_PAYMENTS_ROLES },
+          { kind: "leaf", to: "/payments/advances",   label: "Advances",        roles: CASH_PAYMENTS_ROLES },
+        ],
+      },
+      {
+        // Bank-side money — settlements + the read-only ledger/cashflow views.
+        kind: "subgroup",
+        id: "finance-bank",
+        label: "Bank",
+        roles: CASH_LEDGER_ROLES,
+        children: [
+          { kind: "leaf", to: "/cash/settlements", label: "Settlements", roles: CASH_PAYMENTS_ROLES },
+          { kind: "leaf", to: "/cash/ledger",      label: "Bank Ledger", roles: CASH_LEDGER_ROLES },
+          { kind: "leaf", to: "/cash/reports",     label: "Cashflow",    roles: CASH_LEDGER_ROLES },
+        ],
+      },
     ],
   },
   {
@@ -231,6 +243,7 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/tax",     label: "Tax & Rep Batta",   roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/cash",    label: "Cash",              roles: ["owner", "accountant"] },
+      { kind: "leaf", to: "/settings/payment-types", label: "Payment Types", roles: OWNER_ONLY },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/whatsapp", label: "WhatsApp",          roles: OWNER_ONLY },
     ],

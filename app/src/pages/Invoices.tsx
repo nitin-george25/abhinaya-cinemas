@@ -15,8 +15,10 @@ import { Button } from "../components/ui/Button";
 import { Field, Input, Select } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { useSync } from "../lib/hooks/SyncContext";
+import { useCashRefs } from "../lib/hooks/useCashRefs";
 import { fmtINR } from "../lib/dashboard";
 import { money } from "../lib/format";
+import { listConsoleInvoices, type ConsoleInvoice } from "../lib/invoiceDocs";
 import {
   deleteInvoice,
   getInvoiceLines,
@@ -42,7 +44,20 @@ function statusLabel(status: string | null): string {
 
 export default function InvoicesPage() {
   const { state } = useSync();
+  const refs = useCashRefs();
   const isOwner = state.role === "owner";
+
+  // Console-uploaded invoices (PM project expenses + unified payments) shown
+  // alongside the Zoho register so every payable document is in one place.
+  const [uploaded, setUploaded] = useState<ConsoleInvoice[]>([]);
+  useEffect(() => {
+    if (refs.loading) return;
+    let alive = true;
+    void listConsoleInvoices(refs.cinemaId, refs.units.map((u) => u.id))
+      .then((r) => { if (alive) setUploaded(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refs.loading, refs.cinemaId, refs.units.map((u) => u.id).join(",")]);
 
   const [rows, setRows] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -235,6 +250,53 @@ export default function InvoicesPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Console-uploaded invoices — Projects + Payments (not in Zoho). */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Uploaded invoices (Projects &amp; Payments)</CardTitle>
+          <span className="text-xs text-ink-muted">{uploaded.length}</span>
+        </CardHeader>
+        <CardBody className="p-0 overflow-x-auto">
+          {uploaded.length === 0 ? (
+            <div className="py-8 text-center text-sm text-ink-muted">
+              Invoices attached in Project Management or the Payments module appear here.
+            </div>
+          ) : (
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-ink-muted border-b border-line">
+                  <th className="py-2 px-3 font-medium">Date</th>
+                  <th className="py-2 px-3 font-medium">Party</th>
+                  <th className="py-2 px-3 font-medium">Source</th>
+                  <th className="py-2 px-3 font-medium">Context</th>
+                  <th className="py-2 px-3 font-medium text-right">Amount</th>
+                  <th className="py-2 px-3 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {uploaded.map((r) => (
+                  <tr key={`${r.source}-${r.id}`} className="border-b border-line/60">
+                    <td className="py-2 px-3 tabular-nums whitespace-nowrap">{r.date ?? "—"}</td>
+                    <td className="py-2 px-3">
+                      <div className="truncate max-w-[220px]">{r.party}</div>
+                      {r.reference ? <div className="text-xs text-ink-muted">{r.reference}</div> : null}
+                    </td>
+                    <td className="py-2 px-3"><Badge tone={r.source === "Project" ? "blue" : "neutral"}>{r.source}</Badge></td>
+                    <td className="py-2 px-3 truncate max-w-[200px]">{r.context ?? "—"}</td>
+                    <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">{fmtINR(r.amount ?? 0)}</td>
+                    <td className="py-2 px-3 text-right">
+                      {r.fileUrl ? (
+                        <a href={r.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-amber-700 hover:underline">Open</a>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </CardBody>
       </Card>
