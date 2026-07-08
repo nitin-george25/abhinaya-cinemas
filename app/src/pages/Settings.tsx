@@ -1987,7 +1987,6 @@ export function ScreensSection() {
                 key={s.id}
                 screen={s}
                 classes={appState.classes}
-                activeClassIds={activeClassIds}
                 showLegacy={showLegacy}
                 onSave={update}
                 onRemove={() => removeScreen(s.id)}
@@ -2003,14 +2002,12 @@ export function ScreensSection() {
 function ScreenEditor({
   screen,
   classes,
-  activeClassIds,
   showLegacy,
   onSave,
   onRemove,
 }: {
   screen: Screen;
   classes: ClassDef[];
-  activeClassIds: Set<UUID>;
   showLegacy: boolean;
   onSave: (s: Screen) => void;
   onRemove: () => void;
@@ -2028,13 +2025,14 @@ function ScreenEditor({
     else onSave({ ...screen, classes: screen.classes.filter((a) => a.classId !== classId) });
   }
 
-  // A class is legacy on THIS screen when its assignment is marked inactive,
-  // or (when unassigned) when it isn't part of any screen's current layout.
-  function isLegacyHere(classId: UUID): boolean {
+  // A class belongs to THIS screen's current layout only when it has an active
+  // assignment here. Legacy = an inactive assignment, or a class assigned to a
+  // different screen (offered as an add-option only in the reveal-all view).
+  function isCurrentHere(classId: UUID): boolean {
     const a = screen.classes.find((x) => x.classId === classId);
-    return a ? a.active === false : !activeClassIds.has(classId);
+    return !!a && a.active !== false;
   }
-  const visibleClasses = showLegacy ? classes : classes.filter((c) => !isLegacyHere(c.id));
+  const visibleClasses = showLegacy ? classes : classes.filter((c) => isCurrentHere(c.id));
   const activeCount = screen.classes.filter((a) => a.active !== false).length;
   const legacyCount = screen.classes.length - activeCount;
 
@@ -2054,7 +2052,7 @@ function ScreenEditor({
         {visibleClasses.map((c) => {
           const a = screen.classes.find((x) => x.classId === c.id);
           const on = !!a;
-          const legacy = isLegacyHere(c.id);
+          const legacy = !isCurrentHere(c.id);
           return (
             <div key={c.id} className={`flex items-center gap-2 rounded-lg border border-line px-3 py-2 ${legacy ? "bg-paper/60" : "bg-white"}`}>
               <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
