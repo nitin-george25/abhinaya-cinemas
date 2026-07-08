@@ -1651,6 +1651,8 @@ export function PriceCardsSection() {
 
   const screens = appState.screens;
   const [screenId, setScreenId] = useState<UUID>(screens[0]?.id ?? "");
+  const [showHidden, setShowHidden] = useState(false);
+  const [showLegacyClasses, setShowLegacyClasses] = useState(false);
   const screen = screens.find((s) => s.id === screenId);
 
   function mutate(next: PriceCard[]) {
@@ -1674,6 +1676,10 @@ export function PriceCardsSection() {
     mutate((screen.priceCards ?? []).map((c) => c.id === card.id ? card : c));
   }
 
+  function toggleHidden(card: PriceCard) {
+    updateCard({ ...card, hidden: !card.hidden });
+  }
+
   function deleteCard(id: UUID) {
     if (!screen) return;
     if (!confirm("Delete this price card? Existing entries that reference it keep their data.")) return;
@@ -1689,7 +1695,19 @@ export function PriceCardsSection() {
     );
   }
 
-  const cls = screen ? resolveClasses(appState.classes, screen.classes) : [];
+  // Legacy/current split. Columns default to the screen's CURRENT classes
+  // (active !== false); legacy class columns are revealed on demand. Cards
+  // marked hidden are collapsed behind a "Show hidden" toggle.
+  const activeAssignments = screen ? screen.classes.filter((a) => a.active !== false) : [];
+  const legacyClassCount = screen ? screen.classes.length - activeAssignments.length : 0;
+  const cls = screen
+    ? resolveClasses(appState.classes, showLegacyClasses ? screen.classes : activeAssignments)
+    : [];
+
+  const allCards = screen?.priceCards ?? [];
+  const hiddenCount = allCards.filter((c) => c.hidden).length;
+  const visibleCards = showHidden ? allCards : allCards.filter((c) => !c.hidden);
+  const hasToggles = legacyClassCount > 0 || hiddenCount > 0;
 
   return (
     <Card>
@@ -1707,8 +1725,36 @@ export function PriceCardsSection() {
         </div>
       </CardHeader>
       <CardBody className="p-0">
-        {!screen || (screen.priceCards ?? []).length === 0 ? (
-          <p className="px-5 py-5 text-sm text-ink-muted">No price cards yet for this screen.</p>
+        {hasToggles ? (
+          <div className="flex flex-wrap items-center gap-4 px-5 py-2.5 border-b border-line text-xs text-ink-muted">
+            {legacyClassCount > 0 ? (
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showLegacyClasses}
+                  onChange={(e) => setShowLegacyClasses(e.target.checked)}
+                />
+                Show {legacyClassCount} legacy class{legacyClassCount === 1 ? "" : "es"}
+              </label>
+            ) : null}
+            {hiddenCount > 0 ? (
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showHidden}
+                  onChange={(e) => setShowHidden(e.target.checked)}
+                />
+                Show {hiddenCount} hidden card{hiddenCount === 1 ? "" : "s"}
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+        {!screen || visibleCards.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            {allCards.length === 0
+              ? "No price cards yet for this screen."
+              : "All price cards for this screen are hidden."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1718,16 +1764,17 @@ export function PriceCardsSection() {
                   {cls.map((c) => (
                     <th key={c.id} className="text-right px-5 py-3 font-semibold">{c.name}</th>
                   ))}
-                  <th className="text-right px-5 py-3 font-semibold w-12"></th>
+                  <th className="text-right px-5 py-3 font-semibold w-28"></th>
                 </tr>
               </thead>
               <tbody>
-                {(screen.priceCards ?? []).map((card) => (
+                {visibleCards.map((card) => (
                   <PriceCardRow
                     key={card.id}
                     card={card}
                     classes={cls}
                     onSave={updateCard}
+                    onToggleHidden={() => toggleHidden(card)}
                     onRemove={() => deleteCard(card.id)}
                   />
                 ))}
@@ -1744,21 +1791,30 @@ function PriceCardRow({
   card,
   classes,
   onSave,
+  onToggleHidden,
   onRemove,
 }: {
   card: PriceCard;
   classes: Array<{ id: UUID; name: string }>;
   onSave: (c: PriceCard) => void;
+  onToggleHidden: () => void;
   onRemove: () => void;
 }) {
   return (
-    <tr className="border-b border-line hover:bg-paper/60">
+    <tr className={`border-b border-line hover:bg-paper/60 ${card.hidden ? "opacity-55" : ""}`}>
       <td className="px-5 py-2">
-        <Input
-          value={card.name}
-          onChange={(e) => onSave({ ...card, name: e.target.value })}
-          className="h-8"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            value={card.name}
+            onChange={(e) => onSave({ ...card, name: e.target.value })}
+            className="h-8"
+          />
+          {card.hidden ? (
+            <span className="shrink-0 rounded-full bg-paper border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted">
+              Hidden
+            </span>
+          ) : null}
+        </div>
       </td>
       {classes.map((c) => (
         <td key={c.id} className="px-5 py-2">
@@ -1772,7 +1828,15 @@ function PriceCardRow({
           />
         </td>
       ))}
-      <td className="px-5 py-2 text-right">
+      <td className="px-5 py-2 text-right whitespace-nowrap">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onToggleHidden}
+          title={card.hidden ? "Show this card" : "Hide this legacy card"}
+        >
+          {card.hidden ? "Show" : "Hide"}
+        </Button>
         <Button size="sm" variant="ghost" onClick={onRemove} className="text-red-700">×</Button>
       </td>
     </tr>
@@ -1784,6 +1848,7 @@ function PriceCardRow({
 export function ScreensSection() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
+  const [showLegacy, setShowLegacy] = useState(false);
   if (!appState || !canEditCatalog(state.role)) return null;
 
   function update(next: Screen) {
@@ -1846,11 +1911,33 @@ export function ScreensSection() {
     });
   }
 
+  // A class is "current" if some screen offers it in its active layout
+  // (active !== false). Everything else — historical-era classes left over
+  // from the old data upload — is legacy and hidden unless revealed.
+  const activeClassIds = new Set<UUID>();
+  appState.screens.forEach((s) =>
+    s.classes.forEach((a) => { if (a.active !== false) activeClassIds.add(a.classId); }),
+  );
+  const legacyCatalogCount = appState.classes.filter((c) => !activeClassIds.has(c.id)).length;
+  const visibleCatalog = showLegacy
+    ? appState.classes
+    : appState.classes.filter((c) => activeClassIds.has(c.id));
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Screens &amp; classes</CardTitle>
         <div className="flex items-center gap-2">
+          {legacyCatalogCount > 0 ? (
+            <label className="inline-flex items-center gap-1.5 text-xs text-ink-muted cursor-pointer mr-1">
+              <input
+                type="checkbox"
+                checked={showLegacy}
+                onChange={(e) => setShowLegacy(e.target.checked)}
+              />
+              Show {legacyCatalogCount} legacy
+            </label>
+          ) : null}
           <Button size="sm" variant="ghost" onClick={addClass}>+ Add class</Button>
           <Button size="sm" onClick={addScreen}>+ Add screen</Button>
         </div>
@@ -1862,19 +1949,30 @@ export function ScreensSection() {
             Master class catalog
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {appState.classes.map((c) => (
-              <span key={c.id} className="inline-flex items-center gap-2 rounded-full border border-line bg-paper px-3 py-1 text-sm">
-                <span className="font-medium">{c.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeClass(c.id)}
-                  className="text-ink-muted hover:text-red-700 text-base leading-none"
-                  title="Remove class"
-                >×</button>
-              </span>
-            ))}
+            {visibleCatalog.map((c) => {
+              const legacy = !activeClassIds.has(c.id);
+              return (
+                <span
+                  key={c.id}
+                  className={`inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 text-sm ${legacy ? "bg-paper/50 text-ink-muted" : "bg-paper"}`}
+                >
+                  <span className="font-medium">{c.name}</span>
+                  {legacy ? (
+                    <span className="text-[10px] uppercase tracking-wide">legacy</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => removeClass(c.id)}
+                    className="text-ink-muted hover:text-red-700 text-base leading-none"
+                    title="Remove class"
+                  >×</button>
+                </span>
+              );
+            })}
             {appState.classes.length === 0 ? (
               <span className="text-sm text-ink-muted">No classes defined yet.</span>
+            ) : visibleCatalog.length === 0 ? (
+              <span className="text-sm text-ink-muted">No current classes — toggle “Show legacy” to see historical ones.</span>
             ) : null}
           </div>
         </div>
@@ -1889,6 +1987,8 @@ export function ScreensSection() {
                 key={s.id}
                 screen={s}
                 classes={appState.classes}
+                activeClassIds={activeClassIds}
+                showLegacy={showLegacy}
                 onSave={update}
                 onRemove={() => removeScreen(s.id)}
               />
@@ -1903,11 +2003,15 @@ export function ScreensSection() {
 function ScreenEditor({
   screen,
   classes,
+  activeClassIds,
+  showLegacy,
   onSave,
   onRemove,
 }: {
   screen: Screen;
   classes: ClassDef[];
+  activeClassIds: Set<UUID>;
+  showLegacy: boolean;
   onSave: (s: Screen) => void;
   onRemove: () => void;
 }) {
@@ -1924,28 +2028,45 @@ function ScreenEditor({
     else onSave({ ...screen, classes: screen.classes.filter((a) => a.classId !== classId) });
   }
 
+  // A class is legacy on THIS screen when its assignment is marked inactive,
+  // or (when unassigned) when it isn't part of any screen's current layout.
+  function isLegacyHere(classId: UUID): boolean {
+    const a = screen.classes.find((x) => x.classId === classId);
+    return a ? a.active === false : !activeClassIds.has(classId);
+  }
+  const visibleClasses = showLegacy ? classes : classes.filter((c) => !isLegacyHere(c.id));
+  const activeCount = screen.classes.filter((a) => a.active !== false).length;
+  const legacyCount = screen.classes.length - activeCount;
+
   return (
     <div className="rounded-xl border border-line bg-paper p-4 space-y-3">
       <div className="flex items-center gap-3">
         <Input value={screen.name} onChange={(e) => setName(e.target.value)} className="w-56 h-9 font-medium" />
-        <span className="text-xs text-ink-muted">{screen.classes.length} class{screen.classes.length === 1 ? "" : "es"}</span>
+        <span className="text-xs text-ink-muted">
+          {activeCount} class{activeCount === 1 ? "" : "es"}
+          {legacyCount > 0 ? ` · ${legacyCount} legacy` : ""}
+        </span>
         <span className="ml-auto">
           <Button size="sm" variant="ghost" onClick={onRemove} className="text-red-700">Delete screen</Button>
         </span>
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
-        {classes.map((c) => {
+        {visibleClasses.map((c) => {
           const a = screen.classes.find((x) => x.classId === c.id);
           const on = !!a;
+          const legacy = isLegacyHere(c.id);
           return (
-            <div key={c.id} className="flex items-center gap-2 rounded-lg bg-white border border-line px-3 py-2">
-              <label className="flex items-center gap-2 text-sm flex-1">
+            <div key={c.id} className={`flex items-center gap-2 rounded-lg border border-line px-3 py-2 ${legacy ? "bg-paper/60" : "bg-white"}`}>
+              <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
                 <input
                   type="checkbox"
                   checked={on}
                   onChange={(e) => toggleClass(c.id, e.target.checked)}
                 />
-                <span className="font-medium">{c.name}</span>
+                <span className={`font-medium truncate ${legacy ? "text-ink-muted" : ""}`}>{c.name}</span>
+                {legacy ? (
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-muted">legacy</span>
+                ) : null}
               </label>
               <Input
                 type="number" min={0}
