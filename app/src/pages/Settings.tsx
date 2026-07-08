@@ -2058,6 +2058,7 @@ function ScreenEditor({
               <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
                 <input
                   type="checkbox"
+                  className="shrink-0"
                   checked={on}
                   onChange={(e) => toggleClass(c.id, e.target.checked)}
                 />
@@ -2066,14 +2067,16 @@ function ScreenEditor({
                   <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-muted">legacy</span>
                 ) : null}
               </label>
-              <Input
-                type="number" min={0}
-                value={on ? a!.seats : ""}
-                disabled={!on}
-                onChange={(e) => setSeats(c.id, Number(e.target.value) || 0)}
-                className="h-8 w-24 text-right"
-                placeholder="seats"
-              />
+              <div className="shrink-0 w-20">
+                <Input
+                  type="number" min={0}
+                  value={on ? a!.seats : ""}
+                  disabled={!on}
+                  onChange={(e) => setSeats(c.id, Number(e.target.value) || 0)}
+                  className="h-8 w-full text-right"
+                  placeholder="seats"
+                />
+              </div>
             </div>
           );
         })}
