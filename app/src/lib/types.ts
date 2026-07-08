@@ -85,6 +85,13 @@ export interface PriceCard {
   id: UUID;
   name: string;
   prices: Record<UUID, number>;   // classId -> printed ticket price (gross)
+  /**
+   * True for legacy/historical price cards (e.g. imported by the old data
+   * upload) that the operator has hidden to declutter the catalog. Absent =
+   * visible. Hiding is display-only: the card and its prices are preserved so
+   * old entries that reference it still compute.
+   */
+  hidden?: boolean;
 }
 
 export interface Screen {
