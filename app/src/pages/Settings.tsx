@@ -26,7 +26,7 @@ import { fmtINR } from "../lib/dashboard";
 import { uid, entryKey } from "../lib/mappers";
 import { clearEntryShareOverrides } from "../lib/entriesApi";
 import { daysBetween, realShowCount } from "../lib/engine";
-import { addDaysIso } from "../lib/dates";
+import { addDaysIso, todayIstIso } from "../lib/dates";
 import type {
   ClassDef,
   Distributor,
@@ -1888,7 +1888,24 @@ export function ScreensSection() {
       classes: [...s.classes, { classId: cls.id, seats: 0 }],
       priceCards: s.priceCards.map((c) => ({ ...c, prices: { ...c.prices, [cls.id]: 0 } })),
     }));
-    setAppState({ ...appState, classes: [...appState.classes, cls], screens: updatedScreens });
+    // Seed a ticket-serial start of 1 (effective today) on every screen.
+    // computeSerials leaves a class's serial range BLANK until a SerialStart
+    // covers it on that screen (Prime Plus / Audi 1 bug, 2026-07-13), so a new
+    // class starts its own series at 1 from the day it is added. Merged into an
+    // existing same-day record when present — the DB mirror has a unique
+    // (screen_id, start_date) constraint.
+    const today = todayIstIso();
+    const serialStarts = [...(appState.serialStarts || [])];
+    appState.screens.forEach((s) => {
+      const i = serialStarts.findIndex((x) => x.screenId === s.id && x.date === today);
+      const existing = i >= 0 ? serialStarts[i] : undefined;
+      if (existing) {
+        serialStarts[i] = { ...existing, starts: { ...existing.starts, [cls.id]: 1 } };
+      } else {
+        serialStarts.push({ id: uid(), screenId: s.id, date: today, starts: { [cls.id]: 1 } });
+      }
+    });
+    setAppState({ ...appState, classes: [...appState.classes, cls], screens: updatedScreens, serialStarts });
   }
 
   function removeClass(id: UUID) {
@@ -2204,6 +2221,7 @@ export function TaxSection() {
               className="text-right" />
           </Field>
           <Field label="Rep 5+ (₹)">
+  
             <Input type="number" min={0} step={0.01}
               value={tax.rep5}
               onChange={(e) => update({ rep5: Number(e.target.value) || 0 })}

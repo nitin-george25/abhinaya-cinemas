@@ -92,7 +92,7 @@ export function BoQuickAddModal({ open, onClose }: Props) {
   if (picked) {
     const movie = appState.movies.find((m) => m.id === picked.movieId);
     const entry = findEntry(appState, date, picked.movieId, screenId as UUID);
-    const matIdx = showIdxForSchedule(entry, picked.id);
+    const matIdx = showIdxForSchedule(entry, picked);
     const matShow = matIdx >= 0 ? entry!.shows![matIdx] : undefined;
     const show: Show =
       matShow ?? {
