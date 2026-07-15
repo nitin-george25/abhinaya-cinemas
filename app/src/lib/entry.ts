@@ -158,20 +158,37 @@ export function removeShow(entry: Entry, idx: number): Entry {
 // linked back via Show.scheduleId. These helpers keep the entry's shows[] in
 // step with the programme without the engine ever seeing a phantom show.
 
-/** Index of the Show materialized from `scheduleId` within an entry, or -1. */
+/**
+ * Index of the Show materialized from this scheduled show within an entry,
+ * or -1.
+ *
+ * Primary match is `Show.scheduleId`. But copy-forward and re-import REPLACE a
+ * day's programme with fresh ids (copyScheduleForward / applyImport), which
+ * orphans every already-entered show's link — the Entry page then rendered
+ * blank 0-ticket cards over intact data, and editing materialized duplicate
+ * shows. So when the id misses, fall back to the showtime snapshotted onto the
+ * Show at materialization: the programme guarantees showtimes are unique per
+ * (date, screen) (hasShowtimeClash + DB unique constraint), so within one
+ * entry's shows the match is unambiguous.
+ */
 export function showIdxForSchedule(
   entry: Entry | undefined,
-  scheduleId: UUID,
+  sched: Pick<ShowSchedule, "id" | "showtime">,
 ): number {
   if (!entry?.shows) return -1;
-  return entry.shows.findIndex((s) => s.scheduleId === scheduleId);
+  const byId = entry.shows.findIndex((s) => s.scheduleId === sched.id);
+  if (byId !== -1) return byId;
+  if (!sched.showtime) return -1;
+  return entry.shows.findIndex((s) => s.showtime === sched.showtime);
 }
 
 /**
  * Ensure the (date, movie, screen) entry exists and holds a Show for this
  * scheduled show, snapshotting the schedule's showtime + price card onto it.
  * Returns the next AppState plus the materialized entry and the show's index.
- * Idempotent — if the show already exists nothing new is created.
+ * Idempotent — if the show already exists nothing new is created. A show found
+ * via the showtime fallback (orphaned link after a programme replace) is
+ * healed: its scheduleId is re-pointed at the current schedule row.
  */
 export function ensureScheduledShow(
   state: AppState,
@@ -187,13 +204,16 @@ export function ensureScheduledShow(
       share: null,
       shows: [],
     };
-  let idx = showIdxForSchedule(entry, sched.id);
+  let idx = showIdxForSchedule(entry, sched);
   if (idx === -1) {
     const sh = blankShow(state, sched.screenId, sched.priceCardId);
     sh.showtime = sched.showtime;
     sh.scheduleId = sched.id;
     entry = { ...entry, shows: [...(entry.shows ?? []), sh] };
     idx = (entry.shows ?? []).length - 1;
+  } else if (entry.shows?.[idx]?.scheduleId !== sched.id) {
+    // Matched by showtime — repair the orphaned link in place.
+    entry = updateShow(entry, idx, { scheduleId: sched.id });
   }
   return { state: upsertEntry(state, entry), entry, showIdx: idx };
 }

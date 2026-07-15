@@ -450,7 +450,7 @@ function ScheduledShow({
     twoDayLockActive,
   });
 
-  const matIdx = showIdxForSchedule(entry, sched.id);
+  const matIdx = showIdxForSchedule(entry, sched);
   const matShow = matIdx >= 0 ? entry!.shows![matIdx] : undefined;
 
   // Upcoming — tickets haven't closed yet.
