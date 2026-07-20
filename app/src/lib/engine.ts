@@ -349,6 +349,12 @@ export function entryRepBatta(
   tax: TaxConfig,
   draft: Entry | null = state.draft,
 ): number {
+  // Owner-directed waiver (2026-07-20): non-film screenings (FIFA matches
+  // etc.) have no rep, so no batta. An explicit per-entry input — the locked
+  // step/pooling math below is untouched, and OTHER entries pooling with this
+  // movie/day still compute their own shares as before.
+  if (entry.repBattaWaived) return 0;
+
   if (!sharedScreenMovie(state, entry, draft)) {
     return repBattaFor(realShowCount(entry), tax);
   }

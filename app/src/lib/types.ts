@@ -223,6 +223,11 @@ export interface Entry {
    *  accidental empty entry (0 tickets, 0 cancelled → ignored). Never
    *  read by the DCR math engine. */
   cancelledShows?: number;
+  /** No rep batta for this DCR (e.g. FIFA match screening — no film rep
+   *  attends). When true, entryRepBatta returns 0 for THIS entry; other
+   *  entries' pooling math is untouched. Owner-directed (2026-07-20).
+   *  Set via a confirmed checkbox on the Entry page. */
+  repBattaWaived?: boolean;
 }
 
 // ── Show schedule (programme) ──────────────────────────────────────────────

@@ -242,6 +242,7 @@ function MovieSection({
   // made it look un-editable.)
   const [msgIdx, setMsgIdx] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingWaiver, setConfirmingWaiver] = useState(false);
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
@@ -279,6 +280,14 @@ function MovieSection({
     const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
     setAppState(upsertEntry(appState, { ...base, cancelledShows: Math.max(0, Math.min(12, n)) }));
   }
+  // Rep-batta waiver (non-film screenings, e.g. FIFA matches). Checking asks
+  // for confirmation; unchecking restores the normal step lookup directly.
+  const repBattaWaived = entry?.repBattaWaived ?? false;
+  const waiverEditable = !twoDayLockActive || role === "owner";
+  function setWaived(on: boolean) {
+    const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
+    setAppState(upsertEntry(appState, { ...base, repBattaWaived: on }));
+  }
 
   return (
     <Card>
@@ -302,8 +311,9 @@ function MovieSection({
           ) : null}
         </div>
 
-        {/* Distributor share */}
-        <div className="max-w-xs">
+        {/* Distributor share + rep-batta waiver */}
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <div className="max-w-xs grow">
           <Field
             label="Distributor share"
             hint={
@@ -332,6 +342,30 @@ function MovieSection({
               className="tabular-nums"
             />
           </Field>
+        </div>
+
+        <label
+          className={`inline-flex items-center gap-2 pb-2 text-sm ${
+            waiverEditable ? "cursor-pointer" : "cursor-not-allowed text-ink-muted"
+          }`}
+          title={
+            waiverEditable
+              ? "No rep batta for this DCR (non-film screening, e.g. FIFA match)"
+              : "Locked after 2 days"
+          }
+        >
+          <input
+            type="checkbox"
+            checked={repBattaWaived}
+            disabled={!waiverEditable}
+            onChange={(e) => {
+              if (e.target.checked) setConfirmingWaiver(true);
+              else setWaived(false);
+            }}
+          />
+          No rep batta
+          {repBattaWaived ? <Badge tone="amber">₹0</Badge> : null}
+        </label>
         </div>
 
         {/* Per-show gated entry */}
@@ -390,6 +424,24 @@ function MovieSection({
             onClose={() => setMsgIdx(null)}
           />
         ) : null}
+
+        <ConfirmDialog
+          open={confirmingWaiver}
+          title="Waive rep batta for this DCR?"
+          confirmLabel="Waive rep batta"
+          onCancel={() => setConfirmingWaiver(false)}
+          onConfirm={() => {
+            setConfirmingWaiver(false);
+            setWaived(true);
+          }}
+        >
+          <p>{movie?.name ?? "?"} · {date}</p>
+          <p>
+            Rep batta becomes ₹0 on this DCR — for screenings without a film
+            rep (FIFA matches, events). Net &amp; distributor shares recompute
+            accordingly. Untick the box to restore the normal batta.
+          </p>
+        </ConfirmDialog>
 
         <ConfirmDialog
           open={confirmingDelete}

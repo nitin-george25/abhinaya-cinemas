@@ -1020,3 +1020,80 @@ describe("resolveShare() — null = inherit week/base; positive = per-day overri
     expect(c.today.distShare).toBeCloseTo(0.5 * c.today.netShare, 6);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Rep-batta waiver (owner-directed, 2026-07-20): non-film screenings (FIFA
+// matches etc.) have no rep, so entryRepBatta must return 0 for a waived
+// entry — WITHOUT touching the locked step/pooling math for anything else.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("entryRepBatta() — repBattaWaived", () => {
+  const waivable = (n: number, waived: boolean): Entry => ({
+    id: "e1", date: "2025-04-15", movieId: "mov_empuraan",
+    screenId: "scr_abhinaya", share: 60, repBattaWaived: waived,
+    shows: Array.from({ length: n }, (_, i) => ({
+      showtime: `${10 + 3 * i}:00`,
+      rows: {},
+    })),
+  });
+
+  it("waived entry → 0 at every show-count tier", () => {
+    const s = makeDefaultState();
+    for (const n of [1, 3, 5]) {
+      s.entries = [waivable(n, true)];
+      expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(0);
+    }
+  });
+
+  it("un-waived stays bit-identical to the legacy step lookup", () => {
+    const s = makeDefaultState();
+    s.entries = [waivable(1, false)];
+    expect(entryRepBatta(s, s.entries[0]!, s.tax)).toBe(250);
+  });
+
+  it("flows through computeEntry: repBatta 0, netShare gains the batta back", () => {
+    const s = makeDefaultState();
+    const base: Entry = {
+      id: "e1", date: "2025-04-15", movieId: "mov_empuraan",
+      screenId: "scr_abhinaya", share: 60,
+      shows: [{
+        showtime: "19:00", priceCardId: "pc_1",
+        rows: { cls_royale: { tickets: 10 } },
+      }],
+    };
+    s.entries = [base];
+    const normal = computeEntry(s, base);
+    const waived = computeEntry(s, { ...base, repBattaWaived: true });
+    expect(normal.grand.repBatta).toBe(250);
+    expect(waived.grand.repBatta).toBe(0);
+    expect(waived.today.repBatta).toBe(0);
+    expect(waived.today.netShare - normal.today.netShare).toBeCloseTo(250, 6);
+    // Everything upstream of the batta is untouched.
+    expect(waived.today.grossColl).toBeCloseTo(normal.today.grossColl, 6);
+    expect(waived.today.gst).toBeCloseTo(normal.today.gst, 6);
+  });
+
+  it("a waived entry does not change the OTHER screen's pooled batta", () => {
+    const s = makeDefaultState();
+    s.screens = [
+      ...s.screens,
+      {
+        id: "scr_tara", name: "Tara",
+        classes: [{ classId: "cls_royale", seats: 150 }],
+        priceCards: [{ id: "pc_t1", name: "Card T1", prices: { cls_royale: 290 } }],
+      },
+    ];
+    const mk = (id: string, screenId: string, n: number, waived = false): Entry => ({
+      id, date: "2025-04-15", movieId: "mov_empuraan", screenId, share: 60,
+      repBattaWaived: waived,
+      shows: Array.from({ length: n }, (_, i) => ({ showtime: `${10 + 3 * i}:00`, rows: {} })),
+    });
+    // 2+3 pooled (=5 → ₹600 split 200/400 by legacy math). Waiving screen A
+    // zeroes A only; B keeps its pooled share exactly as before.
+    const a = mk("eA", "scr_abhinaya", 2, true);
+    const b = mk("eB", "scr_tara", 3);
+    s.entries = [a, b];
+    expect(entryRepBatta(s, a, s.tax)).toBe(0);
+    expect(entryRepBatta(s, b, s.tax)).toBe(400);
+  });
+});
