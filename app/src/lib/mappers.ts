@@ -35,6 +35,7 @@ export function rowToEntry(r: EntryRow): Entry {
     share: r.share != null && r.share > 0 ? r.share : null,
     shows: (r.shows ?? []) as Show[],
     cancelledShows: r.cancelled_shows ?? 0,
+    repBattaWaived: r.rep_batta_waived ?? false,
   };
 }
 
@@ -60,6 +61,7 @@ export function entryToRow(
         : null,
     shows: e.shows ?? [],
     cancelled_shows: e.cancelledShows ?? 0,
+    rep_batta_waived: e.repBattaWaived ?? false,
     updated_by: updatedBy,
     updated_at: new Date().toISOString(),
   };
@@ -118,6 +120,7 @@ export const entrySignature = (e: Entry): string =>
     share: e.share,
     shows: e.shows ?? [],
     cancelledShows: e.cancelledShows ?? 0,
+    repBattaWaived: e.repBattaWaived ?? false,
   });
 
 // ── F&B ────────────────────────────────────────────────────────────────

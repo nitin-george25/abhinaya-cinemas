@@ -17,6 +17,8 @@ export interface EntryRow {
   shows: Show[] | null;
   /** cash_20 — shows scheduled but cancelled that day (status engine input). */
   cancelled_shows: number | null;
+  /** No rep batta for this DCR (non-film screenings, e.g. FIFA matches). */
+  rep_batta_waived: boolean | null;
   updated_by: string | null;
   updated_at: string | null; // ISO timestamp
 }
