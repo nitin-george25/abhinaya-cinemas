@@ -19,14 +19,38 @@ declare
   ssid  text;
   added date;
   ss    jsonb;
+  seen  text;
 begin
-  -- Prime Plus class id, from the authoritative config blob.
+  -- Prime Plus class id. Fuzzy name match (case/space/punctuation-blind) so
+  -- "Prime Plus", "PrimePlus", "Prime+" etc. all resolve. Try the
+  -- authoritative config blob first, then the normalized classes mirror.
   select c->>'id' into cid
   from public.config, jsonb_array_elements(data->'classes') c
-  where id = 1 and lower(trim(c->>'name')) = 'prime plus';
+  where id = 1
+    and regexp_replace(lower(c->>'name'), '[^a-z0-9]', '', 'g') = 'primeplus'
+  limit 1;
 
   if cid is null then
-    raise exception 'Prime Plus class not found in config.data->classes';
+    select id into cid
+    from public.classes
+    where regexp_replace(lower(name), '[^a-z0-9]', '', 'g') = 'primeplus'
+      and archived_at is null
+    limit 1;
+  end if;
+
+  -- No Prime Plus in this environment (e.g. staging, where the class was
+  -- never added) — skip rather than fail, so the same migration applies
+  -- cleanly everywhere. The class list is logged for sanity-checking.
+  if cid is null then
+    select string_agg(format('%s=%s', c->>'id', c->>'name'), ', ')
+      into seen
+    from public.config, jsonb_array_elements(data->'classes') c
+    where id = 1;
+    raise notice
+      'Prime Plus class not found in this environment - nothing to seed. config.data->classes: [%]. classes table: [%]',
+      coalesce(seen, '<none>'),
+      coalesce((select string_agg(id || '=' || name, ', ') from public.classes where archived_at is null), '<none>');
+    return;
   end if;
 
   -- Already covered by some Audi 1 serial start? Then nothing to do.
