@@ -22,6 +22,7 @@ import {
   showUnlockState,
   isLastShowOfDay,
   isLastScheduledShow,
+  orphanShowIdxs,
 } from "../lib/schedule";
 import {
   computeEntry,
@@ -29,6 +30,7 @@ import {
   resolveShare,
   runWeekOf,
 } from "../lib/engine";
+import { fmtINR } from "../lib/dashboard";
 import { sendShowMessage } from "../lib/whatsapp";
 import { downloadDcrPdf } from "../lib/pdf";
 import { LOGO_DATA_URL } from "../assets/logo";
@@ -274,6 +276,22 @@ function MovieSection({
   // made it look un-editable.)
   const [msgIdx, setMsgIdx] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Per-show delete — holds the entry.shows index awaiting confirmation.
+  const [deletingShowIdx, setDeletingShowIdx] = useState<number | null>(null);
+  const deletingShow = deletingShowIdx !== null ? entry?.shows?.[deletingShowIdx] : undefined;
+
+  // Entered shows with no programme row left (schedule row deleted, or the day
+  // replaced by a copy-forward / Vista import after entry). They render from
+  // the schedule below, so without this they'd be invisible here while still
+  // counting in the DCR — the exact bug this section exists to make impossible.
+  const orphans = useMemo(
+    () => (entry ? orphanShowIdxs(appState, entry) : []),
+    [appState, entry],
+  );
+  const deletingTotals =
+    deletingShowIdx !== null ? computed?.shows[deletingShowIdx]?.totals : undefined;
+  const deletingIsOrphan =
+    deletingShowIdx !== null && orphans.includes(deletingShowIdx);
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
@@ -337,8 +355,59 @@ function MovieSection({
             onPatchShow={(patch) => patchShow(sched, patch)}
             onPatchRow={(classId, tickets) => patchRow(sched, classId, tickets)}
             onMessage={(idx) => setMsgIdx(idx)}
+            canDelete={role === "owner"}
+            onDeleteShow={(idx) => setDeletingShowIdx(idx)}
           />
         ))}
+
+        {orphans.length > 0 && entry ? (
+          <div className="rounded-xl border border-amber-400 bg-amber-50 p-3 space-y-3">
+            <div>
+              <Badge tone="amber">Not on the programme</Badge>
+              <p className="text-xs text-ink-muted mt-1.5">
+                {orphans.length === 1 ? "This show was" : "These shows were"}{" "}
+                entered earlier but {orphans.length === 1 ? "is" : "are"} no
+                longer on the Schedule for {date}.{" "}
+                {orphans.length === 1 ? "It is" : "They are"} still counted in
+                the DCR and every report — delete{" "}
+                {orphans.length === 1 ? "it" : "them"} here, or put the show back
+                on the Schedule page.
+              </p>
+            </div>
+            {orphans.map((idx) => {
+              const sh = entry.shows?.[idx];
+              const t = computed?.shows[idx]?.totals;
+              return (
+                <div
+                  key={sh?.scheduleId ?? `orphan-${idx}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2"
+                >
+                  <div>
+                    <span className="text-sm font-medium">
+                      {sh?.showtime || "No showtime"}
+                    </span>
+                    <p className="text-xs text-ink-muted mt-0.5">
+                      {t ? `${t.tickets} tickets · ${fmtINR(t.grossColl)}` : "Not entered"}
+                    </p>
+                  </div>
+                  {role === "owner" ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeletingShowIdx(idx)}
+                    >
+                      Delete show
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-ink-muted">
+                      Owner can delete this
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
 
         <CancelledShowsField {...fieldProps} />
 
@@ -358,18 +427,54 @@ function MovieSection({
 
         <ConfirmDialog
           open={confirmingDelete}
-          title="Delete this entry?"
-          confirmLabel="Delete entry"
+          title="Delete the whole DCR?"
+          confirmLabel="Delete DCR"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => {
             setConfirmingDelete(false);
             setAppState(deleteEntry(appState, date, movieId, screenId));
           }}
         >
-          <p>{movie?.name ?? "?"} · {date}</p>
           <p>
-            This permanently removes the entry and all its ticket counts from the
-            cloud. The scheduled shows stay on the Schedule page.
+            <strong>{movie?.name ?? "?"}</strong> · {date}
+            {computed
+              ? ` · ${entry?.shows?.length ?? 0} ${(entry?.shows?.length ?? 0) === 1 ? "show" : "shows"} entered · ${computed.grand.tickets} tickets`
+              : ""}
+          </p>
+          <p>
+            This permanently removes the entry and every show's ticket counts
+            from the cloud. It cannot be undone. The scheduled shows stay on the
+            Schedule page.
+          </p>
+          <p>To remove just one show, use "Delete show" on that show's card.</p>
+        </ConfirmDialog>
+
+        <ConfirmDialog
+          open={deletingShowIdx !== null}
+          title="Delete this show's entry?"
+          confirmLabel="Delete show"
+          onCancel={() => setDeletingShowIdx(null)}
+          onConfirm={() => {
+            const idx = deletingShowIdx;
+            setDeletingShowIdx(null);
+            if (idx !== null && entry) {
+              setAppState(upsertEntry(appState, removeShow(entry, idx)));
+            }
+          }}
+        >
+          <p>
+            <strong>{movie?.name ?? "?"}</strong> ·{" "}
+            {deletingShow?.showtime || "—"}
+            {deletingTotals ? ` · ${deletingTotals.tickets} tickets` : ""}
+          </p>
+          <p>
+            This clears the ticket counts entered for this show only — the rest
+            of the DCR is untouched.
+          </p>
+          <p>
+            {deletingIsOrphan
+              ? "This show is no longer on the programme, so it will disappear from the DCR entirely."
+              : "The show stays on the Schedule page, so you can enter it again."}
           </p>
         </ConfirmDialog>
       </CardBody>
@@ -392,6 +497,8 @@ function ScheduledShow({
   onPatchShow,
   onPatchRow,
   onMessage,
+  canDelete,
+  onDeleteShow,
 }: {
   appState: AppState;
   entry: Entry | undefined;
@@ -406,6 +513,10 @@ function ScheduledShow({
   onPatchShow: (patch: Partial<Show>) => void;
   onPatchRow: (classId: UUID, tickets: number) => void;
   onMessage: (idx: number) => void;
+  /** Owner-only, mirrors the DCR delete gate. */
+  canDelete: boolean;
+  /** Asks the parent to confirm deleting the entry.shows[idx] for this show. */
+  onDeleteShow: (matIdx: number) => void;
 }) {
   const gate = showUnlockState({
     scheduleDate: date,
@@ -474,6 +585,12 @@ function ScheduledShow({
       onGenerateMessage={
         entry && matIdx >= 0 ? () => onMessage(matIdx) : undefined
       }
+      // Only a materialized show has anything to delete; owner-gated like the
+      // DCR delete. The schedule row itself is removed on the Schedule page.
+      onRemove={
+        canDelete && entry && matIdx >= 0 ? () => onDeleteShow(matIdx) : undefined
+      }
+      removeLabel="Delete show"
     />
   );
 }
@@ -857,16 +974,24 @@ function UnscheduledEntry({
 
         <ConfirmDialog
           open={confirmingDelete}
-          title="Delete this entry?"
-          confirmLabel="Delete entry"
+          title="Delete the whole DCR?"
+          confirmLabel="Delete DCR"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => {
             setConfirmingDelete(false);
             setAppState(deleteEntry(appState, entry.date!, entry.movieId, entry.screenId));
           }}
         >
-          <p>{movie?.name ?? "?"} · {entry.date}</p>
-          <p>This permanently removes the entry and all its shows from the cloud.</p>
+          <p>
+            <strong>{movie?.name ?? "?"}</strong> · {entry.date} ·{" "}
+            {shows.length} {shows.length === 1 ? "show" : "shows"} ·{" "}
+            {computed.grand.tickets} tickets
+          </p>
+          <p>
+            This permanently removes the entry and all its shows from the cloud.
+            It cannot be undone.
+          </p>
+          <p>To remove just one show, use "Remove" on that show's card.</p>
         </ConfirmDialog>
       </CardBody>
     </Card>

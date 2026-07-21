@@ -15,6 +15,7 @@ import {
 } from "../lib/csv";
 
 import { DcrView } from "../components/dcr/DcrView";
+import { OrphanNotice } from "../components/dcr/OrphanNotice";
 import { Card, CardBody } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import type { UUID } from "../lib/types";
@@ -109,6 +110,8 @@ export default function DcrPage() {
           <Button onClick={dlPdf}>Download PDF</Button>
         </div>
       </div>
+
+      <OrphanNotice state={appState} entry={computed.entry} />
 
       <div id="dcr-printable">
         <DcrView
