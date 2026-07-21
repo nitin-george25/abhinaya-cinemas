@@ -288,6 +288,10 @@ function MovieSection({
     () => (entry ? orphanShowIdxs(appState, entry) : []),
     [appState, entry],
   );
+  const deletingTotals =
+    deletingShowIdx !== null ? computed?.shows[deletingShowIdx]?.totals : undefined;
+  const deletingIsOrphan =
+    deletingShowIdx !== null && orphans.includes(deletingShowIdx);
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
@@ -371,16 +375,16 @@ function MovieSection({
               </p>
             </div>
             {orphans.map((idx) => {
-              const sh = entry.shows![idx];
+              const sh = entry.shows?.[idx];
               const t = computed?.shows[idx]?.totals;
               return (
                 <div
-                  key={sh.scheduleId ?? `orphan-${idx}`}
+                  key={sh?.scheduleId ?? `orphan-${idx}`}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2"
                 >
                   <div>
                     <span className="text-sm font-medium">
-                      {sh.showtime || "No showtime"}
+                      {sh?.showtime || "No showtime"}
                     </span>
                     <p className="text-xs text-ink-muted mt-0.5">
                       {t ? `${t.tickets} tickets · ${fmtINR(t.grossColl)}` : "Not entered"}
@@ -461,16 +465,14 @@ function MovieSection({
           <p>
             <strong>{movie?.name ?? "?"}</strong> ·{" "}
             {deletingShow?.showtime || "—"}
-            {deletingShowIdx !== null && computed?.shows[deletingShowIdx]
-              ? ` · ${computed.shows[deletingShowIdx].totals.tickets} tickets`
-              : ""}
+            {deletingTotals ? ` · ${deletingTotals.tickets} tickets` : ""}
           </p>
           <p>
             This clears the ticket counts entered for this show only — the rest
             of the DCR is untouched.
           </p>
           <p>
-            {deletingShowIdx !== null && orphans.includes(deletingShowIdx)
+            {deletingIsOrphan
               ? "This show is no longer on the programme, so it will disappear from the DCR entirely."
               : "The show stays on the Schedule page, so you can enter it again."}
           </p>

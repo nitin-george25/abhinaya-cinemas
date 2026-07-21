@@ -208,8 +208,8 @@ describe("removeSchedule — cascade + orphan detection", () => {
     );
     const next = removeSchedule(st, "a");
     expect(next.showSchedules.map((r) => r.id)).toEqual(["b"]);
-    expect(next.entries[0].shows).toHaveLength(1);
-    expect(next.entries[0].shows![0].scheduleId).toBe("b");
+    expect(next.entries[0]!.shows).toHaveLength(1);
+    expect(next.entries[0]!.shows![0]!.scheduleId).toBe("b");
   });
 
   it("drops a legacy show linked by showtime only", () => {
@@ -217,7 +217,7 @@ describe("removeSchedule — cascade + orphan detection", () => {
       [sched("a", "18:00")],
       [entry([{ showtime: "18:00", rows: { c1: { tickets: 5 } } }])],
     );
-    expect(removeSchedule(st, "a").entries[0].shows).toEqual([]);
+    expect(removeSchedule(st, "a").entries[0]!.shows).toEqual([]);
   });
 
   it("leaves entries alone when nothing was entered for that show", () => {
@@ -226,7 +226,7 @@ describe("removeSchedule — cascade + orphan detection", () => {
       [entry([{ showtime: "21:00", scheduleId: "b" }])],
     );
     const next = removeSchedule(st, "a");
-    expect(next.entries[0].shows).toHaveLength(1);
+    expect(next.entries[0]!.shows).toHaveLength(1);
   });
 
   it("removeScheduleRowOnly keeps the old (orphaning) behaviour", () => {
@@ -234,7 +234,7 @@ describe("removeSchedule — cascade + orphan detection", () => {
       [sched("a", "18:00")],
       [entry([{ showtime: "18:00", scheduleId: "a" }])],
     );
-    expect(removeScheduleRowOnly(st, "a").entries[0].shows).toHaveLength(1);
+    expect(removeScheduleRowOnly(st, "a").entries[0]!.shows).toHaveLength(1);
   });
 
   it("enteredShowForSchedule reports the ticket count", () => {
@@ -256,12 +256,12 @@ describe("removeSchedule — cascade + orphan detection", () => {
         { showtime: "21:00", scheduleId: "b" },
       ])],
     );
-    expect(orphanShowIdxs(st, st.entries[0])).toEqual([0]);
+    expect(orphanShowIdxs(st, st.entries[0]!)).toEqual([0]);
   });
 
   it("flags nothing on a day with no programme (off-programme workflow)", () => {
     const st = stateOf([], [entry([{ showtime: "18:00" }, { showtime: "21:00" }])]);
-    expect(orphanShowIdxs(st, st.entries[0])).toEqual([]);
+    expect(orphanShowIdxs(st, st.entries[0]!)).toEqual([]);
   });
 
   it("ignores another movie's programme rows when matching", () => {
@@ -269,6 +269,6 @@ describe("removeSchedule — cascade + orphan detection", () => {
       [sched("x", "18:00", "other")],
       [entry([{ showtime: "18:00", scheduleId: "a" }])],
     );
-    expect(orphanShowIdxs(st, st.entries[0])).toEqual([0]);
+    expect(orphanShowIdxs(st, st.entries[0]!)).toEqual([0]);
   });
 });
