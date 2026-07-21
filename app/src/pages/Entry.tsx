@@ -6,10 +6,12 @@ import { useTickingClock } from "../lib/hooks/useTickingClock";
 import { todayIso, todayIstIso, daysBetweenIso } from "../lib/dates";
 import { uid } from "../lib/mappers";
 import {
+  addShow,
   blankShow,
   deleteEntry,
   ensureScheduledShow,
   findEntry,
+  removeShow,
   showIdxForSchedule,
   updateShow,
   updateShowRow,
@@ -133,14 +135,16 @@ export default function EntryPage() {
   const movieOrder: UUID[] = [];
   for (const s of daySchedules) if (!movieOrder.includes(s.movieId)) movieOrder.push(s.movieId);
 
-  // Historical / pre-schedule days: no programme but existing entries to read.
+  // Historical / pre-schedule days: no programme but existing entries. Edited
+  // through the unscheduled editor, which owns showtime + price card itself
+  // (there is no schedule row to own them).
   const historicalEntries =
     daySchedules.length === 0 ? dayEntries : [];
 
   // Entries whose movie is NOT on the day's programme (schedule rows removed
   // or replaced after entry — e.g. one-off screenings dropped by a copy-
   // forward). Without this they'd be invisible here while still counting in
-  // every report. Rendered read-only below the scheduled sections.
+  // every report. Rendered below the scheduled sections, same editor.
   const offProgramme =
     daySchedules.length > 0
       ? dayEntries.filter((e) => !movieOrder.includes(e.movieId))
@@ -181,7 +185,14 @@ export default function EntryPage() {
         <EmptyHint>Pick a screen to see its schedule.</EmptyHint>
       ) : daySchedules.length === 0 ? (
         historicalEntries.length > 0 ? (
-          <HistoricalView entries={historicalEntries} appState={appState} canDelete={role === "owner"} />
+          <UnscheduledView
+            variant="no-schedule"
+            entries={historicalEntries}
+            appState={appState}
+            role={role}
+            twoDayLockActive={twoDayLockActive}
+            setAppState={setAppState}
+          />
         ) : (
           <EmptyHint>
             No schedule for this day.{" "}
@@ -207,28 +218,14 @@ export default function EntryPage() {
             />
           ))}
           {offProgramme.length > 0 ? (
-            <>
-              <Card>
-                <CardBody className="flex items-start gap-3">
-                  <Badge tone="amber">Off programme</Badge>
-                  <p className="text-sm text-ink-muted">
-                    These entries exist for this day but their shows are no
-                    longer on the programme (schedule edited or copied over).
-                    They still count in all reports. To edit one, re-add its
-                    shows with the same showtimes on the{" "}
-                    <Link to="/box-office/schedule" className="text-amber-600 underline">
-                      Schedule
-                    </Link>{" "}
-                    page.
-                  </p>
-                </CardBody>
-              </Card>
-              <HistoricalView
-                entries={offProgramme}
-                appState={appState}
-                canDelete={role === "owner"}
-              />
-            </>
+            <UnscheduledView
+              variant="off-programme"
+              entries={offProgramme}
+              appState={appState}
+              role={role}
+              twoDayLockActive={twoDayLockActive}
+              setAppState={setAppState}
+            />
           ) : null}
         </>
       )}
@@ -277,7 +274,6 @@ function MovieSection({
   // made it look un-editable.)
   const [msgIdx, setMsgIdx] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [confirmingWaiver, setConfirmingWaiver] = useState(false);
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
@@ -289,40 +285,16 @@ function MovieSection({
     setAppState(upsertEntry(s1, updateShowRow(e1, showIdx, classId, { tickets })));
   }
 
-  // Share resolution for this movie's day (per-day → week → base).
-  const shareEntry: Entry = entry ?? { id: "", date, movieId, screenId, share: null, shows: [] };
-  const share = resolveShare(appState, shareEntry);
-  const wk = runWeekOf(appState, shareEntry);
-  const weekRateSet =
-    !!movie && wk != null && !!movie.weekShares &&
-    movie.weekShares[wk] !== undefined && movie.weekShares[wk] !== null &&
-    (movie.weekShares[wk] as unknown) !== "";
-  const shareSource: "override" | "week" | "base" =
-    entry != null && hasShareOverride(entry) ? "override" : weekRateSet ? "week" : "base";
-  // Share stays editable past the 2-day lock for owner + manager only.
-  const shareEditable =
-    !!entry && (!twoDayLockActive || role === "owner" || role === "manager");
-
-  // cancelledShows can create a bare entry (a cancelled day with no tickets is
-  // exactly the movie-status engine's "scheduled but not run" record).
-  const cancelledEditable = !twoDayLockActive || role === "owner";
-
-  function setShare(val: number | null) {
-    if (!entry) return;
-    setAppState(upsertEntry(appState, { ...entry, share: val }));
-  }
-  function setCancelled(n: number) {
-    const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
-    setAppState(upsertEntry(appState, { ...base, cancelledShows: Math.max(0, Math.min(12, n)) }));
-  }
-  // Rep-batta waiver (non-film screenings, e.g. FIFA matches). Checking asks
-  // for confirmation; unchecking restores the normal step lookup directly.
-  const repBattaWaived = entry?.repBattaWaived ?? false;
-  const waiverEditable = !twoDayLockActive || role === "owner";
-  function setWaived(on: boolean) {
-    const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
-    setAppState(upsertEntry(appState, { ...base, repBattaWaived: on }));
-  }
+  const fieldProps: EntryFieldProps = {
+    appState,
+    date,
+    movieId,
+    screenId,
+    entry,
+    role,
+    twoDayLockActive,
+    setAppState,
+  };
 
   return (
     <Card>
@@ -346,62 +318,7 @@ function MovieSection({
           ) : null}
         </div>
 
-        {/* Distributor share + rep-batta waiver */}
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <div className="max-w-xs grow">
-          <Field
-            label="Distributor share"
-            hint={
-              !entry
-                ? "Set after the first show is entered"
-                : !shareEditable
-                  ? "Locked after 2 days"
-                  : shareSource === "override"
-                    ? "Per-day override · clear to use the week rate"
-                    : shareSource === "week"
-                      ? "From this run week's rate · type to override"
-                      : "From the movie's base rate · type to override"
-            }
-          >
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={Number.isFinite(share) ? share : 0}
-              disabled={!shareEditable}
-              onChange={(e) => {
-                const n = e.target.value.trim() === "" ? NaN : Number(e.target.value);
-                setShare(Number.isFinite(n) && n > 0 ? n : null);
-              }}
-              className="tabular-nums"
-            />
-          </Field>
-        </div>
-
-        <label
-          className={`inline-flex items-center gap-2 pb-2 text-sm ${
-            waiverEditable ? "cursor-pointer" : "cursor-not-allowed text-ink-muted"
-          }`}
-          title={
-            waiverEditable
-              ? "No rep batta for this DCR (non-film screening, e.g. FIFA match)"
-              : "Locked after 2 days"
-          }
-        >
-          <input
-            type="checkbox"
-            checked={repBattaWaived}
-            disabled={!waiverEditable}
-            onChange={(e) => {
-              if (e.target.checked) setConfirmingWaiver(true);
-              else setWaived(false);
-            }}
-          />
-          No rep batta
-          {repBattaWaived ? <Badge tone="amber">₹0</Badge> : null}
-        </label>
-        </div>
+        <EntryMetaFields {...fieldProps} />
 
         {/* Per-show gated entry */}
         {shows.map((sched, i) => (
@@ -423,28 +340,7 @@ function MovieSection({
           />
         ))}
 
-        {/* Cancelled shows (movie-status input) */}
-        <Card>
-          <CardBody className="flex flex-wrap items-center gap-4">
-            <div className="grow min-w-60">
-              <div className="text-sm font-medium">Cancelled shows</div>
-              <p className="text-xs text-ink-muted mt-1">
-                Scheduled shows that did not run (strike, power cut, no audience…).
-                Recording them keeps the movie listed as Now Showing.
-              </p>
-            </div>
-            <Input
-              type="number"
-              min={0}
-              max={12}
-              className="w-24 shrink-0"
-              aria-label="Cancelled shows"
-              disabled={!cancelledEditable}
-              value={entry?.cancelledShows ?? 0}
-              onChange={(e) => setCancelled(Number(e.target.value) || 0)}
-            />
-          </CardBody>
-        </Card>
+        <CancelledShowsField {...fieldProps} />
 
         {computed ? <EntryPreview computed={computed} /> : null}
 
@@ -459,24 +355,6 @@ function MovieSection({
             onClose={() => setMsgIdx(null)}
           />
         ) : null}
-
-        <ConfirmDialog
-          open={confirmingWaiver}
-          title="Waive rep batta for this DCR?"
-          confirmLabel="Waive rep batta"
-          onCancel={() => setConfirmingWaiver(false)}
-          onConfirm={() => {
-            setConfirmingWaiver(false);
-            setWaived(true);
-          }}
-        >
-          <p>{movie?.name ?? "?"} · {date}</p>
-          <p>
-            Rep batta becomes ₹0 on this DCR — for screenings without a film
-            rep (FIFA matches, events). Net &amp; distributor shares recompute
-            accordingly. Untick the box to restore the normal batta.
-          </p>
-        </ConfirmDialog>
 
         <ConfirmDialog
           open={confirmingDelete}
@@ -600,65 +478,383 @@ function ScheduledShow({
   );
 }
 
+// ── shared entry-level fields ────────────────────────────────────────────
+//
+// Used by both editors: MovieSection (schedule-driven) and UnscheduledEntry
+// (no programme). `entry` is optional because a scheduled movie with nothing
+// entered yet has no row — touching either field materializes a bare one.
+
+interface EntryFieldProps {
+  appState: AppState;
+  date: DateISO;
+  movieId: UUID;
+  screenId: UUID;
+  entry: Entry | undefined;
+  role: string | null;
+  twoDayLockActive: boolean;
+  setAppState: (s: AppState) => void;
+}
+
+/** Distributor share % (per-day → week → base) + rep-batta waiver. */
+function EntryMetaFields({
+  appState,
+  date,
+  movieId,
+  screenId,
+  entry,
+  role,
+  twoDayLockActive,
+  setAppState,
+}: EntryFieldProps) {
+  const [confirmingWaiver, setConfirmingWaiver] = useState(false);
+  const movie = appState.movies.find((m) => m.id === movieId);
+
+  const shareEntry: Entry = entry ?? { id: "", date, movieId, screenId, share: null, shows: [] };
+  const share = resolveShare(appState, shareEntry);
+  const wk = runWeekOf(appState, shareEntry);
+  const weekRateSet =
+    !!movie && wk != null && !!movie.weekShares &&
+    movie.weekShares[wk] !== undefined && movie.weekShares[wk] !== null &&
+    (movie.weekShares[wk] as unknown) !== "";
+  const shareSource: "override" | "week" | "base" =
+    entry != null && hasShareOverride(entry) ? "override" : weekRateSet ? "week" : "base";
+  // Share stays editable past the 2-day lock for owner + manager only.
+  const shareEditable =
+    !!entry && (!twoDayLockActive || role === "owner" || role === "manager");
+
+  // Rep-batta waiver (non-film screenings, e.g. FIFA matches). Checking asks
+  // for confirmation; unchecking restores the normal step lookup directly.
+  const repBattaWaived = entry?.repBattaWaived ?? false;
+  const waiverEditable = !twoDayLockActive || role === "owner";
+
+  function setShare(val: number | null) {
+    if (!entry) return;
+    setAppState(upsertEntry(appState, { ...entry, share: val }));
+  }
+  function setWaived(on: boolean) {
+    const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
+    setAppState(upsertEntry(appState, { ...base, repBattaWaived: on }));
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+      <div className="max-w-xs grow">
+        <Field
+          label="Distributor share"
+          hint={
+            !entry
+              ? "Set after the first show is entered"
+              : !shareEditable
+                ? "Locked after 2 days"
+                : shareSource === "override"
+                  ? "Per-day override · clear to use the week rate"
+                  : shareSource === "week"
+                    ? "From this run week's rate · type to override"
+                    : "From the movie's base rate · type to override"
+          }
+        >
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step={0.01}
+            value={Number.isFinite(share) ? share : 0}
+            disabled={!shareEditable}
+            onChange={(e) => {
+              const n = e.target.value.trim() === "" ? NaN : Number(e.target.value);
+              setShare(Number.isFinite(n) && n > 0 ? n : null);
+            }}
+            className="tabular-nums"
+          />
+        </Field>
+      </div>
+
+      <label
+        className={`inline-flex items-center gap-2 pb-2 text-sm ${
+          waiverEditable ? "cursor-pointer" : "cursor-not-allowed text-ink-muted"
+        }`}
+        title={
+          waiverEditable
+            ? "No rep batta for this DCR (non-film screening, e.g. FIFA match)"
+            : "Locked after 2 days"
+        }
+      >
+        <input
+          type="checkbox"
+          checked={repBattaWaived}
+          disabled={!waiverEditable}
+          onChange={(e) => {
+            if (e.target.checked) setConfirmingWaiver(true);
+            else setWaived(false);
+          }}
+        />
+        No rep batta
+        {repBattaWaived ? <Badge tone="amber">₹0</Badge> : null}
+      </label>
+
+      <ConfirmDialog
+        open={confirmingWaiver}
+        title="Waive rep batta for this DCR?"
+        confirmLabel="Waive rep batta"
+        onCancel={() => setConfirmingWaiver(false)}
+        onConfirm={() => {
+          setConfirmingWaiver(false);
+          setWaived(true);
+        }}
+      >
+        <p>{movie?.name ?? "?"} · {date}</p>
+        <p>
+          Rep batta becomes ₹0 on this DCR — for screenings without a film rep
+          (FIFA matches, events). Net &amp; distributor shares recompute
+          accordingly. Untick the box to restore the normal batta.
+        </p>
+      </ConfirmDialog>
+    </div>
+  );
+}
+
+/** Cancelled-show count — the movie-status engine's "scheduled but not run". */
+function CancelledShowsField({
+  appState,
+  date,
+  movieId,
+  screenId,
+  entry,
+  role,
+  twoDayLockActive,
+  setAppState,
+}: EntryFieldProps) {
+  const editable = !twoDayLockActive || role === "owner";
+  function setCancelled(n: number) {
+    const base: Entry = entry ?? { id: uid(), date, movieId, screenId, share: null, shows: [] };
+    setAppState(upsertEntry(appState, { ...base, cancelledShows: Math.max(0, Math.min(12, n)) }));
+  }
+  return (
+    <Card>
+      <CardBody className="flex flex-wrap items-center gap-4">
+        <div className="grow min-w-60">
+          <div className="text-sm font-medium">Cancelled shows</div>
+          <p className="text-xs text-ink-muted mt-1">
+            Scheduled shows that did not run (strike, power cut, no audience…).
+            Recording them keeps the movie listed as Now Showing.
+          </p>
+        </div>
+        <Input
+          type="number"
+          min={0}
+          max={12}
+          className="w-24 shrink-0"
+          aria-label="Cancelled shows"
+          disabled={!editable}
+          value={entry?.cancelledShows ?? 0}
+          onChange={(e) => setCancelled(Number(e.target.value) || 0)}
+        />
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── unscheduled entries ──────────────────────────────────────────────────
+
 /**
- * Read-only view for days that predate the schedule feature (no programme but
- * existing entries). Surfaces the computed DCRs so staff can still read/print.
+ * Editor for entries with no programme behind them. Two cases:
+ *
+ *  • "no-schedule" — the whole day has no show_schedules rows: days that
+ *    predate the Schedule feature, and days older than the sync window.
+ *  • "off-programme" — the day IS programmed but this movie is not on it
+ *    (schedule rows removed or replaced by a copy-forward after entry).
+ *
+ * Both are edited the same way: with no schedule row to own showtime and price
+ * card, the show itself owns them (metaLocked off) — the pre-schedule flow. No
+ * per-show 30-min unlock gate applies either, since there's no showtime to gate
+ * against; the 2-day DCR lock still does, so past it this is owner-only, which
+ * matches enforce_entry_edit_lock server-side.
  */
-function HistoricalView({
+function UnscheduledView({
+  variant,
   entries,
   appState,
-  canDelete,
+  role,
+  twoDayLockActive,
+  setAppState,
 }: {
+  variant: "no-schedule" | "off-programme";
   entries: Entry[];
   appState: AppState;
-  canDelete: boolean;
+  role: string | null;
+  twoDayLockActive: boolean;
+  setAppState: (s: AppState) => void;
 }) {
   return (
     <div className="space-y-5">
       <Card>
         <CardBody className="flex items-start gap-3">
-          <Badge tone="neutral">No schedule</Badge>
+          {variant === "off-programme" ? (
+            <Badge tone="amber">Off programme</Badge>
+          ) : (
+            <Badge tone="neutral">No schedule</Badge>
+          )}
           <p className="text-sm text-ink-muted">
-            This day has no programme (it predates the Schedule feature). The
-            entries below are read from existing box-office data.
+            {variant === "off-programme" ? (
+              <>
+                These entries exist for this day but their shows are no longer
+                on the programme (schedule edited or copied over). They still
+                count in all reports, and are edited directly below — showtime
+                and price card included, since no{" "}
+                <Link to="/box-office/schedule" className="text-amber-600 underline">
+                  Schedule
+                </Link>{" "}
+                row owns them.
+              </>
+            ) : (
+              <>
+                This day has no programme (it predates the Schedule feature, or
+                it is outside the schedule sync window). Edit the entries below
+                directly — showtime and price card are set here rather than on
+                the{" "}
+                <Link to="/box-office/schedule" className="text-amber-600 underline">
+                  Schedule
+                </Link>{" "}
+                page.
+              </>
+            )}
           </p>
         </CardBody>
       </Card>
       {entries.map((entry) => (
-        <HistoricalEntry key={entry.id} entry={entry} appState={appState} canDelete={canDelete} />
+        <UnscheduledEntry
+          key={entry.id}
+          entry={entry}
+          appState={appState}
+          role={role}
+          twoDayLockActive={twoDayLockActive}
+          setAppState={setAppState}
+        />
       ))}
     </div>
   );
 }
 
-function HistoricalEntry({
+function UnscheduledEntry({
   entry,
   appState,
-  canDelete,
+  role,
+  twoDayLockActive,
+  setAppState,
 }: {
   entry: Entry;
   appState: AppState;
-  canDelete: boolean;
+  role: string | null;
+  twoDayLockActive: boolean;
+  setAppState: (s: AppState) => void;
 }) {
-  const { setAppState } = useSync();
   const computed = useMemo(() => computeEntry(appState, entry), [appState, entry]);
   const movie = appState.movies.find((m) => m.id === entry.movieId);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [removingShow, setRemovingShow] = useState<number | null>(null);
+
+  // Ticket counts are frozen past the 2-day lock for everyone but the owner
+  // (twoDayLockActive already excludes them). Share + waiver keep their own,
+  // looser gates inside EntryMetaFields.
+  const editable = !twoDayLockActive;
+  const shows = entry.shows ?? [];
+
+  const fieldProps: EntryFieldProps = {
+    appState,
+    date: entry.date!,
+    movieId: entry.movieId,
+    screenId: entry.screenId,
+    entry,
+    role,
+    twoDayLockActive,
+    setAppState,
+  };
+
   return (
     <Card>
       <CardBody className="space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="font-display text-xl font-bold tracking-tight">
-            {movie?.name ?? "Unknown movie"}
-          </h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-display text-xl font-bold tracking-tight">
+              {movie?.name ?? "Unknown movie"}
+            </h3>
+            <p className="text-xs text-ink-muted mt-0.5">
+              {shows.length} {shows.length === 1 ? "show" : "shows"} entered
+            </p>
+          </div>
           <EntryActions
             entry={entry}
             appState={appState}
-            canDelete={canDelete}
+            canDelete={role === "owner"}
             onDelete={() => setConfirmingDelete(true)}
           />
         </div>
+
+        <EntryMetaFields {...fieldProps} />
+
+        {editable ? (
+          <>
+            {shows.map((show, i) => (
+              <ShowCard
+                key={show.scheduleId ?? `show-${i}`}
+                state={appState}
+                entry={entry}
+                showIdx={i}
+                show={show}
+                computed={computed.shows[i]}
+                onChange={(patch) =>
+                  setAppState(upsertEntry(appState, updateShow(entry, i, patch)))
+                }
+                onChangeRow={(classId, tickets) =>
+                  setAppState(
+                    upsertEntry(appState, updateShowRow(entry, i, classId, { tickets })),
+                  )
+                }
+                onRemove={() => setRemovingShow(i)}
+              />
+            ))}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setAppState(upsertEntry(appState, addShow(appState, entry)))}
+            >
+              Add show
+            </Button>
+          </>
+        ) : (
+          <p className="text-sm text-ink-muted">
+            Locked after 2 days — ticket counts are read-only for your role.
+          </p>
+        )}
+
+        <CancelledShowsField {...fieldProps} />
+
         <EntryPreview computed={computed} />
+
+        <ConfirmDialog
+          open={removingShow !== null}
+          title="Remove this show?"
+          confirmLabel="Remove show"
+          onCancel={() => setRemovingShow(null)}
+          onConfirm={() => {
+            const idx = removingShow;
+            setRemovingShow(null);
+            if (idx !== null) setAppState(upsertEntry(appState, removeShow(entry, idx)));
+          }}
+        >
+          <p>
+            {movie?.name ?? "?"} · {entry.date} · show{" "}
+            {removingShow !== null ? removingShow + 1 : ""}
+            {removingShow !== null && shows[removingShow]?.showtime
+              ? ` (${shows[removingShow]!.showtime})`
+              : ""}
+          </p>
+          <p>
+            Its ticket counts are removed from this DCR and every report. The
+            other shows keep their serial ranges recomputed in order.
+          </p>
+        </ConfirmDialog>
+
         <ConfirmDialog
           open={confirmingDelete}
           title="Delete this entry?"
