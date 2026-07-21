@@ -137,6 +137,15 @@ export default function EntryPage() {
   const historicalEntries =
     daySchedules.length === 0 ? dayEntries : [];
 
+  // Entries whose movie is NOT on the day's programme (schedule rows removed
+  // or replaced after entry — e.g. one-off screenings dropped by a copy-
+  // forward). Without this they'd be invisible here while still counting in
+  // every report. Rendered read-only below the scheduled sections.
+  const offProgramme =
+    daySchedules.length > 0
+      ? dayEntries.filter((e) => !movieOrder.includes(e.movieId))
+      : [];
+
   return (
     <div className="space-y-5 max-w-6xl">
       <div>
@@ -183,19 +192,45 @@ export default function EntryPage() {
           </EmptyHint>
         )
       ) : (
-        movieOrder.map((movieId) => (
-          <MovieSection
-            key={movieId}
-            appState={appState}
-            date={date}
-            screenId={screenId}
-            movieId={movieId}
-            shows={daySchedules.filter((s) => s.movieId === movieId)}
-            role={role}
-            twoDayLockActive={twoDayLockActive}
-            setAppState={setAppState}
-          />
-        ))
+        <>
+          {movieOrder.map((movieId) => (
+            <MovieSection
+              key={movieId}
+              appState={appState}
+              date={date}
+              screenId={screenId}
+              movieId={movieId}
+              shows={daySchedules.filter((s) => s.movieId === movieId)}
+              role={role}
+              twoDayLockActive={twoDayLockActive}
+              setAppState={setAppState}
+            />
+          ))}
+          {offProgramme.length > 0 ? (
+            <>
+              <Card>
+                <CardBody className="flex items-start gap-3">
+                  <Badge tone="amber">Off programme</Badge>
+                  <p className="text-sm text-ink-muted">
+                    These entries exist for this day but their shows are no
+                    longer on the programme (schedule edited or copied over).
+                    They still count in all reports. To edit one, re-add its
+                    shows with the same showtimes on the{" "}
+                    <Link to="/box-office/schedule" className="text-amber-600 underline">
+                      Schedule
+                    </Link>{" "}
+                    page.
+                  </p>
+                </CardBody>
+              </Card>
+              <HistoricalView
+                entries={offProgramme}
+                appState={appState}
+                canDelete={role === "owner"}
+              />
+            </>
+          ) : null}
+        </>
       )}
     </div>
   );
