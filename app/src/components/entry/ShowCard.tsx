@@ -22,11 +22,15 @@ interface Props {
   onChange: (patch: Partial<Show>) => void;
   onChangeRow: (classId: UUID, tickets: number) => void;
   onRemove?: () => void;
+  /** Label for the remove button — "Remove" by default. Scheduled shows use
+   *  "Delete show" since the schedule row survives, only the entry goes. */
+  removeLabel?: string;
   /** Click → open the after-show WhatsApp message modal for this show. */
   onGenerateMessage?: () => void;
   /** Schedule-owned: showtime + price card are set on the Schedule page and
    *  shown read-only here (entry stage only records ticket counts / free pass /
-   *  last-show). Hides the Remove button (remove a show on the Schedule page). */
+   *  last-show). The Remove button is driven by `onRemove` alone — the caller
+   *  decides whether a locked-meta show may be deleted. */
   metaLocked?: boolean;
   /** Auto-detected last show of the movie's day (latest scheduled showtime).
    *  Replaces the old manual "Last show of day" checkbox — drives the WhatsApp
@@ -49,6 +53,7 @@ export function ShowCard({
   onChange,
   onChangeRow,
   onRemove,
+  removeLabel = "Remove",
   onGenerateMessage,
   metaLocked = false,
   isLast = false,
@@ -135,14 +140,14 @@ export function ShowCard({
                 Message
               </Button>
             ) : null}
-            {onRemove && !metaLocked ? (
+            {onRemove ? (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={onRemove}
-                title="Remove this show"
+                title={`${removeLabel} — this show only`}
               >
-                Remove
+                {removeLabel}
               </Button>
             ) : null}
           </div>

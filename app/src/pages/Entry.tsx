@@ -274,6 +274,9 @@ function MovieSection({
   // made it look un-editable.)
   const [msgIdx, setMsgIdx] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Per-show delete — holds the entry.shows index awaiting confirmation.
+  const [deletingShowIdx, setDeletingShowIdx] = useState<number | null>(null);
+  const deletingShow = deletingShowIdx !== null ? entry?.shows?.[deletingShowIdx] : undefined;
 
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
@@ -337,6 +340,8 @@ function MovieSection({
             onPatchShow={(patch) => patchShow(sched, patch)}
             onPatchRow={(classId, tickets) => patchRow(sched, classId, tickets)}
             onMessage={(idx) => setMsgIdx(idx)}
+            canDelete={role === "owner"}
+            onDeleteShow={(idx) => setDeletingShowIdx(idx)}
           />
         ))}
 
@@ -358,18 +363,52 @@ function MovieSection({
 
         <ConfirmDialog
           open={confirmingDelete}
-          title="Delete this entry?"
-          confirmLabel="Delete entry"
+          title="Delete the whole DCR?"
+          confirmLabel="Delete DCR"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => {
             setConfirmingDelete(false);
             setAppState(deleteEntry(appState, date, movieId, screenId));
           }}
         >
-          <p>{movie?.name ?? "?"} · {date}</p>
           <p>
-            This permanently removes the entry and all its ticket counts from the
-            cloud. The scheduled shows stay on the Schedule page.
+            <strong>{movie?.name ?? "?"}</strong> · {date}
+            {computed
+              ? ` · ${entry?.shows?.length ?? 0} ${(entry?.shows?.length ?? 0) === 1 ? "show" : "shows"} entered · ${computed.grand.tickets} tickets`
+              : ""}
+          </p>
+          <p>
+            This permanently removes the entry and every show's ticket counts
+            from the cloud. It cannot be undone. The scheduled shows stay on the
+            Schedule page.
+          </p>
+          <p>To remove just one show, use "Delete show" on that show's card.</p>
+        </ConfirmDialog>
+
+        <ConfirmDialog
+          open={deletingShowIdx !== null}
+          title="Delete this show's entry?"
+          confirmLabel="Delete show"
+          onCancel={() => setDeletingShowIdx(null)}
+          onConfirm={() => {
+            const idx = deletingShowIdx;
+            setDeletingShowIdx(null);
+            if (idx !== null && entry) {
+              setAppState(upsertEntry(appState, removeShow(entry, idx)));
+            }
+          }}
+        >
+          <p>
+            <strong>{movie?.name ?? "?"}</strong> ·{" "}
+            {deletingShow?.showtime || "—"}
+            {deletingShowIdx !== null && computed?.shows[deletingShowIdx]
+              ? ` · ${computed.shows[deletingShowIdx].totals.tickets} tickets`
+              : ""}
+          </p>
+          <p>
+            This clears the ticket counts entered for this show only. The rest of
+            the DCR is untouched and the show stays on the Schedule page — you
+            can enter it again.
           </p>
         </ConfirmDialog>
       </CardBody>
@@ -392,6 +431,8 @@ function ScheduledShow({
   onPatchShow,
   onPatchRow,
   onMessage,
+  canDelete,
+  onDeleteShow,
 }: {
   appState: AppState;
   entry: Entry | undefined;
@@ -406,6 +447,10 @@ function ScheduledShow({
   onPatchShow: (patch: Partial<Show>) => void;
   onPatchRow: (classId: UUID, tickets: number) => void;
   onMessage: (idx: number) => void;
+  /** Owner-only, mirrors the DCR delete gate. */
+  canDelete: boolean;
+  /** Asks the parent to confirm deleting the entry.shows[idx] for this show. */
+  onDeleteShow: (matIdx: number) => void;
 }) {
   const gate = showUnlockState({
     scheduleDate: date,
@@ -474,6 +519,12 @@ function ScheduledShow({
       onGenerateMessage={
         entry && matIdx >= 0 ? () => onMessage(matIdx) : undefined
       }
+      // Only a materialized show has anything to delete; owner-gated like the
+      // DCR delete. The schedule row itself is removed on the Schedule page.
+      onRemove={
+        canDelete && entry && matIdx >= 0 ? () => onDeleteShow(matIdx) : undefined
+      }
+      removeLabel="Delete show"
     />
   );
 }
@@ -857,16 +908,24 @@ function UnscheduledEntry({
 
         <ConfirmDialog
           open={confirmingDelete}
-          title="Delete this entry?"
-          confirmLabel="Delete entry"
+          title="Delete the whole DCR?"
+          confirmLabel="Delete DCR"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => {
             setConfirmingDelete(false);
             setAppState(deleteEntry(appState, entry.date!, entry.movieId, entry.screenId));
           }}
         >
-          <p>{movie?.name ?? "?"} · {entry.date}</p>
-          <p>This permanently removes the entry and all its shows from the cloud.</p>
+          <p>
+            <strong>{movie?.name ?? "?"}</strong> · {entry.date} ·{" "}
+            {shows.length} {shows.length === 1 ? "show" : "shows"} ·{" "}
+            {computed.grand.tickets} tickets
+          </p>
+          <p>
+            This permanently removes the entry and all its shows from the cloud.
+            It cannot be undone.
+          </p>
+          <p>To remove just one show, use "Remove" on that show's card.</p>
         </ConfirmDialog>
       </CardBody>
     </Card>
