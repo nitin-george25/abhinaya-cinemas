@@ -22,6 +22,7 @@ import {
   showUnlockState,
   isLastShowOfDay,
   isLastScheduledShow,
+  orphanShowIdxs,
 } from "../lib/schedule";
 import {
   computeEntry,
@@ -29,6 +30,7 @@ import {
   resolveShare,
   runWeekOf,
 } from "../lib/engine";
+import { fmtINR } from "../lib/dashboard";
 import { sendShowMessage } from "../lib/whatsapp";
 import { downloadDcrPdf } from "../lib/pdf";
 import { LOGO_DATA_URL } from "../assets/logo";
@@ -278,6 +280,15 @@ function MovieSection({
   const [deletingShowIdx, setDeletingShowIdx] = useState<number | null>(null);
   const deletingShow = deletingShowIdx !== null ? entry?.shows?.[deletingShowIdx] : undefined;
 
+  // Entered shows with no programme row left (schedule row deleted, or the day
+  // replaced by a copy-forward / Vista import after entry). They render from
+  // the schedule below, so without this they'd be invisible here while still
+  // counting in the DCR — the exact bug this section exists to make impossible.
+  const orphans = useMemo(
+    () => (entry ? orphanShowIdxs(appState, entry) : []),
+    [appState, entry],
+  );
+
   // ── materialize-on-edit handlers ────────────────────────────────────────
   function patchShow(sched: ShowSchedule, patch: Partial<Show>) {
     const { state: s1, entry: e1, showIdx } = ensureScheduledShow(appState, sched);
@@ -345,6 +356,55 @@ function MovieSection({
           />
         ))}
 
+        {orphans.length > 0 && entry ? (
+          <div className="rounded-xl border border-amber-400 bg-amber-50 p-3 space-y-3">
+            <div>
+              <Badge tone="amber">Not on the programme</Badge>
+              <p className="text-xs text-ink-muted mt-1.5">
+                {orphans.length === 1 ? "This show was" : "These shows were"}{" "}
+                entered earlier but {orphans.length === 1 ? "is" : "are"} no
+                longer on the Schedule for {date}.{" "}
+                {orphans.length === 1 ? "It is" : "They are"} still counted in
+                the DCR and every report — delete{" "}
+                {orphans.length === 1 ? "it" : "them"} here, or put the show back
+                on the Schedule page.
+              </p>
+            </div>
+            {orphans.map((idx) => {
+              const sh = entry.shows![idx];
+              const t = computed?.shows[idx]?.totals;
+              return (
+                <div
+                  key={sh.scheduleId ?? `orphan-${idx}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2"
+                >
+                  <div>
+                    <span className="text-sm font-medium">
+                      {sh.showtime || "No showtime"}
+                    </span>
+                    <p className="text-xs text-ink-muted mt-0.5">
+                      {t ? `${t.tickets} tickets · ${fmtINR(t.grossColl)}` : "Not entered"}
+                    </p>
+                  </div>
+                  {role === "owner" ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeletingShowIdx(idx)}
+                    >
+                      Delete show
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-ink-muted">
+                      Owner can delete this
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         <CancelledShowsField {...fieldProps} />
 
         {computed ? <EntryPreview computed={computed} /> : null}
@@ -406,9 +466,13 @@ function MovieSection({
               : ""}
           </p>
           <p>
-            This clears the ticket counts entered for this show only. The rest of
-            the DCR is untouched and the show stays on the Schedule page — you
-            can enter it again.
+            This clears the ticket counts entered for this show only — the rest
+            of the DCR is untouched.
+          </p>
+          <p>
+            {deletingShowIdx !== null && orphans.includes(deletingShowIdx)
+              ? "This show is no longer on the programme, so it will disappear from the DCR entirely."
+              : "The show stays on the Schedule page, so you can enter it again."}
           </p>
         </ConfirmDialog>
       </CardBody>

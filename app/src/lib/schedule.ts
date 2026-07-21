@@ -7,9 +7,10 @@
 // ============================================================================
 
 import { uid } from "./mappers";
+import { showIdxForSchedule } from "./entry";
 import { minutesSinceShowtime, minutesToHHMM, hhmmToMinutes } from "./dates";
 import type { Role } from "./hooks/useSupabaseSync";
-import type { AppState, DateISO, Entry, ShowSchedule, TimeHHMM, UUID } from "./types";
+import type { AppState, DateISO, Entry, Show, ShowSchedule, TimeHHMM, UUID } from "./types";
 
 /** Minutes after a show's start before its ticket entry unlocks (tickets close). */
 export const UNLOCK_GRACE_MIN = 30;
@@ -148,9 +149,86 @@ export function addSchedules(state: AppState, rows: ShowSchedule[]): AppState {
   return { ...state, showSchedules: [...state.showSchedules, ...rows] };
 }
 
-/** Remove a schedule row by id. */
-export function removeSchedule(state: AppState, id: UUID): AppState {
+/** Remove a programme row only — leaves entries alone. Callers that delete a
+ *  show the operator can see should use `removeSchedule` instead, which also
+ *  drops the entered show so nothing is orphaned into the DCR. */
+export function removeScheduleRowOnly(state: AppState, id: UUID): AppState {
   return { ...state, showSchedules: state.showSchedules.filter((x) => x.id !== id) };
+}
+
+/**
+ * Remove a schedule row AND the show it materialized in the entry.
+ *
+ * Deleting only the programme row used to leave the entered show stranded in
+ * `entries[].shows[]`: invisible on the Entry page (which renders from the
+ * programme) but still counted by the engine, so its tickets kept showing up in
+ * the DCR, the CSVs and every cumulative total. One delete, both halves.
+ */
+export function removeSchedule(state: AppState, id: UUID): AppState {
+  const sched = state.showSchedules.find((x) => x.id === id);
+  const next = removeScheduleRowOnly(state, id);
+  if (!sched) return next;
+
+  const hit = enteredShowForSchedule(state, sched);
+  if (!hit) return next;
+
+  const shows = (hit.entry.shows ?? []).slice();
+  shows.splice(hit.showIdx, 1);
+  const pruned: Entry = { ...hit.entry, shows };
+  return {
+    ...next,
+    entries: next.entries.map((e) => (e === hit.entry ? pruned : e)),
+  };
+}
+
+/** Tickets entered against one show (0 when nothing was keyed in). */
+export function showTicketCount(show: Show | undefined): number {
+  if (!show?.rows) return 0;
+  return Object.values(show.rows).reduce((a, r) => a + (r?.tickets ?? 0), 0);
+}
+
+/**
+ * The entered show a programme row produced, if any. Matches on `scheduleId`
+ * first and falls back to showtime, exactly like `showIdxForSchedule` — legacy
+ * and copy-forward shows link by time only.
+ */
+export function enteredShowForSchedule(
+  state: AppState,
+  sched: ShowSchedule,
+): { entry: Entry; showIdx: number; tickets: number } | null {
+  const entry = state.entries.find(
+    (e) =>
+      e.date === sched.date &&
+      e.movieId === sched.movieId &&
+      e.screenId === sched.screenId,
+  );
+  const idx = showIdxForSchedule(entry, sched);
+  if (!entry || idx < 0) return null;
+  return { entry, showIdx: idx, tickets: showTicketCount(entry.shows?.[idx]) };
+}
+
+/**
+ * Indices of entered shows in `entry` that no longer correspond to any
+ * programme row — the show was deleted from the Schedule (or the day was
+ * replaced by a copy-forward / Vista import) after tickets were entered.
+ *
+ * Only meaningful on days that HAVE a programme for that screen: a day with no
+ * schedule at all is the off-programme workflow, where every show is legitimate
+ * (this also keeps pre-schedule-era history from being flagged).
+ */
+export function orphanShowIdxs(state: AppState, entry: Entry): number[] {
+  const shows = entry.shows ?? [];
+  if (shows.length === 0 || !entry.date) return [];
+  const dayRows = schedulesForDay(state, entry.date, entry.screenId);
+  if (dayRows.length === 0) return [];
+
+  const matched = new Set<number>();
+  for (const sched of dayRows) {
+    if (sched.movieId !== entry.movieId) continue;
+    const idx = showIdxForSchedule(entry, sched);
+    if (idx >= 0) matched.add(idx);
+  }
+  return shows.map((_, i) => i).filter((i) => !matched.has(i));
 }
 
 /** Patch a schedule row immutably. */

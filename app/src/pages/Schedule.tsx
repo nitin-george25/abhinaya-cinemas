@@ -17,6 +17,7 @@ import { todayIso, addDaysIso, minutesToHHMM, hhmmToMinutes } from "../lib/dates
 import {
   blankSchedule,
   copyScheduleForward,
+  enteredShowForSchedule,
   removeSchedule,
   schedulesForDay,
   updateSchedule,
@@ -150,8 +151,10 @@ export default function SchedulePage() {
         {dayHasAny ? (
           <p>
             <strong>{date} already has a schedule</strong> — it will be replaced.
-            Shows that already have box-office entries keep their entries, but
-            the programme rows are overwritten.
+            Shows that already have box-office entries keep their entries. Any
+            entered show whose showtime is not in the copied programme is
+            flagged "Not on the programme" on the Entry page so you can delete
+            it or restore its show.
           </p>
         ) : null}
       </ConfirmDialog>
@@ -251,6 +254,13 @@ function ScheduleRow({
   clash: boolean;
   onPatch: (next: AppState) => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  // Tickets already entered against this programme row. Removing the row also
+  // removes them (otherwise they'd linger, unseen, in the DCR) — so say so.
+  const entered = enteredShowForSchedule(appState, row);
+  const movieName =
+    movieOptions.find((o) => o.value === row.movieId)?.label ?? "No movie";
+
   return (
     <div className="rounded-xl border border-line p-3 space-y-2">
       <div className="grid grid-cols-2 sm:grid-cols-[8rem_1fr_12rem_auto] gap-3 sm:items-end">
@@ -286,7 +296,7 @@ function ScheduleRow({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => onPatch(removeSchedule(appState, row.id))}
+            onClick={() => setConfirming(true)}
             title="Remove this show"
           >
             Remove
@@ -299,6 +309,37 @@ function ScheduleRow({
           can't start at the same time — change one.
         </p>
       ) : null}
+      {entered && entered.tickets > 0 ? (
+        <p className="text-xs text-ink-muted">
+          {entered.tickets} tickets entered for this show.
+        </p>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirming}
+        title="Remove this show from the programme?"
+        confirmLabel={entered ? "Remove show + entry" : "Remove show"}
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          onPatch(removeSchedule(appState, row.id));
+        }}
+      >
+        <p>
+          <strong>{row.showtime || "—"}</strong> · {movieName} · {row.date}
+        </p>
+        {entered ? (
+          <p>
+            <strong>
+              This show has box-office entry ({entered.tickets} tickets).
+            </strong>{" "}
+            Removing it deletes those ticket counts too, so the DCR and every
+            report drop this show. This cannot be undone.
+          </p>
+        ) : (
+          <p>Nothing has been entered against this show yet.</p>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { DcrView } from "./DcrView";
+import { OrphanNotice } from "./OrphanNotice";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { downloadDcrPdf } from "../../lib/pdf";
@@ -88,8 +89,11 @@ export function DcrModal({ open, onClose, computed, appState }: Props) {
         </>
       }
     >
-      <div id="dcr-printable">
-        <DcrView computed={computed} cinema={appState.cinema} tax={appState.tax} />
+      <div className="space-y-3">
+        <OrphanNotice state={appState} entry={computed.entry} />
+        <div id="dcr-printable">
+          <DcrView computed={computed} cinema={appState.cinema} tax={appState.tax} />
+        </div>
       </div>
     </Modal>
   );

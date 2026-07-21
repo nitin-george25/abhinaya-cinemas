@@ -8,6 +8,11 @@ import {
   lastScheduledShowtime,
   isLastScheduledShow,
   isLastShowOfDay,
+  removeSchedule,
+  removeScheduleRowOnly,
+  orphanShowIdxs,
+  enteredShowForSchedule,
+  showTicketCount,
 } from "./schedule";
 import type { AppState, Entry } from "./types";
 import {
@@ -173,5 +178,97 @@ describe("auto last-show detection", () => {
     };
     expect(isLastShowOfDay(st, entry, 0)).toBe(false);
     expect(isLastShowOfDay(st, entry, 1)).toBe(false);
+  });
+});
+
+// ── programme delete cascades into the entry ─────────────────────────────
+//
+// Regression: deleting a schedule row left the entered show stranded in
+// entries[].shows[] — invisible on the Entry page (which renders from the
+// programme) but still summed by the engine, so it kept printing on the DCR.
+
+describe("removeSchedule — cascade + orphan detection", () => {
+  const sched = (id: string, showtime: string, movieId = "m"): ShowSchedule => ({
+    id, cinemaId: "c", date: "2026-06-25", screenId: "s", movieId,
+    showtime, position: 0, cancelled: false,
+  });
+  const entry = (shows: Entry["shows"]): Entry => ({
+    id: "e", date: "2026-06-25", movieId: "m", screenId: "s", share: null, shows,
+  });
+  const stateOf = (rows: ShowSchedule[], entries: Entry[]) =>
+    ({ showSchedules: rows, entries }) as unknown as AppState;
+
+  it("drops the entered show linked by scheduleId", () => {
+    const st = stateOf(
+      [sched("a", "18:00"), sched("b", "21:00")],
+      [entry([
+        { showtime: "18:00", scheduleId: "a", rows: { c1: { tickets: 10 } } },
+        { showtime: "21:00", scheduleId: "b", rows: { c1: { tickets: 20 } } },
+      ])],
+    );
+    const next = removeSchedule(st, "a");
+    expect(next.showSchedules.map((r) => r.id)).toEqual(["b"]);
+    expect(next.entries[0].shows).toHaveLength(1);
+    expect(next.entries[0].shows![0].scheduleId).toBe("b");
+  });
+
+  it("drops a legacy show linked by showtime only", () => {
+    const st = stateOf(
+      [sched("a", "18:00")],
+      [entry([{ showtime: "18:00", rows: { c1: { tickets: 5 } } }])],
+    );
+    expect(removeSchedule(st, "a").entries[0].shows).toEqual([]);
+  });
+
+  it("leaves entries alone when nothing was entered for that show", () => {
+    const st = stateOf(
+      [sched("a", "18:00"), sched("b", "21:00")],
+      [entry([{ showtime: "21:00", scheduleId: "b" }])],
+    );
+    const next = removeSchedule(st, "a");
+    expect(next.entries[0].shows).toHaveLength(1);
+  });
+
+  it("removeScheduleRowOnly keeps the old (orphaning) behaviour", () => {
+    const st = stateOf(
+      [sched("a", "18:00")],
+      [entry([{ showtime: "18:00", scheduleId: "a" }])],
+    );
+    expect(removeScheduleRowOnly(st, "a").entries[0].shows).toHaveLength(1);
+  });
+
+  it("enteredShowForSchedule reports the ticket count", () => {
+    const st = stateOf(
+      [sched("a", "18:00")],
+      [entry([{ showtime: "18:00", scheduleId: "a", rows: { c1: { tickets: 7 }, c2: { tickets: 3 } } }])],
+    );
+    expect(enteredShowForSchedule(st, sched("a", "18:00"))).toMatchObject({
+      showIdx: 0, tickets: 10,
+    });
+    expect(showTicketCount(undefined)).toBe(0);
+  });
+
+  it("orphanShowIdxs finds shows with no programme row left", () => {
+    const st = stateOf(
+      [sched("b", "21:00")],
+      [entry([
+        { showtime: "18:00", scheduleId: "a" }, // its schedule row is gone
+        { showtime: "21:00", scheduleId: "b" },
+      ])],
+    );
+    expect(orphanShowIdxs(st, st.entries[0])).toEqual([0]);
+  });
+
+  it("flags nothing on a day with no programme (off-programme workflow)", () => {
+    const st = stateOf([], [entry([{ showtime: "18:00" }, { showtime: "21:00" }])]);
+    expect(orphanShowIdxs(st, st.entries[0])).toEqual([]);
+  });
+
+  it("ignores another movie's programme rows when matching", () => {
+    const st = stateOf(
+      [sched("x", "18:00", "other")],
+      [entry([{ showtime: "18:00", scheduleId: "a" }])],
+    );
+    expect(orphanShowIdxs(st, st.entries[0])).toEqual([0]);
   });
 });
