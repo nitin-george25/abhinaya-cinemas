@@ -79,12 +79,12 @@ export function pictureEndingCsvRows(
   const pubLabel = c.holdOverDate
     ? `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days, till hold-over ${dmy(c.holdOverDate)})`
     : `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days)`;
-  R.push([pubLabel, "", t.publicityBase]);
+  R.push([pubLabel, t.publicityBase, ""]);
   if (inp.taxKind === "inter") {
-    R.push([`Publicity IGST @ ${inp.gstPct}%`, "", t.publicityIgst]);
+    R.push([`Publicity IGST @ ${inp.gstPct}%`, t.publicityIgst, ""]);
   } else {
-    R.push([`Publicity SGST @ ${inp.gstPct / 2}%`, "", t.publicitySgst]);
-    R.push([`Publicity CGST @ ${inp.gstPct / 2}%`, "", t.publicityCgst]);
+    R.push([`Publicity SGST @ ${inp.gstPct / 2}%`, t.publicitySgst, ""]);
+    R.push([`Publicity CGST @ ${inp.gstPct / 2}%`, t.publicityCgst, ""]);
   }
   R.push([`TDS @ ${inp.tdsPct}% on share + publicity`, "", t.tds]);
   if (t.flexCharge) R.push(["Flex display charge", "", t.flexCharge]);

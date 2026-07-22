@@ -441,14 +441,14 @@ export default function ReportsPictureEndingPage() {
                         `Publicity — ${inputs.publicityPct}% of ex-share (${t.publicityDays} days` +
                         (computed.holdOverDate ? `, till hold-over ${dmy(computed.holdOverDate)})` : ")")
                       }
-                      debit={t.publicityBase}
+                      credit={t.publicityBase}
                     />
                     {inputs.taxKind === "inter" ? (
-                      <LedgerRow label={`Publicity IGST @ ${inputs.gstPct}%`} debit={t.publicityIgst} />
+                      <LedgerRow label={`Publicity IGST @ ${inputs.gstPct}%`} credit={t.publicityIgst} />
                     ) : (
                       <>
-                        <LedgerRow label={`Publicity SGST @ ${inputs.gstPct / 2}%`} debit={t.publicitySgst} />
-                        <LedgerRow label={`Publicity CGST @ ${inputs.gstPct / 2}%`} debit={t.publicityCgst} />
+                        <LedgerRow label={`Publicity SGST @ ${inputs.gstPct / 2}%`} credit={t.publicitySgst} />
+                        <LedgerRow label={`Publicity CGST @ ${inputs.gstPct / 2}%`} credit={t.publicityCgst} />
                       </>
                     )}
                     <LedgerRow label={`TDS @ ${inputs.tdsPct}% on share + publicity`} debit={t.tds} />

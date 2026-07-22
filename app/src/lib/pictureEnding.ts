@@ -13,12 +13,17 @@
 //
 // The credit/debit cascade (mirrors the physical statement):
 //   CREDIT  = distributor share (Σ distShare)  +  GST on share (SGST+CGST | IGST)
-//   DEBIT   = publicity (% of ex-share) + its GST
-//           + TDS (% of share + publicity)
+//           + publicity (% of ex-share) + its GST
+//   DEBIT   = TDS (% of share + publicity)
 //           + flex display charge
 //           + hold-over amount (usually ₹0 — hold-over is an informational date)
 //           + advances already paid
 //   BALANCE PAYABLE = CREDIT − DEBIT  (+ round-off)
+//
+// Publicity is a CREDIT: the cinema pays the distributor 2% of its own
+// (exhibitor) share towards publicity, so it is owed to them alongside the film
+// hire — which is also why TDS is withheld on (share + publicity), the full
+// amount payable to the distributor.
 //
 // SGST+CGST vs IGST is auto-derived from the GST state code (first two digits)
 // of the cinema's vs the distributor's GSTIN, and overridable per statement.
@@ -138,14 +143,14 @@ export interface PictureEndingTotals {
   shareCgst: number;
   shareIgst: number;
   shareGst: number;       // sgst + cgst + igst
-  credit: number;         // share + shareGst
+  credit: number;         // share + shareGst + publicityBase + publicityGst
 
   /** Exhibitor share publicity is charged on = ex-share up to & including the
    *  hold-over day (full run when the film never held over). */
   publicityExShare: number;
   /** Collecting days counted in publicityExShare (the "N days" on the PUB line). */
   publicityDays: number;
-  publicityBase: number;  // publicityPct% of publicityExShare (DEBIT, taxable value)
+  publicityBase: number;  // publicityPct% of publicityExShare (CREDIT, taxable value)
   publicitySgst: number;
   publicityCgst: number;
   publicityIgst: number;
@@ -159,7 +164,7 @@ export interface PictureEndingTotals {
   holdOverAmount: number;
   advances: number;
 
-  debit: number;          // publicity + tds + flex + holdOver + advances
+  debit: number;          // tds + flex + holdOver + advances
   balanceBeforeRound: number;
   roundOff: number;
   balance: number;        // payable to the distributor
@@ -361,11 +366,14 @@ export function pictureEndingTotals(
   };
 
   const sg = splitGst(share);
-  const credit = r2(share + sg.total);
 
   const publicityBase = r2((publicityExShare * inputs.publicityPct) / 100);
   const pg = splitGst(publicityBase);
   const publicity = r2(publicityBase + pg.total);
+
+  // Share and publicity are both payable TO the distributor, so both sit on the
+  // credit side — and TDS is withheld on the taxable value of the two together.
+  const credit = r2(share + sg.total + publicity);
 
   const tdsBase = r2(share + publicityBase);
   const tds = r2((tdsBase * inputs.tdsPct) / 100);
@@ -374,7 +382,7 @@ export function pictureEndingTotals(
   const holdOverAmount = r2(inputs.holdOverAmount);
   const advances = r2(inputs.advances.reduce((s, a) => s + N(a.amount), 0));
 
-  const debit = r2(publicity + tds + flexCharge + holdOverAmount + advances);
+  const debit = r2(tds + flexCharge + holdOverAmount + advances);
   const balanceBeforeRound = r2(credit - debit);
 
   let roundOff: number;

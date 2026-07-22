@@ -78,7 +78,6 @@ describe("pictureEndingTotals — intra-state", () => {
     expect(t.shareCgst).toBe(5400);
     expect(t.shareIgst).toBe(0);
     expect(t.shareGst).toBe(10800);
-    expect(t.credit).toBe(70800); // 60000 + 10800
   });
   it("publicity defaults to 2% of the full-run ex-share when no base is given", () => {
     expect(t.publicityExShare).toBe(40000); // whole run (no hold-over base supplied)
@@ -87,16 +86,19 @@ describe("pictureEndingTotals — intra-state", () => {
     expect(t.publicityGst).toBe(144);       // 18% of 800
     expect(t.publicity).toBe(944);
   });
+  it("credits publicity alongside the share — both are payable to the distributor", () => {
+    expect(t.credit).toBe(71744); // share 60000 + share GST 10800 + publicity 944
+  });
   it("TDS = 2% of (share + publicity base)", () => {
     expect(t.tdsBase).toBe(60800);
     expect(t.tds).toBe(1216);
   });
   it("debit, balance and round-off close the account", () => {
-    // debit = publicity 944 + tds 1216 + flex 500 + holdOver 0 + advances 10000
-    expect(t.debit).toBe(12660);
-    expect(t.balanceBeforeRound).toBe(58140); // 70800 - 12660
+    // debit = tds 1216 + flex 500 + holdOver 0 + advances 10000
+    expect(t.debit).toBe(11716);
+    expect(t.balanceBeforeRound).toBe(60028); // 71744 - 11716
     expect(t.roundOff).toBe(0);
-    expect(t.balance).toBe(58140);
+    expect(t.balance).toBe(60028);
   });
 });
 
@@ -107,7 +109,7 @@ describe("pictureEndingTotals — inter-state", () => {
     expect(t.shareSgst).toBe(0);
     expect(t.shareCgst).toBe(0);
     expect(t.publicityIgst).toBe(144);
-    expect(t.credit).toBe(70800);
+    expect(t.credit).toBe(71744);
   });
 });
 
@@ -115,7 +117,7 @@ describe("pictureEndingTotals — manual round-off", () => {
   it("applies the supplied round-off instead of nearest-rupee", () => {
     const t = pictureEndingTotals(WEEKS, inputs({ roundOffMode: "manual", roundOff: -0.4 }));
     expect(t.roundOff).toBe(-0.4);
-    expect(t.balance).toBe(58139.6);
+    expect(t.balance).toBe(60027.6);
   });
 });
 
@@ -130,12 +132,13 @@ describe("pictureEndingTotals — publicity charged till hold-over", () => {
     expect(t.publicityGst).toBe(86.4);   // 18% of 480
     expect(t.publicity).toBe(566.4);
   });
-  it("flows the smaller publicity through TDS and the debit total", () => {
+  it("flows the smaller publicity through TDS and both totals", () => {
     expect(t.tdsBase).toBe(60480);       // share 60000 + publicity base 480
     expect(t.tds).toBe(1209.6);          // 2% of 60480
-    // debit = publicity 566.4 + tds 1209.6 + flex 500 + advances 10000
-    expect(t.debit).toBe(12276);
-    expect(t.credit).toBe(70800);        // credit side unchanged
+    // credit = share 60000 + share GST 10800 + publicity 566.4
+    expect(t.credit).toBe(71366.4);
+    // debit = tds 1209.6 + flex 500 + advances 10000
+    expect(t.debit).toBe(11709.6);
   });
 });
 
