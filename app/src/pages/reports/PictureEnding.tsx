@@ -18,6 +18,7 @@ import { downloadCsv } from "../../lib/csv";
 import {
   buildPictureEnding,
   defaultPictureEndingInputs,
+  type PictureEndingComputed,
   type PictureEndingInputs,
 } from "../../lib/pictureEnding";
 import { downloadPictureEndingPdf, pictureEndingPdfBlob } from "../../lib/pictureEndingPdf";
@@ -52,6 +53,19 @@ const dmy = (iso?: string | null): string => {
 };
 
 const MODES = ["rtgs", "neft", "imps", "upi", "cheque", "cash", "adjustment"];
+
+/** Why the applied hold-over date differs (or not) from the detected one. The
+ *  printed statement shows only the applied date — this note is screen-only. */
+function holdOverHint(c: PictureEndingComputed): string {
+  if (c.holdOverSource === "override") {
+    return c.holdOverDate === c.detectedHoldOverDate
+      ? "extension not given for this film — back to the detected date"
+      : "set by hand on this statement";
+  }
+  if (c.holdOverSource === "rule") return "extended to the opening Sunday — distributor rule";
+  if (!c.holdOverDate) return "never held over — publicity runs the whole run";
+  return "same as detected";
+}
 
 export default function ReportsPictureEndingPage() {
   const { state } = useSync();
@@ -325,8 +339,44 @@ export default function ReportsPictureEndingPage() {
                     onChange={(e) => patch({ roundOff: num(e.target.value) })} />
                 </Field>
               ) : null}
-              <Field label="Hold-over date" hint="auto-detected">
-                <Input value={computed.holdOverDate ?? "—"} readOnly className="bg-paper/60" />
+              <Field label="Hold-over date — detected" hint="best 3 shows below one full house">
+                <Input value={computed.detectedHoldOverDate ?? "—"} readOnly className="bg-paper/60" />
+              </Field>
+              <Field
+                label="Hold-over date — applied"
+                hint={holdOverHint(computed)}
+              >
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={computed.holdOverDate ?? ""}
+                    max={computed.holdOverCeiling ?? undefined}
+                    onChange={(e) => patch({ holdOverDateOverride: e.target.value || null })}
+                  />
+                  {computed.holdOverSource === "rule" ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        patch({ holdOverDateOverride: computed.detectedHoldOverDate })
+                      }
+                      title="Do not extend for this film — charge publicity to the detected date"
+                      className="whitespace-nowrap"
+                    >
+                      Don't extend
+                    </Button>
+                  ) : null}
+                  {inputs.holdOverDateOverride ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => patch({ holdOverDateOverride: null })}
+                      title="Drop the override and go back to the distributor's rule"
+                    >
+                      Reset
+                    </Button>
+                  ) : null}
+                </div>
               </Field>
             </CardBody>
           </Card>
@@ -441,14 +491,14 @@ export default function ReportsPictureEndingPage() {
                         `Publicity — ${inputs.publicityPct}% of ex-share (${t.publicityDays} days` +
                         (computed.holdOverDate ? `, till hold-over ${dmy(computed.holdOverDate)})` : ")")
                       }
-                      debit={t.publicityBase}
+                      credit={t.publicityBase}
                     />
                     {inputs.taxKind === "inter" ? (
-                      <LedgerRow label={`Publicity IGST @ ${inputs.gstPct}%`} debit={t.publicityIgst} />
+                      <LedgerRow label={`Publicity IGST @ ${inputs.gstPct}%`} credit={t.publicityIgst} />
                     ) : (
                       <>
-                        <LedgerRow label={`Publicity SGST @ ${inputs.gstPct / 2}%`} debit={t.publicitySgst} />
-                        <LedgerRow label={`Publicity CGST @ ${inputs.gstPct / 2}%`} debit={t.publicityCgst} />
+                        <LedgerRow label={`Publicity SGST @ ${inputs.gstPct / 2}%`} credit={t.publicitySgst} />
+                        <LedgerRow label={`Publicity CGST @ ${inputs.gstPct / 2}%`} credit={t.publicityCgst} />
                       </>
                     )}
                     <LedgerRow label={`TDS @ ${inputs.tdsPct}% on share + publicity`} debit={t.tds} />

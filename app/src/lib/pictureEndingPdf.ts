@@ -257,12 +257,12 @@ export function buildPictureEndingPdf(
   const pubLabel = C.holdOverDate
     ? `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days, till hold-over ${dmy(C.holdOverDate)})`
     : `Publicity — ${inp.publicityPct}% of ex-share (${t.publicityDays} days)`;
-  ledger(pubLabel, null, t.publicityBase);
+  ledger(pubLabel, t.publicityBase, null);
   if (inp.taxKind === "inter") {
-    ledger(`Publicity IGST @ ${inp.gstPct}%`, null, t.publicityIgst);
+    ledger(`Publicity IGST @ ${inp.gstPct}%`, t.publicityIgst, null);
   } else {
-    ledger(`Publicity SGST @ ${gstHalf}%`, null, t.publicitySgst);
-    ledger(`Publicity CGST @ ${gstHalf}%`, null, t.publicityCgst);
+    ledger(`Publicity SGST @ ${gstHalf}%`, t.publicitySgst, null);
+    ledger(`Publicity CGST @ ${gstHalf}%`, t.publicityCgst, null);
   }
   ledger(`TDS @ ${inp.tdsPct}% on share + publicity`, null, t.tds);
   if (t.flexCharge) ledger("Flex display charge", null, t.flexCharge);

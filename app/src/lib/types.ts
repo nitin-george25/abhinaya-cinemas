@@ -117,7 +117,20 @@ export interface Distributor {
   gstin?: string;
   /** PAN. Printed on the Picture Ending Statement. */
   pan?: string;
+  /**
+   * Standing hold-over term for this distributor's settlements.
+   *   'detected'       — use the auto-detected hold-over date as-is (default).
+   *   'opening-sunday' — a hold-over flagged during the opening weekend is
+   *                      premature; push the publicity cutoff out to the first
+   *                      Sunday of the run. Never truncates a later date.
+   * Applied automatically when a statement is built; the preparer can still
+   * override the date on any individual statement.
+   */
+  holdOverRule?: HoldOverRule;
 }
+
+/** Standing hold-over term on a distributor. See `Distributor.holdOverRule`. */
+export type HoldOverRule = "detected" | "opening-sunday";
 
 export interface Movie {
   id: UUID;

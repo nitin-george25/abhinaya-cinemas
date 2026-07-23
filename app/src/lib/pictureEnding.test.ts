@@ -17,11 +17,13 @@ import {
   computeHoldOverDate,
   pictureEndingTotals,
   publicityBaseFor,
+  resolveHoldOverDate,
   summarizeWeeks,
   type PictureEndingInputs,
   type PictureEndingWeek,
 } from "./pictureEnding";
-import type { AppState, Entry } from "./types";
+import { firstSundayOnOrAfter } from "./dates";
+import type { AppState, Entry, HoldOverRule } from "./types";
 
 // ── tax-kind detection ─────────────────────────────────────────────────────
 
@@ -58,6 +60,7 @@ function inputs(over: Partial<PictureEndingInputs> = {}): PictureEndingInputs {
     tdsPct: 2,
     flexCharge: 500,
     holdOverAmount: 0,
+    holdOverDateOverride: null,
     advances: [{ paidOn: "2025-03-29", amount: 10000 }],
     roundOffMode: "auto",
     roundOff: 0,
@@ -78,7 +81,6 @@ describe("pictureEndingTotals — intra-state", () => {
     expect(t.shareCgst).toBe(5400);
     expect(t.shareIgst).toBe(0);
     expect(t.shareGst).toBe(10800);
-    expect(t.credit).toBe(70800); // 60000 + 10800
   });
   it("publicity defaults to 2% of the full-run ex-share when no base is given", () => {
     expect(t.publicityExShare).toBe(40000); // whole run (no hold-over base supplied)
@@ -87,16 +89,19 @@ describe("pictureEndingTotals — intra-state", () => {
     expect(t.publicityGst).toBe(144);       // 18% of 800
     expect(t.publicity).toBe(944);
   });
+  it("credits publicity alongside the share — both are payable to the distributor", () => {
+    expect(t.credit).toBe(71744); // share 60000 + share GST 10800 + publicity 944
+  });
   it("TDS = 2% of (share + publicity base)", () => {
     expect(t.tdsBase).toBe(60800);
     expect(t.tds).toBe(1216);
   });
   it("debit, balance and round-off close the account", () => {
-    // debit = publicity 944 + tds 1216 + flex 500 + holdOver 0 + advances 10000
-    expect(t.debit).toBe(12660);
-    expect(t.balanceBeforeRound).toBe(58140); // 70800 - 12660
+    // debit = tds 1216 + flex 500 + holdOver 0 + advances 10000
+    expect(t.debit).toBe(11716);
+    expect(t.balanceBeforeRound).toBe(60028); // 71744 - 11716
     expect(t.roundOff).toBe(0);
-    expect(t.balance).toBe(58140);
+    expect(t.balance).toBe(60028);
   });
 });
 
@@ -107,7 +112,7 @@ describe("pictureEndingTotals — inter-state", () => {
     expect(t.shareSgst).toBe(0);
     expect(t.shareCgst).toBe(0);
     expect(t.publicityIgst).toBe(144);
-    expect(t.credit).toBe(70800);
+    expect(t.credit).toBe(71744);
   });
 });
 
@@ -115,7 +120,7 @@ describe("pictureEndingTotals — manual round-off", () => {
   it("applies the supplied round-off instead of nearest-rupee", () => {
     const t = pictureEndingTotals(WEEKS, inputs({ roundOffMode: "manual", roundOff: -0.4 }));
     expect(t.roundOff).toBe(-0.4);
-    expect(t.balance).toBe(58139.6);
+    expect(t.balance).toBe(60027.6);
   });
 });
 
@@ -130,12 +135,13 @@ describe("pictureEndingTotals — publicity charged till hold-over", () => {
     expect(t.publicityGst).toBe(86.4);   // 18% of 480
     expect(t.publicity).toBe(566.4);
   });
-  it("flows the smaller publicity through TDS and the debit total", () => {
+  it("flows the smaller publicity through TDS and both totals", () => {
     expect(t.tdsBase).toBe(60480);       // share 60000 + publicity base 480
     expect(t.tds).toBe(1209.6);          // 2% of 60480
-    // debit = publicity 566.4 + tds 1209.6 + flex 500 + advances 10000
-    expect(t.debit).toBe(12276);
-    expect(t.credit).toBe(70800);        // credit side unchanged
+    // credit = share 60000 + share GST 10800 + publicity 566.4
+    expect(t.credit).toBe(71366.4);
+    // debit = tds 1209.6 + flex 500 + advances 10000
+    expect(t.debit).toBe(11709.6);
   });
 });
 
@@ -369,5 +375,149 @@ describe("buildPictureEnding", () => {
   });
   it("returns null for an unknown movie", () => {
     expect(buildPictureEnding(fixture([]), "nope", inputs())).toBeNull();
+  });
+});
+
+// ── hold-over rule: extend to the opening Sunday ───────────────────────────
+//
+// The fixture film releases Thu 27 Mar 2025, so its opening weekend ends Sun
+// 30 Mar — Thu 1, Fri 2, Sat 3, Sun 4, the "3/4 days" of the house rule.
+
+describe("firstSundayOnOrAfter", () => {
+  it("finds the end of the opening weekend for Thursday and Friday releases", () => {
+    expect(firstSundayOnOrAfter("2025-03-27")).toBe("2025-03-30"); // Thu → +3
+    expect(firstSundayOnOrAfter("2025-03-28")).toBe("2025-03-30"); // Fri → +2
+  });
+  it("handles a midweek release and returns a Sunday release unchanged", () => {
+    expect(firstSundayOnOrAfter("2025-03-26")).toBe("2025-03-30"); // Wed → +4
+    expect(firstSundayOnOrAfter("2025-03-30")).toBe("2025-03-30"); // Sun → itself
+  });
+});
+
+describe("resolveHoldOverDate", () => {
+  const ANCHOR = "2025-03-27";   // Thursday release
+  const SUNDAY = "2025-03-30";
+
+  it("leaves the detected date alone with no rule, but still reports the ceiling", () => {
+    const r = resolveHoldOverDate("2025-03-28", ANCHOR);
+    expect(r).toEqual({
+      detected: "2025-03-28",
+      ceiling: SUNDAY,          // extendable by hand even without the rule
+      applied: "2025-03-28",
+      source: "detected",
+    });
+  });
+  it("extends a hold-over inside the opening weekend to the Sunday", () => {
+    const r = resolveHoldOverDate("2025-03-28", ANCHOR, "opening-sunday");
+    expect(r.applied).toBe(SUNDAY);
+    expect(r.source).toBe("rule");
+    expect(r.detected).toBe("2025-03-28"); // detector output preserved
+  });
+  it("never truncates — a later hold-over is untouched by the rule", () => {
+    const r = resolveHoldOverDate("2025-04-10", ANCHOR, "opening-sunday");
+    expect(r.applied).toBe("2025-04-10");
+    expect(r.source).toBe("detected");
+  });
+  it("leaves a film that never held over on its full run", () => {
+    const r = resolveHoldOverDate(null, ANCHOR, "opening-sunday");
+    expect(r.applied).toBeNull();
+    expect(r.source).toBe("detected");
+  });
+  it("lets a statement override beat both the rule and the detector", () => {
+    const r = resolveHoldOverDate("2025-03-28", ANCHOR, "opening-sunday", "2025-03-29");
+    expect(r.applied).toBe("2025-03-29"); // mid-weekend, inside the ceiling
+    expect(r.source).toBe("override");
+    expect(r.detected).toBe("2025-03-28");
+  });
+  it("clamps an override past the opening Sunday down to it", () => {
+    const r = resolveHoldOverDate("2025-03-28", ANCHOR, "opening-sunday", "2025-04-06");
+    expect(r.ceiling).toBe(SUNDAY);
+    expect(r.applied).toBe(SUNDAY);      // not 6 Apr — publicity stops at the weekend
+    expect(r.source).toBe("override");
+  });
+  it("does not clamp downwards — publicity days can always be given away", () => {
+    const r = resolveHoldOverDate("2025-03-28", ANCHOR, "opening-sunday", "2025-03-27");
+    expect(r.applied).toBe("2025-03-27");
+  });
+  it("takes a hold-over past the Sunday as its own ceiling", () => {
+    const r = resolveHoldOverDate("2025-04-10", ANCHOR, "opening-sunday", "2025-04-20");
+    expect(r.ceiling).toBe("2025-04-10");
+    expect(r.applied).toBe("2025-04-10");
+  });
+});
+
+describe("buildPictureEnding — hold-over rule end to end", () => {
+  /** Same fixture, with the film linked to a distributor carrying `rule`. */
+  function withRule(entries: Entry[], rule: HoldOverRule): AppState {
+    const s = fixture(entries);
+    return {
+      ...s,
+      distributors: [{ id: "dist", name: "Central Pictures", holdOverRule: rule }],
+      movies: s.movies.map((m) => ({ ...m, distributorId: "dist" })),
+    };
+  }
+  // Hold-over lands Fri 28 Mar (day 2), inside the opening weekend.
+  const days: Entry[] = [
+    entry("2025-03-27", [100, 100, 100]),
+    entry("2025-03-28", [30, 30, 30]),
+    entry("2025-03-29", [20, 20, 20]),
+    entry("2025-03-30", [15, 15, 15]),
+    entry("2025-03-31", [10, 10, 10]),
+  ];
+
+  it("charges publicity to the Sunday, not the detected Friday", () => {
+    const plain = buildPictureEnding(withRule(days, "detected"), "mov", inputs({ advances: [] }))!;
+    const ext = buildPictureEnding(withRule(days, "opening-sunday"), "mov", inputs({ advances: [] }))!;
+
+    expect(plain.holdOverDate).toBe("2025-03-28");
+    expect(plain.holdOverSource).toBe("detected");
+    expect(ext.holdOverDate).toBe("2025-03-30");
+    expect(ext.holdOverSource).toBe("rule");
+    // Both keep the detector's own answer on record for the page to show.
+    expect(ext.detectedHoldOverDate).toBe("2025-03-28");
+
+    // Two more collecting days (29, 30 Mar) fall inside the publicity base.
+    expect(plain.totals.publicityDays).toBe(2);
+    expect(ext.totals.publicityDays).toBe(4);
+    expect(ext.totals.publicityExShare).toBeGreaterThan(plain.totals.publicityExShare);
+    // Publicity is a credit, so extending pays the distributor more.
+    expect(ext.totals.credit).toBeGreaterThan(plain.totals.credit);
+  });
+
+  it("lets a film opt out of the rule by overriding back to the detected date", () => {
+    // "Don't extend" on the page: override = the detected date.
+    const built = buildPictureEnding(
+      withRule(days, "opening-sunday"),
+      "mov",
+      inputs({ advances: [], holdOverDateOverride: "2025-03-28" }),
+    )!;
+    const plain = buildPictureEnding(withRule(days, "detected"), "mov", inputs({ advances: [] }))!;
+
+    expect(built.holdOverDate).toBe("2025-03-28");
+    expect(built.holdOverSource).toBe("override");
+    // Identical publicity to a distributor with no rule at all.
+    expect(built.totals.publicityDays).toBe(plain.totals.publicityDays);
+    expect(built.totals.publicityBase).toBe(plain.totals.publicityBase);
+    expect(built.totals.credit).toBe(plain.totals.credit);
+  });
+
+  it("clamps an override past the opening Sunday, so the run cannot be over-charged", () => {
+    const built = buildPictureEnding(
+      withRule(days, "opening-sunday"),
+      "mov",
+      inputs({ advances: [], holdOverDateOverride: "2025-03-31" }),
+    )!;
+    expect(built.holdOverCeiling).toBe("2025-03-30");
+    expect(built.holdOverDate).toBe("2025-03-30"); // not 31 Mar
+    expect(built.totals.publicityDays).toBe(4);    // 27–30 Mar, not the whole run
+  });
+
+  it("caps a hand extension at the Sunday even with no distributor rule set", () => {
+    const built = buildPictureEnding(
+      withRule(days, "detected"),
+      "mov",
+      inputs({ advances: [], holdOverDateOverride: "2025-03-31" }),
+    )!;
+    expect(built.holdOverDate).toBe("2025-03-30");
   });
 });

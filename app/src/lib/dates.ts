@@ -43,6 +43,27 @@ export function daysBetweenIso(isoA: DateISO, isoB: DateISO): number {
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
 
+/** Day of week for a local YYYY-MM-DD: 0 = Sunday … 6 = Saturday. Anchored to
+ *  UTC midnight so it never shifts with the browser timezone. */
+export function dowIso(iso: DateISO): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * The first Sunday on or after `iso` — i.e. the end of the opening weekend for
+ * a film released on `iso`. A Sunday release returns itself.
+ *
+ * Used by the Picture Ending hold-over rule: films release Thursday/Friday, so
+ * a hold-over flagged mid-opening-weekend is premature and the publicity cutoff
+ * is pushed out to this date.
+ */
+export function firstSundayOnOrAfter(iso: DateISO): DateISO {
+  const dow = dowIso(iso);
+  return dow === 0 ? iso : addDaysIso(iso, 7 - dow);
+}
+
 // ── IST wall-clock helpers ─────────────────────────────────────────────────
 //
 // The schedule→entry unlock gate compares a show's IST start time against "now".

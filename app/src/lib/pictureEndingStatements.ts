@@ -29,7 +29,12 @@ export interface SavedPictureEndingStatement {
   statementDate: string;
   runFrom?: string;
   runTo?: string;
+  /** Applied publicity cutoff (what the PDF printed). */
   holdOverDate?: string;
+  /** Raw detector output + which layer won, for after-the-fact explanation. */
+  detectedHoldOverDate?: string;
+  holdOverSource?: "detected" | "rule" | "override";
+  holdOverDateOverride?: string;
   taxKind: "intra" | "inter";
   gstPct: number;
   publicityPct: number;
@@ -60,6 +65,10 @@ function toSaved(r: PictureEndingStatementRow): SavedPictureEndingStatement {
     runFrom: r.run_from ?? undefined,
     runTo: r.run_to ?? undefined,
     holdOverDate: r.hold_over_date ?? undefined,
+    detectedHoldOverDate: r.detected_hold_over_date ?? undefined,
+    holdOverSource:
+      (r.hold_over_source as SavedPictureEndingStatement["holdOverSource"]) ?? undefined,
+    holdOverDateOverride: r.hold_over_date_override ?? undefined,
     taxKind: r.tax_kind,
     gstPct: Number(r.gst_pct),
     publicityPct: Number(r.publicity_pct),
@@ -140,6 +149,9 @@ export async function savePictureEndingStatement(
       run_from: computed.runFrom ?? null,
       run_to: computed.runTo ?? null,
       hold_over_date: computed.holdOverDate,
+      detected_hold_over_date: computed.detectedHoldOverDate,
+      hold_over_source: computed.holdOverSource,
+      hold_over_date_override: inputs.holdOverDateOverride,
       tax_kind: inputs.taxKind,
       gst_pct: inputs.gstPct,
       publicity_pct: inputs.publicityPct,
