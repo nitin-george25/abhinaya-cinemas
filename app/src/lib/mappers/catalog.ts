@@ -265,6 +265,7 @@ export function composeCatalogFromRows(args: {
       pocEmail: d.poc_email ?? undefined,
       gstin: d.gstin ?? undefined,
       pan: d.pan ?? undefined,
+      holdOverRule: d.hold_over_rule === "opening-sunday" ? "opening-sunday" : "detected",
     }));
 
   const movies: Movie[] = args.movies
@@ -431,6 +432,7 @@ export async function pushCatalogDeltas(
     poc_email: d.pocEmail ?? null,
     gstin: d.gstin ?? null,
     pan: d.pan ?? null,
+    hold_over_rule: d.holdOverRule ?? "detected",
     updated_by: email,
   }));
   const wantMovies = next.movies.map((m) => ({

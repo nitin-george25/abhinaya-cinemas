@@ -350,6 +350,9 @@ export interface DistributorRow {
   /** GST ID + PAN — Picture Ending statement (identity migration). */
   gstin:        string | null;
   pan:          string | null;
+  /** Standing hold-over term: 'detected' | 'opening-sunday' (hold-over rule
+   *  migration). Drives the publicity cutoff on this distributor's statements. */
+  hold_over_rule: string | null;
   archived_at:  string | null;
 }
 
@@ -389,7 +392,13 @@ export interface PictureEndingStatementRow {
   statement_date:    string;          // YYYY-MM-DD
   run_from:          string | null;
   run_to:            string | null;
+  /** The APPLIED hold-over date (publicity cutoff) — what the statement printed. */
   hold_over_date:    string | null;
+  /** Raw detector output, and which layer produced `hold_over_date`
+   *  ('detected' | 'rule' | 'override'), so a re-print stays explicable. */
+  detected_hold_over_date:  string | null;
+  hold_over_source:         string | null;
+  hold_over_date_override:  string | null;
   tax_kind:          "intra" | "inter";
   gst_pct:           number;
   publicity_pct:     number;

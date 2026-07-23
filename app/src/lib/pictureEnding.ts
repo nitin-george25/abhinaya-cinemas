@@ -25,6 +25,13 @@
 // hire — which is also why TDS is withheld on (share + publicity), the full
 // amount payable to the distributor.
 //
+// Publicity is charged on the ex-share earned up to the HOLD-OVER DATE. That
+// date is detected from the collection pattern (computeHoldOverDate), then run
+// through resolveHoldOverDate, which applies the distributor's standing rule and
+// any per-statement override. Only the resolved date reaches the printed
+// statement; the detected one is kept alongside it for the screen and the audit
+// trail.
+//
 // SGST+CGST vs IGST is auto-derived from the GST state code (first two digits)
 // of the cinema's vs the distributor's GSTIN, and overridable per statement.
 // ============================================================================
@@ -38,8 +45,10 @@ import {
   screenClasses,
   cardById,
 } from "./engine";
-import { todayIso, addDaysIso } from "./dates";
-import type { AppState, DateISO, Distributor, Movie, Show, UUID } from "./types";
+import { todayIso, addDaysIso, firstSundayOnOrAfter } from "./dates";
+import type {
+  AppState, DateISO, Distributor, HoldOverRule, Movie, Show, UUID,
+} from "./types";
 
 // ── tax-kind detection ────────────────────────────────────────────────────
 
@@ -91,6 +100,13 @@ export interface PictureEndingInputs {
   tdsPct: number;          // of (share + publicity), e.g. 2
   flexCharge: number;
   holdOverAmount: number;  // usually 0
+  /**
+   * Preparer's explicit hold-over date for this statement. Wins over both the
+   * auto-detected date and the distributor's standing rule. null = no override.
+   * This is a DATE (the publicity cutoff), not to be confused with the rupee
+   * `holdOverAmount` line above.
+   */
+  holdOverDateOverride: DateISO | null;
   advances: PictureEndingAdvance[];
   /** 'auto' rounds the balance to the nearest rupee; 'manual' uses roundOff. */
   roundOffMode: "auto" | "manual";
@@ -114,6 +130,7 @@ export function defaultPictureEndingInputs(
     tdsPct: 2,
     flexCharge: 0,
     holdOverAmount: 0,
+    holdOverDateOverride: null,
     advances: opts.advances ?? [],
     roundOffMode: "auto",
     roundOff: 0,
@@ -178,8 +195,18 @@ export interface PictureEndingComputed {
   runTo?: DateISO;
   totalDays: number;
   weeks: PictureEndingWeek[];
-  /** Auto-detected hold-over date (best-3 shows < one full house). */
+  /** The hold-over date actually APPLIED — the publicity cutoff, after the
+   *  distributor's rule and any statement override. This is the only one the
+   *  printed statement shows. */
   holdOverDate: DateISO | null;
+  /** What the detector alone said (best-3 shows < one full house), before any
+   *  rule or override. Shown on the page beside the applied date. */
+  detectedHoldOverDate: DateISO | null;
+  /** Furthest the cutoff may be pushed — caps the date picker on the page and
+   *  clamps any override. See `resolveHoldOverDate`. */
+  holdOverCeiling: DateISO | null;
+  /** Which layer produced `holdOverDate`. */
+  holdOverSource: HoldOverSource;
   inputs: PictureEndingInputs;
   totals: PictureEndingTotals;
 }
@@ -218,10 +245,15 @@ function fullHouseCollection(
 }
 
 /**
- * The hold-over date: the earliest day a movie's best 3 shows on a screen
- * together collect LESS than one 100% (full-house) show, valued at that day's
- * top-show price card. Per (date, screen); returns the earliest across the run.
- * null when the threshold is never crossed (or there's no usable price data).
+ * The DETECTED hold-over date: the earliest day a movie's best 3 shows on a
+ * screen together collect LESS than one 100% (full-house) show, valued at that
+ * day's top-show price card. Per (date, screen); returns the earliest across the
+ * run. null when the threshold is never crossed (or there's no usable price
+ * data).
+ *
+ * This is the raw signal only. The date actually used as the publicity cutoff
+ * comes out of `resolveHoldOverDate`, which layers the distributor's standing
+ * rule and any per-statement override on top of this.
  *
  * Only days that actually COLLECTED are considered. A day with ₹0 collection —
  * a saved-but-empty placeholder DCR (opened, never filled) or a scheduled-then-
@@ -260,6 +292,66 @@ export function computeHoldOverDate(
     if (best3 < fullHouse) return e.date!;
   }
   return null;
+}
+
+// ── hold-over resolution (detected → distributor rule → statement override) ──
+
+/** Which layer decided the applied hold-over date. */
+export type HoldOverSource = "detected" | "rule" | "override";
+
+export interface HoldOverResolution {
+  detected: DateISO | null;
+  /** The furthest the cutoff may be pushed: the end of the opening weekend, or
+   *  the detected date when that is already later. null = no cutoff at all (the
+   *  film never held over), which is itself the maximum. Bounds the override. */
+  ceiling: DateISO | null;
+  applied: DateISO | null;
+  source: HoldOverSource;
+}
+
+/**
+ * Resolve the hold-over date actually used as the publicity cutoff.
+ *
+ * Three layers, most specific first:
+ *   1. `override` — the preparer typed a date on this statement. Wins, but is
+ *                   CLAMPED to `ceiling`: publicity may be extended to the end
+ *                   of the opening weekend and no further. Downwards it is
+ *                   unbounded — declining the extension, or waiving publicity
+ *                   days outright, is always the cinema's to give away.
+ *   2. `rule`     — the distributor's standing term. 'opening-sunday' pushes
+ *                   the cutoff out to the ceiling: films release Thu/Fri, so a
+ *                   hold-over flagged before that Sunday is premature.
+ *   3. detected   — the raw detector output.
+ *
+ * The ceiling is the LATER of the detected date and the opening Sunday, and is
+ * computed regardless of the distributor's rule. So the rule decides the
+ * DEFAULT, while any film can still be extended by hand up to that same Sunday
+ * — and a hold-over already past it is its own ceiling, never truncated.
+ *
+ * A film that never held over (`detected` null) already earns publicity on its
+ * whole run, so no rule can improve on it and the cutoff stays null.
+ *
+ * @param runAnchor first day of run week 1 (the release date, or the first
+ *                  collecting day when the film has no release date on record)
+ */
+export function resolveHoldOverDate(
+  detected: DateISO | null,
+  runAnchor: DateISO | undefined,
+  rule: HoldOverRule = "detected",
+  override?: DateISO | null,
+): HoldOverResolution {
+  const sunday = runAnchor ? firstSundayOnOrAfter(runAnchor) : null;
+  const ceiling = detected && sunday && sunday > detected ? sunday : detected;
+
+  if (override) {
+    // Clamp up-only. A null ceiling means "no cutoff", already the maximum.
+    const applied = ceiling && override > ceiling ? ceiling : override;
+    return { detected, ceiling, applied, source: "override" };
+  }
+  if (rule === "opening-sunday" && ceiling !== detected) {
+    return { detected, ceiling, applied: ceiling, source: "rule" };
+  }
+  return { detected, ceiling, applied: detected, source: "detected" };
 }
 
 // ── weekly roll-up + cascade ──────────────────────────────────────────────
@@ -465,9 +557,16 @@ export function buildPictureEnding(
   const distributor = state.distributors.find((d) => d.id === movie.distributorId);
 
   const weeks = summarizeWeeks(state, movieId);
-  const holdOverDate = computeHoldOverDate(state, movieId);
+  // weeks[0].from IS the run anchor — summarizeWeeks windows week 1 from the
+  // release date (or the first collecting day when there is none).
+  const ho = resolveHoldOverDate(
+    computeHoldOverDate(state, movieId),
+    weeks[0]?.from,
+    distributor?.holdOverRule,
+    inputs.holdOverDateOverride,
+  );
   // Publicity base = ex-share till the hold-over day (full run if it never held over).
-  const publicity = publicityBaseFor(state, movieId, holdOverDate);
+  const publicity = publicityBaseFor(state, movieId, ho.applied);
   const totals = pictureEndingTotals(weeks, inputs, publicity);
 
   const screenIds = [
@@ -492,7 +591,10 @@ export function buildPictureEnding(
     runTo,
     totalDays,
     weeks,
-    holdOverDate,
+    holdOverDate: ho.applied,
+    detectedHoldOverDate: ho.detected,
+    holdOverCeiling: ho.ceiling,
+    holdOverSource: ho.source,
     inputs,
     totals,
   };

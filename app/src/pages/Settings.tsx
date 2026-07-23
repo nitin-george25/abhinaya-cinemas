@@ -31,6 +31,7 @@ import type {
   ClassDef,
   Distributor,
   FbProduct,
+  HoldOverRule,
   Movie,
   MovieStatus,
   PriceCard,
@@ -910,6 +911,7 @@ export function DistributorsSection() {
                   <th className="text-left px-5 py-3 font-semibold w-40">POC name</th>
                   <th className="text-left px-5 py-3 font-semibold w-36">Contact</th>
                   <th className="text-left px-5 py-3 font-semibold w-52">Email</th>
+                  <th className="text-left px-5 py-3 font-semibold w-44" title="Publicity cutoff rule on the Picture Ending statement">Hold-over</th>
                   <th className="text-right px-5 py-3 font-semibold w-36"></th>
                 </tr>
               </thead>
@@ -942,6 +944,8 @@ function DistributorRow({
   const [pocName, setPocName] = useState(distributor.pocName ?? "");
   const [pocContact, setPocContact] = useState(distributor.pocContact ?? "");
   const [pocEmail, setPocEmail] = useState(distributor.pocEmail ?? "");
+  const [holdOverRule, setHoldOverRule] =
+    useState<HoldOverRule>(distributor.holdOverRule ?? "detected");
 
   function save() {
     if (!name.trim()) return;
@@ -953,6 +957,7 @@ function DistributorRow({
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
+      holdOverRule,
     });
     setEditing(false);
   }
@@ -966,6 +971,16 @@ function DistributorRow({
         <td className="px-5 py-2"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} className="h-8" /></td>
         <td className="px-5 py-2"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} className="h-8" /></td>
+        <td className="px-5 py-2">
+          <Select
+            value={holdOverRule}
+            onChange={(e) => setHoldOverRule(e.target.value as HoldOverRule)}
+            className="h-8"
+          >
+            <option value="detected">As detected</option>
+            <option value="opening-sunday">Extend to opening Sunday</option>
+          </Select>
+        </td>
         <td className="px-5 py-2 text-right whitespace-nowrap">
           <Button size="sm" onClick={save}>Save</Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
@@ -981,6 +996,13 @@ function DistributorRow({
       <td className="px-5 py-2 text-ink-muted">{distributor.pocName ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted tabular-nums">{distributor.pocContact ?? "—"}</td>
       <td className="px-5 py-2 text-ink-muted">{distributor.pocEmail ?? "—"}</td>
+      <td className="px-5 py-2">
+        {distributor.holdOverRule === "opening-sunday" ? (
+          <Badge tone="amber">Opening Sunday</Badge>
+        ) : (
+          <span className="text-ink-muted">As detected</span>
+        )}
+      </td>
       <td className="px-5 py-2 text-right whitespace-nowrap">
         <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
         <Button size="sm" variant="ghost" onClick={() => onRemove(distributor.id)} className="text-red-700">×</Button>
@@ -996,6 +1018,7 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
   const [pocName, setPocName] = useState("");
   const [pocContact, setPocContact] = useState("");
   const [pocEmail, setPocEmail] = useState("");
+  const [holdOverRule, setHoldOverRule] = useState<HoldOverRule>("detected");
   const [error, setError] = useState<string | null>(null);
 
   function go(e: FormEvent) {
@@ -1009,6 +1032,7 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
       pocName: pocName.trim() || undefined,
       pocContact: pocContact.trim() || undefined,
       pocEmail: pocEmail.trim() || undefined,
+      holdOverRule,
     });
   }
 
@@ -1020,6 +1044,15 @@ function DistributorForm({ onCancel, onSave }: { onCancel: () => void; onSave: (
       <Field label="POC name"><Input value={pocName} onChange={(e) => setPocName(e.target.value)} placeholder="Contact person" /></Field>
       <Field label="Contact"><Input value={pocContact} onChange={(e) => setPocContact(e.target.value)} placeholder="Phone" /></Field>
       <Field label="Email"><Input type="email" value={pocEmail} onChange={(e) => setPocEmail(e.target.value)} placeholder="name@example.com" /></Field>
+      <Field
+        label="Hold-over rule"
+        hint="Publicity cutoff on the Picture Ending statement. Extend when a hold-over inside the opening weekend should not cut publicity short."
+      >
+        <Select value={holdOverRule} onChange={(e) => setHoldOverRule(e.target.value as HoldOverRule)}>
+          <option value="detected">As detected</option>
+          <option value="opening-sunday">Extend to opening Sunday</option>
+        </Select>
+      </Field>
       {error ? <p className="text-sm text-red-700 lg:col-span-3">{error}</p> : null}
       <div className="flex gap-2 lg:col-span-3">
         <Button type="submit">Add distributor</Button>
