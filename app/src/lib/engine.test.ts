@@ -81,6 +81,8 @@ function makeDefaultState(): AppState {
       { id: "mov_empuraan", name: "Empuraan", distributor: "Ashirvad Cinemas", release: "2025-03-27", share: 60, status: "now_showing" },
     ],
     distributors: [],
+    movieFormats: [],
+    representatives: [],
     serialStarts: [
       {
         id: "ss_1",

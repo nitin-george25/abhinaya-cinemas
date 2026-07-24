@@ -58,6 +58,8 @@ export interface ConfigPayload {
   screens?: unknown;
   movies?: unknown;
   distributors?: unknown;
+  movieFormats?: unknown;
+  representatives?: unknown;
   serialStarts?: unknown;
   openings?: unknown;
 }

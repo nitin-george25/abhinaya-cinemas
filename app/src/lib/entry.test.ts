@@ -33,6 +33,8 @@ function makeState(entries: Entry[] = []): AppState {
     ],
     movies: [],
     distributors: [],
+    movieFormats: [],
+    representatives: [],
     serialStarts: [],
     openings: [],
     entries,

@@ -47,7 +47,7 @@ import {
 } from "./engine";
 import { todayIso, addDaysIso, firstSundayOnOrAfter } from "./dates";
 import type {
-  AppState, DateISO, Distributor, HoldOverRule, Movie, Show, UUID,
+  AppState, DateISO, Distributor, HoldOverRule, Movie, Representative, Show, UUID,
 } from "./types";
 
 // ── tax-kind detection ────────────────────────────────────────────────────
@@ -117,13 +117,23 @@ export interface PictureEndingInputs {
 export function defaultPictureEndingInputs(
   cinemaGstin: string | null | undefined,
   distributor: Distributor | undefined,
-  opts: { theatreName?: string; advances?: PictureEndingAdvance[] } = {},
+  opts: {
+    theatreName?: string;
+    advances?: PictureEndingAdvance[];
+    /** The distributor's reps (Settings → Box Office). A lone rep is
+     *  preselected; with several, the preparer picks. */
+    representatives?: Representative[];
+  } = {},
 ): PictureEndingInputs {
+  const reps = opts.representatives ?? [];
+  const soleRep = reps.length === 1 ? reps[0]?.name : undefined;
   return {
     statementDate: todayIso(),
     movieFormat: "",
     theatreName: opts.theatreName ?? "",
-    representative: distributor?.pocName ?? "",
+    // Falls back to the point-of-contact, which is what this field held before
+    // representatives became a catalog.
+    representative: soleRep ?? distributor?.pocName ?? "",
     taxKind: autoTaxKind(cinemaGstin, distributor?.gstin),
     gstPct: 18,
     publicityPct: 2,

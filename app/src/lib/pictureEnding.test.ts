@@ -15,6 +15,7 @@ import {
   gstStateCode,
   buildPictureEnding,
   computeHoldOverDate,
+  defaultPictureEndingInputs,
   pictureEndingTotals,
   publicityBaseFor,
   resolveHoldOverDate,
@@ -270,6 +271,8 @@ function fixture(entries: Entry[]): AppState {
     ],
     movies: [{ id: "mov", name: "Test Film", release: "2025-03-27", share: 60 }],
     distributors: [],
+    movieFormats: [],
+    representatives: [],
     serialStarts: [],
     openings: [],
     entries,
@@ -375,6 +378,31 @@ describe("buildPictureEnding", () => {
   });
   it("returns null for an unknown movie", () => {
     expect(buildPictureEnding(fixture([]), "nope", inputs())).toBeNull();
+  });
+});
+
+// ── representative seeding ─────────────────────────────────────────────────
+
+describe("defaultPictureEndingInputs — representative", () => {
+  const dist = { id: "dist", name: "Central Pictures", pocName: "Jose Alex" };
+
+  it("preselects the distributor's only representative", () => {
+    const inp = defaultPictureEndingInputs("32AACFA8850G1ZP", dist, {
+      representatives: [{ id: "r1", name: "Anil Kumar", distributorId: "dist" }],
+    });
+    expect(inp.representative).toBe("Anil Kumar");
+  });
+  it("leaves the choice open when the distributor has several", () => {
+    const inp = defaultPictureEndingInputs("32AACFA8850G1ZP", dist, {
+      representatives: [
+        { id: "r1", name: "Anil Kumar", distributorId: "dist" },
+        { id: "r2", name: "Biju Thomas", distributorId: "dist" },
+      ],
+    });
+    expect(inp.representative).toBe("Jose Alex"); // falls back to the POC
+  });
+  it("falls back to the point-of-contact with no reps on record", () => {
+    expect(defaultPictureEndingInputs("32AACFA8850G1ZP", dist).representative).toBe("Jose Alex");
   });
 });
 

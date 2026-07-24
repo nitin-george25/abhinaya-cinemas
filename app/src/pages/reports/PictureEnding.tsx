@@ -92,6 +92,22 @@ export default function ReportsPictureEndingPage() {
   const movie = movies.find((m) => m.id === movieId);
   const distributor = appState?.distributors.find((d) => d.id === movie?.distributorId);
 
+  // Picture Ending catalogs (Settings → Box Office). Reps are scoped to the
+  // film's distributor — you can only hand a statement to their own people.
+  const formats = useMemo(
+    () => [...(appState?.movieFormats ?? [])].sort((a, b) => a.code.localeCompare(b.code)),
+    [appState],
+  );
+  const reps = useMemo(
+    () =>
+      distributor
+        ? (appState?.representatives ?? [])
+            .filter((r) => r.distributorId === distributor.id)
+            .sort((a, b) => a.name.localeCompare(b.name))
+        : [],
+    [appState, distributor],
+  );
+
   // Load the cinema profile once (statement header needs the full identity).
   useEffect(() => {
     if (!cinemaId) return;
@@ -109,6 +125,7 @@ export default function ReportsPictureEndingPage() {
     if (!movie || !cinemaId) { setInputs(null); return; }
     const base = defaultPictureEndingInputs(profile?.gstin ?? appState?.cinema.gstin, distributor, {
       theatreName: profile?.name ?? appState?.cinema.name,
+      representatives: reps,
     });
     setInputs(base);
     void listDistributorPayments(cinemaId, { movieId: movie.id }).then((pays) => {
@@ -291,17 +308,51 @@ export default function ReportsPictureEndingPage() {
                 <Input type="date" value={inputs.statementDate}
                   onChange={(e) => patch({ statementDate: e.target.value })} />
               </Field>
-              <Field label="Format (e.g. M-2D)">
-                <Input value={inputs.movieFormat ?? ""} placeholder="M-2D"
-                  onChange={(e) => patch({ movieFormat: e.target.value })} />
+              <Field
+                label="Format"
+                hint={formats.length ? undefined : "add codes in Settings → Box Office → Formats"}
+              >
+                <Select value={inputs.movieFormat ?? ""}
+                  onChange={(e) => patch({ movieFormat: e.target.value })}>
+                  <option value="">—</option>
+                  {formats.map((f) => (
+                    <option key={f.id} value={f.code}>
+                      {f.label ? `${f.code} — ${f.label}` : f.code}
+                    </option>
+                  ))}
+                  {/* A code carried over from before the catalog existed (or
+                      since removed) must stay selectable, not vanish. */}
+                  {inputs.movieFormat && !formats.some((f) => f.code === inputs.movieFormat) ? (
+                    <option value={inputs.movieFormat}>{inputs.movieFormat} (not in list)</option>
+                  ) : null}
+                </Select>
               </Field>
               <Field label="Name of theatre">
                 <Input value={inputs.theatreName ?? ""}
                   onChange={(e) => patch({ theatreName: e.target.value })} />
               </Field>
-              <Field label="Representative">
-                <Input value={inputs.representative ?? ""}
-                  onChange={(e) => patch({ representative: e.target.value })} />
+              <Field
+                label="Representative"
+                hint={
+                  !computed.distributor
+                    ? "link this film to a distributor to pick one"
+                    : reps.length
+                      ? undefined
+                      : `no reps for ${computed.distributor.name} yet`
+                }
+              >
+                <Select value={inputs.representative ?? ""}
+                  onChange={(e) => patch({ representative: e.target.value })}>
+                  <option value="">—</option>
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                  {/* Keeps the distributor's POC name (the pre-catalog default)
+                      and any historical value selectable. */}
+                  {inputs.representative && !reps.some((r) => r.name === inputs.representative) ? (
+                    <option value={inputs.representative}>{inputs.representative} (not in list)</option>
+                  ) : null}
+                </Select>
               </Field>
               <Field label="GST type" hint="auto from GST state codes">
                 <Select value={inputs.taxKind}
