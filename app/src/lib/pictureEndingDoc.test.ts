@@ -37,6 +37,7 @@ function fixture(): AppState {
       distributorId: "dist", release: "2025-03-27", share: 60 }],
     distributors: [{ id: "dist", name: "Central Pictures", gstin: "32AABFC4215E1Z9",
       pan: "AABFC4215E", pocName: "Jose Alex", pocEmail: "x@y.com" }],
+    movieFormats: [], representatives: [],
     serialStarts: [], openings: [],
     entries: [entry("2025-03-27", [100, 90, 80]), entry("2025-03-28", [30, 20, 10]),
       entry("2025-04-03", [40, 30])],

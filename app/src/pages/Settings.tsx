@@ -33,6 +33,7 @@ import type {
   FbProduct,
   HoldOverRule,
   Movie,
+  MovieFormat,
   MovieStatus,
   PriceCard,
   Screen,
@@ -1008,6 +1009,207 @@ function DistributorRow({
         <Button size="sm" variant="ghost" onClick={() => onRemove(distributor.id)} className="text-red-700">×</Button>
       </td>
     </tr>
+  );
+}
+
+// ── Movie formats ──────────────────────────────────────────────────────────
+//
+// The short code printed beside the film title on a Picture Ending Statement
+// ("M-2D"). Catalog only — a statement stores the chosen code as text.
+
+export function MovieFormatsSection() {
+  const { state, setAppState } = useSync();
+  const appState = state.appState;
+  const [adding, setAdding] = useState(false);
+  const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
+  if (!appState || !canEditCatalog(state.role)) return null;
+
+  const formats = appState.movieFormats ?? [];
+
+  function save(next: MovieFormat) {
+    if (!appState) return;
+    const others = (appState.movieFormats ?? []).filter((f) => f.id !== next.id);
+    setAppState({ ...appState, movieFormats: [...others, next] });
+  }
+  function add(e: FormEvent) {
+    e.preventDefault();
+    if (!code.trim()) return;
+    save({ id: uid(), code: code.trim(), label: label.trim() || undefined });
+    setCode(""); setLabel(""); setAdding(false);
+  }
+  function remove(id: UUID) {
+    if (!appState) return;
+    const f = formats.find((x) => x.id === id);
+    // Statements keep the code they were filed with, so removing one only
+    // takes it out of the dropdown — no filed document changes.
+    if (!confirm(`Remove format "${f?.code ?? id}"? Statements already filed keep their code.`)) return;
+    setAppState({ ...appState, movieFormats: formats.filter((x) => x.id !== id) });
+  }
+
+  const sorted = [...formats].sort((a, b) => a.code.localeCompare(b.code));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Formats</CardTitle>
+        <Button size="sm" onClick={() => setAdding((a) => !a)}>
+          {adding ? "Cancel" : "+ Add format"}
+        </Button>
+      </CardHeader>
+      {adding ? (
+        <CardBody className="border-b border-line bg-paper">
+          <form onSubmit={add} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
+            <Field label="Code" hint="printed beside the title">
+              <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="M-2D" />
+            </Field>
+            <Field label="Description" hint="optional — shown in the dropdown">
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Malayalam 2D" />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit">Add format</Button>
+            </div>
+          </form>
+        </CardBody>
+      ) : null}
+      <CardBody className="p-0">
+        {sorted.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            No formats yet. Add one, then pick it on a Picture Ending statement.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
+                <th className="text-left px-5 py-3 font-semibold w-32">Code</th>
+                <th className="text-left px-5 py-3 font-semibold">Description</th>
+                <th className="text-right px-5 py-3 font-semibold w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((f) => (
+                <tr key={f.id} className="border-b border-line hover:bg-paper/60">
+                  <td className="px-5 py-2 font-medium">{f.code}</td>
+                  <td className="px-5 py-2 text-ink-muted">{f.label ?? "—"}</td>
+                  <td className="px-5 py-2 text-right">
+                    <Button size="sm" variant="ghost" onClick={() => remove(f.id)} className="text-red-700">×</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── Representatives ────────────────────────────────────────────────────────
+//
+// Each rep belongs to one distributor; a Picture Ending statement only offers
+// the reps of that film's distributor.
+
+export function RepresentativesSection() {
+  const { state, setAppState } = useSync();
+  const appState = state.appState;
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [distributorId, setDistributorId] = useState("");
+  const [phone, setPhone] = useState("");
+  if (!appState || !canEditCatalog(state.role)) return null;
+
+  const reps = appState.representatives ?? [];
+  const distributors = [...appState.distributors].sort((a, b) => a.name.localeCompare(b.name));
+  const distName = (id: string) => distributors.find((d) => d.id === id)?.name ?? "—";
+
+  function add(e: FormEvent) {
+    e.preventDefault();
+    if (!appState || !name.trim() || !distributorId) return;
+    setAppState({
+      ...appState,
+      representatives: [
+        ...reps,
+        { id: uid(), name: name.trim(), distributorId, phone: phone.trim() || undefined },
+      ],
+    });
+    setName(""); setDistributorId(""); setPhone(""); setAdding(false);
+  }
+  function remove(id: UUID) {
+    if (!appState) return;
+    const r = reps.find((x) => x.id === id);
+    if (!confirm(`Remove representative "${r?.name ?? id}"? Statements already filed keep their name.`)) return;
+    setAppState({ ...appState, representatives: reps.filter((x) => x.id !== id) });
+  }
+
+  // Grouped by distributor, so the link is obvious at a glance.
+  const sorted = [...reps].sort(
+    (a, b) =>
+      distName(a.distributorId).localeCompare(distName(b.distributorId)) ||
+      a.name.localeCompare(b.name),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Representatives</CardTitle>
+        <Button size="sm" disabled={!distributors.length} onClick={() => setAdding((a) => !a)}>
+          {adding ? "Cancel" : "+ Add representative"}
+        </Button>
+      </CardHeader>
+      {adding ? (
+        <CardBody className="border-b border-line bg-paper">
+          <form onSubmit={add} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
+            <Field label="Distributor">
+              <Select value={distributorId} onChange={(e) => setDistributorId(e.target.value)}>
+                <option value="">Select…</option>
+                {distributors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rep name" /></Field>
+            <Field label="Phone"><Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="optional" /></Field>
+            <div className="flex gap-2 lg:col-span-3">
+              <Button type="submit">Add representative</Button>
+            </div>
+          </form>
+        </CardBody>
+      ) : null}
+      <CardBody className="p-0">
+        {!distributors.length ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            Add a distributor first — every representative belongs to one.
+          </p>
+        ) : sorted.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-ink-muted">
+            No representatives yet. Add one, then pick it on a Picture Ending statement.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wider text-ink-muted border-b border-line">
+                <th className="text-left px-5 py-3 font-semibold">Distributor</th>
+                <th className="text-left px-5 py-3 font-semibold">Name</th>
+                <th className="text-left px-5 py-3 font-semibold w-40">Phone</th>
+                <th className="text-right px-5 py-3 font-semibold w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.id} className="border-b border-line hover:bg-paper/60">
+                  <td className="px-5 py-2 text-ink-muted">{distName(r.distributorId)}</td>
+                  <td className="px-5 py-2 font-medium">{r.name}</td>
+                  <td className="px-5 py-2 text-ink-muted tabular-nums">{r.phone ?? "—"}</td>
+                  <td className="px-5 py-2 text-right">
+                    <Button size="sm" variant="ghost" onClick={() => remove(r.id)} className="text-red-700">×</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

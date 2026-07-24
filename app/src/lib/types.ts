@@ -132,6 +132,34 @@ export interface Distributor {
 /** Standing hold-over term on a distributor. See `Distributor.holdOverRule`. */
 export type HoldOverRule = "detected" | "opening-sunday";
 
+/**
+ * A print/language format tag — "M-2D", "T-3D" and so on. Picked on the Picture
+ * Ending Statement, where the code is printed beside the film title.
+ * Catalog only: statements store the chosen CODE as text, so a filed document
+ * keeps the string it was filed with even if the catalog entry is later edited.
+ */
+export interface MovieFormat {
+  id: UUID;
+  /** Short code exactly as printed, e.g. "M-2D". */
+  code: string;
+  /** Optional expansion shown in the dropdown, e.g. "Malayalam 2D". */
+  label?: string;
+}
+
+/**
+ * A distributor's representative — the person a settlement is handed to, printed
+ * on the Picture Ending Statement. Scoped to one distributor: the statement only
+ * offers the reps belonging to that film's distributor.
+ * Like formats, statements store the chosen NAME as text.
+ */
+export interface Representative {
+  id: UUID;
+  name: string;
+  /** Owning distributor. */
+  distributorId: UUID;
+  phone?: string;
+}
+
 export interface Movie {
   id: UUID;
   name: string;
@@ -276,6 +304,9 @@ export interface AppState {
   screens: Screen[];
   movies: Movie[];
   distributors: Distributor[];
+  /** Picture Ending catalogs (Settings → Box Office). */
+  movieFormats: MovieFormat[];
+  representatives: Representative[];
   serialStarts: SerialStart[];
   openings: Opening[];
   entries: Entry[];

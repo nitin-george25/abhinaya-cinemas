@@ -238,6 +238,8 @@ export const NAV: NavItem[] = [
         children: [
           { kind: "leaf", to: "/settings/movies",       label: "Movies",       roles: OWNER_MANAGER },
           { kind: "leaf", to: "/settings/distributors", label: "Distributors", roles: OWNER_MANAGER },
+          { kind: "leaf", to: "/settings/representatives", label: "Representatives", roles: OWNER_MANAGER },
+          { kind: "leaf", to: "/settings/formats",      label: "Formats",      roles: OWNER_MANAGER },
         ],
       },
       { kind: "leaf", to: "/settings/screens", label: "Screens & Classes", roles: OWNER_MANAGER },

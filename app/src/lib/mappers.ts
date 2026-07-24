@@ -85,6 +85,8 @@ export function applyConfigPayload<S extends Partial<AppState>>(
     "screens",
     "movies",
     "distributors",
+    "movieFormats",
+    "representatives",
     "serialStarts",
     "openings",
   ];
@@ -105,6 +107,8 @@ export function cfgPayload(state: AppState): ConfigPayload {
     screens: state.screens,
     movies: state.movies,
     distributors: state.distributors,
+    movieFormats: state.movieFormats,
+    representatives: state.representatives,
     serialStarts: state.serialStarts,
     openings: state.openings,
   };

@@ -273,6 +273,8 @@ export function useSupabaseSync(): SyncApi {
         screens: [],
         movies: [],
         distributors: [],
+        movieFormats: [],
+        representatives: [],
         serialStarts: [],
         openings: [],
         entries,
