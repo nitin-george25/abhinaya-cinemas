@@ -8,17 +8,29 @@
 // every cinema.
 //
 // Usage:
-//   SUPABASE_SERVICE_ROLE_KEY=… node scripts/seed-sops.mjs staging "C:/path/to/SOPs"
-//   SUPABASE_SERVICE_ROLE_KEY=… node scripts/seed-sops.mjs prod    "C:/path/to/SOPs" --force
+//   node scripts/seed-sops.mjs staging "C:/path/to/SOPs"
+//   node scripts/seed-sops.mjs prod    "C:/path/to/SOPs" --force
 //
 // Flags:
-//   --force   re-upload and overwrite SOPs whose code already exists.
-//             Without it, existing codes are left alone and reported as skips.
-//   --dry     parse and print the plan without touching Supabase.
+//   --force          re-upload and overwrite SOPs whose code already exists.
+//                    Without it, existing codes are left alone and reported
+//                    as skips.
+//   --dry            parse and print the plan without touching Supabase.
+//   --user <name>    owner/manager username, otherwise you're prompted.
 //
-// The service-role key is required because the bucket and table are
-// owner/manager-gated by RLS and this runs outside a user session. Get it from
-// the Supabase dashboard → Project Settings → API. Never commit it.
+// Auth: the script signs in as a real owner or manager with their username and
+// 6-digit PIN — the same credentials they use in the console — and then writes
+// through RLS exactly as that user would. It deliberately does NOT take a
+// service-role key: nothing here needs to bypass RLS, and a bypass credential
+// on a developer's machine is a standing risk. The PIN is prompted for and
+// never echoed, never stored, and never passed as an argument (which would
+// land it in your shell history).
+//
+// The anon key below is the public, browser-shipped key already committed in
+// app/src/lib/env.ts — it identifies the project, it does not grant anything.
+//
+// Google-account users can't be used here: OAuth can't be scripted. Use an
+// owner or manager who has a username + PIN.
 //
 // Filename contract: "BO-01 Counter Opening & Cash Float Set-up.pdf"
 //   • the code before the first space is stored verbatim — it is what is
@@ -29,14 +41,32 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { createInterface } from "node:readline";
+import { stdin, stdout } from "node:process";
 import { createClient } from "@supabase/supabase-js";
 
+// URL + anon key per project, mirroring app/src/lib/env.ts. Anon keys are
+// public by Supabase's own classification — they ship in the browser bundle.
+// If the project's JWT secret is ever rotated these change too: update them
+// here and in env.ts together, or sign-in below starts failing.
 const PROJECTS = {
-  staging: "https://lctkvmpzijaspaytunkm.supabase.co",
-  prod: "https://xkmjygegtpmmwwnyoufn.supabase.co",
+  staging: {
+    url: "https://lctkvmpzijaspaytunkm.supabase.co",
+    anonKey:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjdGt2bXB6aWphc3BheXR1bmttIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTU0NDgsImV4cCI6MjA5NTYzMTQ0OH0.YeYegXQvX0l0FMABDgljs_bV_t9C66x77Y3kj2YZ55A",
+  },
+  prod: {
+    url: "https://xkmjygegtpmmwwnyoufn.supabase.co",
+    anonKey:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbWp5Z2VndHBtbXd3bnlvdWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODI2NTEsImV4cCI6MjA5NTQ1ODY1MX0.ILYBoN4OqFGIatTCTJ3hhfbGj6n8Q6e5LAhOVDDuTgo",
+  },
 };
 
 const BUCKET = "sop-documents";
+
+// Matches LOCAL_DOMAIN in app/src/lib/users.ts — username+PIN accounts are
+// real Supabase auth users under a synthetic internal domain.
+const LOCAL_DOMAIN = "local.abhinayacinemas.com";
 
 // Code prefix → area slug. Kept in lockstep with SOP_AREA_DEFS in
 // app/src/lib/sops.ts. "PRJ" is here because the v1 projection documents were
@@ -108,22 +138,47 @@ const METRIC_BY_CODE = {
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const positional = argv.filter((a) => !a.startsWith("--"));
-const [target, folder] = positional;
+
+// --user takes a value, so it is pulled out before the positionals are read.
+const userIdx = argv.indexOf("--user");
+const userArg = userIdx >= 0 ? argv[userIdx + 1] : undefined;
+const [target, folder] = positional.filter((a) => a !== userArg);
 
 const force = flags.has("--force");
 const dry = flags.has("--dry");
 
 if (!target || !PROJECTS[target] || !folder) {
   console.error(
-    "Usage: SUPABASE_SERVICE_ROLE_KEY=… node scripts/seed-sops.mjs <staging|prod> <folder> [--force] [--dry]",
+    "Usage: node scripts/seed-sops.mjs <staging|prod> <folder> [--user <name>] [--force] [--dry]",
   );
   process.exit(1);
 }
 
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!serviceKey && !dry) {
-  console.error("SUPABASE_SERVICE_ROLE_KEY is not set.");
-  process.exit(1);
+// ── prompts ─────────────────────────────────────────────────────────────────
+
+function ask(question) {
+  const rl = createInterface({ input: stdin, output: stdout });
+  return new Promise((res) =>
+    rl.question(question, (a) => {
+      rl.close();
+      res(a.trim());
+    }),
+  );
+}
+
+/** Same as ask(), but the typed characters are never echoed. */
+function askHidden(question) {
+  return new Promise((res) => {
+    const rl = createInterface({ input: stdin, output: stdout });
+    rl.question(question, (a) => {
+      rl.close();
+      stdout.write("\n");
+      res(a.trim());
+    });
+    // question() has already printed the prompt; swallow everything after it
+    // so the PIN never reaches the screen or the terminal scrollback.
+    rl._writeToOutput = () => {};
+  });
 }
 
 // ── parse the folder ────────────────────────────────────────────────────────
@@ -173,17 +228,66 @@ if (dry) {
 
 // ── load ────────────────────────────────────────────────────────────────────
 
-const sb = createClient(PROJECTS[target], serviceKey, {
-  auth: { persistSession: false },
+const project = PROJECTS[target];
+const sb = createClient(project.url, project.anonKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
 });
 
+// Sign in as a real owner/manager. Everything below then goes through RLS as
+// that user — the same path the console takes.
+const username = userArg ?? (await ask(`${target} owner/manager username: `));
+if (!username) {
+  console.error("A username is required.");
+  process.exit(1);
+}
+const pin = await askHidden("6-digit PIN (not shown): ");
+if (!/^\d{6}$/.test(pin)) {
+  console.error("PIN must be exactly 6 digits.");
+  process.exit(1);
+}
+
+const email = `${username.toLowerCase()}@${LOCAL_DOMAIN}`;
+const { error: authErr } = await sb.auth.signInWithPassword({ email, password: pin });
+if (authErr) {
+  console.error(
+    /invalid login/i.test(authErr.message)
+      ? "Wrong username or PIN."
+      : `Sign-in failed: ${authErr.message}`,
+  );
+  process.exit(1);
+}
+
+// Fail early with a clear message rather than letting RLS reject 38 inserts
+// one at a time.
+const { data: me, error: meErr } = await sb
+  .from("authorized_users")
+  .select("email, role")
+  .eq("email", email)
+  .maybeSingle();
+if (meErr || !me) {
+  console.error(`${email} is not on the access list.`);
+  await sb.auth.signOut();
+  process.exit(1);
+}
+if (me.role !== "owner" && me.role !== "manager") {
+  console.error(
+    `${username} is a ${me.role}. Loading SOPs needs an owner or manager.`,
+  );
+  await sb.auth.signOut();
+  process.exit(1);
+}
+console.log(`Signed in as ${username} (${me.role}) on ${target}.`);
+
+// Only the cinemas this user can actually see — RLS does the scoping.
 const { data: cinemas, error: cinemaErr } = await sb.from("cinemas").select("id, name");
 if (cinemaErr) {
   console.error(`Could not read cinemas: ${cinemaErr.message}`);
+  await sb.auth.signOut();
   process.exit(1);
 }
 if (!cinemas?.length) {
-  console.error("No cinemas found — nothing to seed.");
+  console.error("No cinemas visible to this user — nothing to seed.");
+  await sb.auth.signOut();
   process.exit(1);
 }
 
@@ -234,7 +338,7 @@ for (const cinema of cinemas) {
         storage_path: path,
         version: "v1.0",
         sort_order: i,
-        updated_by: "seed-sops",
+        updated_by: email,
       };
 
       if (prior) {
@@ -249,7 +353,7 @@ for (const cinema of cinemas) {
       } else {
         const { error } = await sb
           .from("sops")
-          .insert({ ...row, created_by: "seed-sops" });
+          .insert({ ...row, created_by: email });
         if (error) throw new Error(error.message);
         added++;
         console.log(`   add     ${p.code} ${p.title}`);
@@ -260,6 +364,8 @@ for (const cinema of cinemas) {
     }
   }
 }
+
+await sb.auth.signOut();
 
 console.log(
   `\nDone. ${added} added, ${replaced} replaced, ${skipped} skipped, ${failed} failed.`,
