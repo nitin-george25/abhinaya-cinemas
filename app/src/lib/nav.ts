@@ -248,6 +248,7 @@ export const NAV: NavItem[] = [
       { kind: "leaf", to: "/settings/payment-types", label: "Payment Types", roles: OWNER_ONLY },
       { kind: "leaf", to: "/settings/users",   label: "Users",             roles: OWNER_MANAGER },
       { kind: "leaf", to: "/settings/whatsapp", label: "WhatsApp",          roles: OWNER_ONLY },
+      { kind: "leaf", to: "/settings/notifications", label: "Notifications", roles: OWNER_ONLY },
     ],
   },
   { kind: "leaf", to: "/activity", label: "Activity Log", Icon: IconActivity, roles: OWNER_MANAGER },

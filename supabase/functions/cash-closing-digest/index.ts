@@ -25,10 +25,28 @@
 // layout is legible at 320px with CSS entirely disabled — the @media block in
 // emailShell() only softens padding and stacks the tiles, so Outlook desktop
 // and other clients that drop <style> still render something readable.
+//
+// RECIPIENTS are managed in the console at Settings -> Notifications, not by
+// an env var. ../_shared/digest-recipients.ts owns the resolution order
+// (?to= > console list > CASH_DIGEST_TO/DIGEST_TO > hardcoded default) and the
+// enabled switch. The env vars still work while the console list is empty.
+//
+// Env vars (Supabase Dashboard -> Edge Functions -> Secrets):
+//   RESEND_API_KEY  (required to send; ?dry=1 works without it)
+//   DIGEST_FROM     (optional, default Abhinaya DCR <noreply@mail.abhinayacinemas.com>)
+//   CASH_DIGEST_TO / DIGEST_TO  (legacy fallback only — prefer the console)
+//   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY  (auto-injected)
+//
+// Manual testing (staging ref; prod is xkmjygegtpmmwwnyoufn). ?dry=1 renders
+// the HTML and sends nothing; drop it to actually email:
+//   curl 'https://lctkvmpzijaspaytunkm.supabase.co/functions/v1/cash-closing-digest?dry=1&date=2026-07-26' \
+//        -H "Authorization: Bearer $SUPABASE_ANON_KEY"
 // ============================================================================
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+
+import { corsHeaders, readParams, resolveRecipients, withCors } from "../_shared/digest-recipients.ts";
 
 // ---------- types ----------
 type Closing = {
@@ -412,25 +430,18 @@ function pettySection(
 }
 
 // ---------- handler ----------
-Deno.serve(async (req: Request): Promise<Response> => {
-  const url = new URL(req.url);
-  const dry = url.searchParams.get("dry") === "1";
-  const overrideDate = url.searchParams.get("date");
+async function handle(req: Request): Promise<Response> {
+  const params = await readParams(req);
+  const dry = params.dry === "1";
+  const overrideDate = params.date;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = Deno.env.get("RESEND_API_KEY") || "";
   const fromAddr = Deno.env.get("DIGEST_FROM") || "Abhinaya DCR <noreply@mail.abhinayacinemas.com>";
-  const toAddr = Deno.env.get("CASH_DIGEST_TO")
-    || Deno.env.get("DIGEST_TO")
-    || "nitin.george@abhinayacinemas.com,ajim20@hotmail.com,shinu.thomas@abhinayacinemas.com";
-  const toAddrs = toAddr.split(",").map((s) => s.trim()).filter(Boolean);
 
   if (!supabaseUrl || !supabaseKey) {
     return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var", { status: 500 });
-  }
-  if (!resendKey && !dry) {
-    return new Response("Missing RESEND_API_KEY env var (use ?dry=1 to preview without sending)", { status: 500 });
   }
 
   let target: string;
@@ -443,13 +454,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const sb: SupabaseClient = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 
-  const [closeRes, unitRes, counterRes, pettyRes, userRes, cfgRes] = await Promise.all([
+  const [closeRes, unitRes, counterRes, pettyRes, userRes, recipients] = await Promise.all([
     sb.from("daily_cash_closings").select("*").eq("business_date", target),
     sb.from("operating_units").select("id, name, kind, display_order, default_float_amount, archived_at").order("display_order"),
     sb.from("pos_counters").select("id, name, operating_unit_id, archived_at"),
     sb.from("petty_expenses").select("*").eq("expense_date", target),
     sb.from("authorized_users").select("email, full_name"),
-    sb.from("config").select("data").eq("id", 1).maybeSingle(),
+    resolveRecipients({
+      sb, key: "cashClosing",
+      envValue: Deno.env.get("CASH_DIGEST_TO") || Deno.env.get("DIGEST_TO"),
+      queryTo: params.to,
+    }),
   ]);
 
   if (closeRes.error)   return new Response("daily_cash_closings query: " + closeRes.error.message, { status: 500 });
@@ -462,8 +477,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const counters = (counterRes.data || []) as Counter[];
   const petty    = (pettyRes.data || []) as Petty[];
   const users    = (userRes.data || []) as UserRow[];
-  const cinemaName = (cfgRes.data?.data as { cinema?: { name?: string } } | null)?.cinema?.name
-    || "Abhinaya Cinemas, Changanacherry";
+  const cinemaName = recipients.cinemaName;
+  const toAddrs = recipients.to;
 
   // Lookups. Archived units/counters still appear on old rows, so name from the
   // full list and only use the active list for the "who didn't close?" check.
@@ -509,12 +524,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
 
+  // Switched off in Settings -> Notifications. Not an error: the cron keeps
+  // firing and keeps no-opping until someone turns it back on.
+  if (!recipients.enabled) {
+    return new Response(JSON.stringify({
+      ok: true, target, skipped: "disabled in console (Settings > Notifications)",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (!resendKey) {
+    return new Response("Missing RESEND_API_KEY env var (use ?dry=1 to preview without sending)", { status: 500 });
+  }
+
   const resend = new Resend(resendKey);
   const { error } = await resend.emails.send({ from: fromAddr, to: toAddrs, subject, html });
   if (error) return new Response("Resend error: " + JSON.stringify(error), { status: 500 });
 
   return new Response(JSON.stringify({
-    ok: true, target, sentTo: toAddrs,
+    ok: true, target, sentTo: toAddrs, recipientSource: recipients.source,
     closings: closings.length, petty: petty.length, unitsWithoutClosing,
   }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  return withCors(await handle(req));
 });

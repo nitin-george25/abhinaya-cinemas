@@ -19,6 +19,33 @@ export interface Cinema {
   /** WhatsApp integration config (Cloud API). Optional — when unset the
    *  Send via WhatsApp button is hidden and auto-send is a no-op. */
   whatsapp?: WhatsappConfig;
+  /** Scheduled digest email settings. Optional — when unset each digest falls
+   *  back to its DIGEST_TO / PM_DIGEST_TO env var, then to a hardcoded list. */
+  digests?: DigestsConfig;
+}
+
+/** One scheduled digest email. Stored in `config.cinema.digests.<key>`.
+ *  Read by the Edge Functions via supabase/functions/_shared/digest-recipients.ts —
+ *  the keys here and the DigestKey union there must stay in sync. */
+export interface DigestChannelConfig {
+  /** Unset counts as enabled. False makes the cron fire and no-op. */
+  enabled?: boolean;
+  /** Recipient addresses. Empty falls through to the env var. */
+  to?: string[];
+}
+
+/** All four scheduled digests, keyed by the same names the functions use. */
+export interface DigestsConfig {
+  /** cash-closing-digest — 7:00 AM IST daily. */
+  cashClosing?: DigestChannelConfig;
+  /** daily-digest — 10:00 AM IST daily. */
+  daily?: DigestChannelConfig;
+  /** weekly-digest — 11:00 AM IST Mondays. */
+  weekly?: DigestChannelConfig;
+  /** pm-digest — 9:30 AM daily + 9:45 AM Mondays. Here `to` is an OVERRIDE:
+   *  set it and every active project goes to these addresses instead of
+   *  fanning out to each project's members. */
+  pm?: DigestChannelConfig;
 }
 
 /** WhatsApp Cloud API integration config. Stored in `config.cinema.whatsapp`. */
