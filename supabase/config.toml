@@ -35,6 +35,15 @@ verify_jwt = true
 [functions.weekly-digest]
 verify_jwt = true
 
+[functions.cash-closing-digest]
+# Previous-day cash closing summary (daily manager / F&B / Box Office /
+# per-cashier sales, discrepancy, petty expenses). Invoked by pg_cron via the
+# Vault-backed 20260727000000_cash_closing_digest_cron.sql at 7:00 AM IST, like
+# daily-digest, so it must accept the cron's anon-key bearer token. Reads the
+# cash tables with the auto-injected service-role key. Optional secret:
+# CASH_DIGEST_TO (falls back to DIGEST_TO).
+verify_jwt = true
+
 [functions.contact]
 # Publicly callable from the marketing site — no auth required. The apikey
 # header (anon key) is still enforced by the platform.
