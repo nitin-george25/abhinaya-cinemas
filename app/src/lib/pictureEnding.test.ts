@@ -16,6 +16,7 @@ import {
   buildPictureEnding,
   computeHoldOverDate,
   defaultPictureEndingInputs,
+  movieScreens,
   pictureEndingTotals,
   publicityBaseFor,
   resolveHoldOverDate,
@@ -155,8 +156,8 @@ describe("publicityBaseFor — ex-share up to the hold-over day", () => {
   ]);
 
   it("sums ex-share only up to & including the cutoff date", () => {
-    const full = publicityBaseFor(state, "mov", null);
-    const till = publicityBaseFor(state, "mov", "2025-03-28");
+    const full = publicityBaseFor(state, "mov", "scr", null);
+    const till = publicityBaseFor(state, "mov", "scr", "2025-03-28");
     expect(full.days).toBe(3);
     expect(till.days).toBe(2);                       // 27 + 28 only
     expect(till.exShare).toBeGreaterThan(0);
@@ -164,8 +165,8 @@ describe("publicityBaseFor — ex-share up to the hold-over day", () => {
   });
 
   it("buildPictureEnding charges publicity on the till-hold-over base", () => {
-    const built = buildPictureEnding(state, "mov", inputs({ advances: [] }))!;
-    const till = publicityBaseFor(state, "mov", "2025-03-28");
+    const built = buildPictureEnding(state, "mov", "scr", inputs({ advances: [] }))!;
+    const till = publicityBaseFor(state, "mov", "scr", "2025-03-28");
     expect(built.holdOverDate).toBe("2025-03-28");
     expect(built.totals.publicityDays).toBe(2);
     expect(built.totals.publicityExShare).toBe(till.exShare);
@@ -177,10 +178,10 @@ describe("publicityBaseFor — ex-share up to the hold-over day", () => {
       entry("2025-03-27", [100, 100, 100]),
       entry("2025-03-28", [95, 95, 95]),
     ]);
-    const built = buildPictureEnding(strong, "mov", inputs({ advances: [] }))!;
+    const built = buildPictureEnding(strong, "mov", "scr", inputs({ advances: [] }))!;
     expect(built.holdOverDate).toBeNull();
     expect(built.totals.publicityDays).toBe(2); // both days
-    const full = publicityBaseFor(strong, "mov", null);
+    const full = publicityBaseFor(strong, "mov", "scr", null);
     expect(built.totals.publicityExShare).toBe(full.exShare);
   });
 });
@@ -195,7 +196,7 @@ describe("computeHoldOverDate ignores zero-collection days", () => {
       emptyEntry("2025-03-28"),             // blank placeholder — ₹0
       entry("2025-03-29", [95, 95, 95]),    // strong
     ]);
-    expect(computeHoldOverDate(state, "mov")).toBeNull();
+    expect(computeHoldOverDate(state, "mov", "scr")).toBeNull();
   });
 
   it("an empty release-day placeholder does not zero the publicity base", () => {
@@ -203,7 +204,7 @@ describe("computeHoldOverDate ignores zero-collection days", () => {
       emptyEntry("2025-03-27"),              // would wrongly be hold-over before the fix
       entry("2025-03-28", [100, 100, 100]),  // the real collecting day
     ]);
-    const built = buildPictureEnding(state, "mov", inputs({ advances: [] }))!;
+    const built = buildPictureEnding(state, "mov", "scr", inputs({ advances: [] }))!;
     expect(built.holdOverDate).toBeNull();
     expect(built.totals.publicityDays).toBe(1);              // only 28 Mar collected
     expect(built.totals.publicityExShare).toBeGreaterThan(0);
@@ -216,7 +217,7 @@ describe("computeHoldOverDate ignores zero-collection days", () => {
       emptyEntry("2025-03-28"),             // ignored
       entry("2025-03-29", [30, 30, 30]),    // best-3 ₹9,000 < full house ₹10,000
     ]);
-    expect(computeHoldOverDate(state, "mov")).toBe("2025-03-29");
+    expect(computeHoldOverDate(state, "mov", "scr")).toBe("2025-03-29");
   });
 });
 
@@ -292,7 +293,7 @@ describe("summarizeWeeks", () => {
     entry("2025-04-03", [40, 30]),
     entry("2025-04-04", [20, 10]),
   ]);
-  const weeks = summarizeWeeks(state, "mov");
+  const weeks = summarizeWeeks(state, "mov", "scr");
 
   it("groups collecting days into release-anchored 7-day weeks", () => {
     expect(weeks.map((w) => w.week)).toEqual([1, 2]);
@@ -332,7 +333,7 @@ describe("summarizeWeeks — stepped weekly rates", () => {
     nullEntry("2025-04-03", [70, 60, 50]),
     nullEntry("2025-04-10", [40, 30, 20]),
   ];
-  const weeks = summarizeWeeks(state, "mov");
+  const weeks = summarizeWeeks(state, "mov", "scr");
 
   it("applies the movie's declining per-week share rates", () => {
     expect(weeks.map((w) => w.week)).toEqual([1, 2, 3]);
@@ -350,34 +351,110 @@ describe("computeHoldOverDate", () => {
       entry("2025-03-28", [30, 30, 30]),
       entry("2025-03-29", [10, 10, 10]),
     ]);
-    expect(computeHoldOverDate(state, "mov")).toBe("2025-03-28");
+    expect(computeHoldOverDate(state, "mov", "scr")).toBe("2025-03-28");
   });
   it("returns null while the run stays above one full house", () => {
     const state = fixture([
       entry("2025-03-27", [100, 100, 100]),
       entry("2025-03-28", [90, 90, 90]),
     ]);
-    expect(computeHoldOverDate(state, "mov")).toBeNull();
+    expect(computeHoldOverDate(state, "mov", "scr")).toBeNull();
   });
 });
 
 describe("buildPictureEnding", () => {
-  it("assembles weeks, screens, run span and hold-over together", () => {
+  it("assembles weeks, screen, run span and hold-over together", () => {
     const state = fixture([
       entry("2025-03-27", [100, 100, 100]),
       entry("2025-03-28", [30, 30, 30]),
     ]);
-    const built = buildPictureEnding(state, "mov", inputs({ advances: [] }));
+    const built = buildPictureEnding(state, "mov", "scr", inputs({ advances: [] }));
     expect(built).not.toBeNull();
     expect(built!.movie.name).toBe("Test Film");
-    expect(built!.screens).toEqual([{ id: "scr", name: "Screen 1" }]);
+    expect(built!.screen).toEqual({ id: "scr", name: "Screen 1" });
     expect(built!.runFrom).toBe("2025-03-27");
     expect(built!.runTo).toBe("2025-03-28");
     expect(built!.holdOverDate).toBe("2025-03-28");
     expect(built!.totals.balance).toBeGreaterThan(0);
   });
   it("returns null for an unknown movie", () => {
-    expect(buildPictureEnding(fixture([]), "nope", inputs())).toBeNull();
+    expect(buildPictureEnding(fixture([]), "nope", "scr", inputs())).toBeNull();
+  });
+  it("returns null for an unknown screen", () => {
+    expect(buildPictureEnding(fixture([]), "mov", "nope", inputs())).toBeNull();
+  });
+});
+
+// ── screen × movie: one film, two screens, two statements ──────────────────
+
+describe("screen scoping", () => {
+  /** Same fixture plus a second, smaller audi (50 seats at the same price). */
+  function twoScreens(entries: Entry[]): AppState {
+    const s = fixture(entries);
+    return {
+      ...s,
+      screens: [
+        ...s.screens,
+        {
+          id: "scr2",
+          name: "Screen 2",
+          classes: [{ classId: "A", seats: 50 }],
+          priceCards: [{ id: "pc", name: "Card", prices: { A: 100 } }],
+        },
+      ],
+    };
+  }
+  /** A day on the second screen. */
+  function entry2(date: string, ticketsPerShow: number[]): Entry {
+    return { ...entry(date, ticketsPerShow), id: `e2_${date}`, screenId: "scr2" };
+  }
+
+  // Screen 1 (100 seats, full house ₹10,000) holds over on 28 Mar.
+  // Screen 2 (50 seats, full house ₹5,000) keeps filling — it never holds over.
+  const state = twoScreens([
+    entry("2025-03-27", [100, 100, 100]),
+    entry("2025-03-28", [30, 30, 30]),
+    entry("2025-03-29", [20, 20, 20]),
+    entry2("2025-03-27", [50, 50, 50]),
+    entry2("2025-03-28", [50, 50, 50]),
+    entry2("2025-03-29", [50, 50, 50]),
+  ]);
+
+  it("lists only the screens the film played", () => {
+    expect(movieScreens(state, "mov")).toEqual([
+      { id: "scr", name: "Screen 1" },
+      { id: "scr2", name: "Screen 2" },
+    ]);
+    expect(movieScreens(state, "nope")).toEqual([]);
+  });
+
+  it("detects hold-over against each screen's own full house", () => {
+    expect(computeHoldOverDate(state, "mov", "scr")).toBe("2025-03-28");
+    expect(computeHoldOverDate(state, "mov", "scr2")).toBeNull();
+  });
+
+  it("rolls up only the chosen screen's days", () => {
+    const one = summarizeWeeks(state, "mov", "scr");
+    const two = summarizeWeeks(state, "mov", "scr2");
+    const both = one[0]!.net + two[0]!.net;
+    expect(one[0]!.days).toBe(3);
+    expect(two[0]!.days).toBe(3);
+    // Neither statement sees the other's money.
+    expect(one[0]!.net).toBeLessThan(both);
+    expect(two[0]!.net).toBeLessThan(both);
+  });
+
+  it("charges publicity on each screen's own days, not the earliest cutoff", () => {
+    const one = buildPictureEnding(state, "mov", "scr", inputs({ advances: [] }))!;
+    const two = buildPictureEnding(state, "mov", "scr2", inputs({ advances: [] }))!;
+
+    expect(one.screen.name).toBe("Screen 1");
+    expect(two.screen.name).toBe("Screen 2");
+    // Screen 1 stops at its hold-over; screen 2 never held over, so all 3 days
+    // count — the old pooled behaviour truncated both at 28 Mar.
+    expect(one.totals.publicityDays).toBe(2);
+    expect(two.totals.publicityDays).toBe(3);
+    expect(two.holdOverDate).toBeNull();
   });
 });
 
@@ -494,8 +571,8 @@ describe("buildPictureEnding — hold-over rule end to end", () => {
   ];
 
   it("charges publicity to the Sunday, not the detected Friday", () => {
-    const plain = buildPictureEnding(withRule(days, "detected"), "mov", inputs({ advances: [] }))!;
-    const ext = buildPictureEnding(withRule(days, "opening-sunday"), "mov", inputs({ advances: [] }))!;
+    const plain = buildPictureEnding(withRule(days, "detected"), "mov", "scr", inputs({ advances: [] }))!;
+    const ext = buildPictureEnding(withRule(days, "opening-sunday"), "mov", "scr", inputs({ advances: [] }))!;
 
     expect(plain.holdOverDate).toBe("2025-03-28");
     expect(plain.holdOverSource).toBe("detected");
@@ -517,9 +594,10 @@ describe("buildPictureEnding — hold-over rule end to end", () => {
     const built = buildPictureEnding(
       withRule(days, "opening-sunday"),
       "mov",
+      "scr",
       inputs({ advances: [], holdOverDateOverride: "2025-03-28" }),
     )!;
-    const plain = buildPictureEnding(withRule(days, "detected"), "mov", inputs({ advances: [] }))!;
+    const plain = buildPictureEnding(withRule(days, "detected"), "mov", "scr", inputs({ advances: [] }))!;
 
     expect(built.holdOverDate).toBe("2025-03-28");
     expect(built.holdOverSource).toBe("override");
@@ -533,6 +611,7 @@ describe("buildPictureEnding — hold-over rule end to end", () => {
     const built = buildPictureEnding(
       withRule(days, "opening-sunday"),
       "mov",
+      "scr",
       inputs({ advances: [], holdOverDateOverride: "2025-03-31" }),
     )!;
     expect(built.holdOverCeiling).toBe("2025-03-30");
@@ -544,6 +623,7 @@ describe("buildPictureEnding — hold-over rule end to end", () => {
     const built = buildPictureEnding(
       withRule(days, "detected"),
       "mov",
+      "scr",
       inputs({ advances: [], holdOverDateOverride: "2025-03-31" }),
     )!;
     expect(built.holdOverDate).toBe("2025-03-30");

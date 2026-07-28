@@ -386,6 +386,10 @@ export interface PictureEndingStatementRow {
   statement_no:      number;
   movie_id:          string | null;
   distributor_id:    string | null;
+  /** The single screen settled by this statement (null on rows filed before
+   *  statements became screen-scoped, and on films whose screen was ambiguous). */
+  screen_id:         string | null;
+  screen_name:       string | null;
   movie_name:        string | null;
   movie_format:      string | null;
   distributor_name:  string | null;
