@@ -4,9 +4,12 @@
 // The morning cash counterpart to daily-digest. Where the DCR digest answers
 // "what did we sell?", this one answers "where is the money?" for the previous
 // business day:
-//   • Daily manager view  — total sale, cash to bank, non-cash, net discrepancy
-//   • By unit             — Box Office vs F&B (operating_units.kind)
-//   • By cashier          — sale, cash, discrepancy, signoff status
+//   • Daily manager view  — POS sale, cash to bank, other payments, discrepancy
+//   • By unit             — one card per operating unit (Box Office, F&B, …)
+//                           reconciling POS vs actual across cash and other
+//                           payments, so a gap is attributed to the till or to
+//                           the card/UPI settlements rather than just totalled
+//   • By cashier          — sale, actual collected, discrepancy, signoff status
 //   • Petty expenses      — approved spend for the day + anything still pending
 //
 // Schedule: invoked by pg_cron every day at 7:00 AM IST (01:30 UTC).
@@ -21,7 +24,10 @@
 //
 // LAYOUT: this email is read on phones first (managers open it before they
 // reach the office), so no table exceeds 4 columns and secondary figures live
-// in sublines under the primary value rather than in their own columns. That
+// in sublines under the primary value rather than in their own columns. The
+// per-unit reconciliation is a stack of cards rather than one wide table for
+// the same reason — POS and actual across two payment sides is six numbers per
+// unit, which no single phone-width row can hold. That
 // layout is legible at 320px with CSS entirely disabled — the @media block in
 // emailShell() only softens padding and stacks the tiles, so Outlook desktop
 // and other clients that drop <style> still render something readable.
@@ -59,6 +65,8 @@ type Closing = {
   closed_by_email: string | null;
   pos_total_sales: number | string | null;
   pos_non_cash_total: number | string | null;
+  /** Generated (cash_01): pos_total_sales - pos_non_cash_total. */
+  pos_cash_expected: number | string | null;
   cash_counted: number | string | null;
   petty_expenses_paid: number | string | null;
   non_cash_actual_total: number | string | null;
@@ -199,27 +207,118 @@ function headRow(cells: string): string {
 }
 
 // ---------- aggregation shapes ----------
+//
+// Every field is a straight sum of a column the DB already computed. The two
+// sides of the reconciliation are then pure arithmetic on those sums:
+//
+//   cash side   POS = pos_cash_expected      actual = cash_counted + petty
+//   other side  POS = pos_non_cash_total     actual = non_cash_actual_total
+//
+// Those two deltas add up to `discrepancy` exactly — substituting
+// pos_cash_expected = pos_total_sales - pos_non_cash_total, the non-cash POS
+// terms cancel and what remains is
+// (cash_counted + petty + non_cash_actual) - pos_total_sales, which is the
+// generated discrepancy column from cash_19. So the Diff column of a unit card
+// always sums to the unit's headline discrepancy, and splitting it tells the
+// manager WHICH side the money went missing on — the till or the EDC/UPI
+// settlements. That attribution is the whole point of the card.
 type Agg = {
-  sale: number; cash: number; nonCash: number; petty: number; discrepancy: number;
+  posTotal: number;         // pos_total_sales
+  posNonCash: number;       // pos_non_cash_total
+  posCashExpected: number;  // pos_cash_expected (generated)
+  cashCounted: number;      // cash_counted (drawer count)
+  petty: number;            // petty_expenses_paid (paid OUT of the drawer)
+  nonCashActual: number;    // non_cash_actual_total (settled card/UPI/online)
+  discrepancy: number;      // discrepancy (generated)
   count: number; pending: number; disputed: number;
 };
 function newAgg(): Agg {
-  return { sale: 0, cash: 0, nonCash: 0, petty: 0, discrepancy: 0, count: 0, pending: 0, disputed: 0 };
+  return {
+    posTotal: 0, posNonCash: 0, posCashExpected: 0,
+    cashCounted: 0, petty: 0, nonCashActual: 0,
+    discrepancy: 0, count: 0, pending: 0, disputed: 0,
+  };
 }
 function addTo(a: Agg, c: Closing): void {
-  a.sale        += num(c.pos_total_sales);
-  a.cash        += num(c.cash_counted);
-  a.nonCash     += num(c.pos_non_cash_total);
-  a.petty       += num(c.petty_expenses_paid);
-  a.discrepancy += num(c.discrepancy);
-  a.count       += 1;
+  a.posTotal        += num(c.pos_total_sales);
+  a.posNonCash      += num(c.pos_non_cash_total);
+  a.posCashExpected += num(c.pos_cash_expected);
+  a.cashCounted     += num(c.cash_counted);
+  a.petty           += num(c.petty_expenses_paid);
+  a.nonCashActual   += num(c.non_cash_actual_total);
+  a.discrepancy     += num(c.discrepancy);
+  a.count           += 1;
   if (c.status === "disputed") a.disputed += 1;
   else if (c.status !== "signed" && c.status !== "resolved") a.pending += 1;
 }
+
+/** Cash the till actually produced. Petty counts in: the drawer is counted
+ *  AFTER payouts, so excluding it would show a false shortage (cash_19). */
+function actualCash(a: Agg): number { return a.cashCounted + a.petty; }
+function actualTotal(a: Agg): number { return a.cashCounted + a.petty + a.nonCashActual; }
+function cashDelta(a: Agg): number { return actualCash(a) - a.posCashExpected; }
+function otherDelta(a: Agg): number { return a.nonCashActual - a.posNonCash; }
 function statusText(a: Agg): string {
   if (a.disputed > 0) return `<span style="color:#b91c1c">${a.disputed} disputed</span>`;
   if (a.pending > 0)  return `<span style="color:#b45309">${a.pending} pending</span>`;
   return `<span style="color:#047857">signed</span>`;
+}
+
+// ---------- per-unit reconciliation card ----------
+
+/** One POS-vs-actual line. `strong` renders the tinted total row. */
+function reconRow(label: string, pos: number, actual: number, delta: number, strong = false): string {
+  const base = strong
+    ? "padding:10px 8px;background:#f0f0f0;font-weight:700;"
+    : "padding:9px 8px;border-bottom:1px solid #eee;";
+  return `
+    <tr>
+      <td class="cell" style="${base}">${escapeHtml(label)}</td>
+      <td class="cell" style="${base}text-align:right;color:#666">${fmtINR(pos)}</td>
+      <td class="cell" style="${base}text-align:right">${fmtINR(actual)}</td>
+      <td class="cell" style="${base}text-align:right;color:${discColor(delta)}">${fmtDisc(delta)}</td>
+    </tr>`;
+}
+
+/**
+ * A unit's whole story in one block: what the POS said, what actually turned
+ * up, and the gap — split across cash and other payments so the manager can
+ * see at a glance whether the till is short or a card settlement is off.
+ *
+ * Four narrow columns rather than the old six-column all-units table, which
+ * could not show POS and actual side by side without overflowing a phone.
+ */
+function unitCard(title: string, a: Agg, isTotal = false): string {
+  const drawer = a.petty > 0
+    ? `Drawer ${fmtINR(a.cashCounted)} + petty ${fmtINR(a.petty)} paid out`
+    : `Drawer ${fmtINR(a.cashCounted)}`;
+
+  return `
+  <table role="presentation" width="100%" style="width:100%;border-collapse:collapse;background:${isTotal ? "#f5f3ff" : "#fafafa"};border:1px solid ${isTotal ? "#ddd6fe" : "#eee"};border-radius:8px;overflow:hidden;margin-bottom:12px">
+    <tr>
+      <td colspan="2" style="padding:11px 10px;border-bottom:1px solid #e5e5e5">
+        <span style="font-weight:700;font-size:14px;color:#111">${escapeHtml(title)}</span>
+        <span style="font-size:11px;color:#888"> · ${a.count} closing${a.count === 1 ? "" : "s"}</span>
+      </td>
+      <td colspan="2" align="right" style="padding:11px 10px;border-bottom:1px solid #e5e5e5;text-align:right;font-size:11px">
+        ${statusText(a)}
+      </td>
+    </tr>
+    <tr style="background:${isTotal ? "#ede9fe" : "#f0f0f0"};font-size:10px;text-transform:uppercase;color:#666;letter-spacing:.05em">
+      <th class="hdr" style="padding:7px 8px;text-align:left"></th>
+      <th class="hdr" style="padding:7px 8px;text-align:right">POS</th>
+      <th class="hdr" style="padding:7px 8px;text-align:right">Actual</th>
+      <th class="hdr" style="padding:7px 8px;text-align:right">Diff</th>
+    </tr>
+    ${reconRow("Cash",  a.posCashExpected, actualCash(a),  cashDelta(a))}
+    ${reconRow("Other", a.posNonCash,      a.nonCashActual, otherDelta(a))}
+    ${reconRow("Total", a.posTotal,        actualTotal(a),  a.discrepancy, true)}
+    <tr>
+      <td colspan="4" class="sub" style="padding:8px 10px;font-size:11px;color:#888;line-height:1.45;border-top:1px solid #e5e5e5">
+        ${escapeHtml(drawer)} · Other = card / UPI / online settled
+      </td>
+    </tr>
+  </table>`;
 }
 
 // ---------- body renderer ----------
@@ -238,7 +337,7 @@ function renderBody(opts: {
 
   const totals = newAgg();
   for (const c of closings) addTo(totals, c);
-  const cashToDeposit = totals.cash - floatRetained;
+  const cashToDeposit = totals.cashCounted - floatRetained;
 
   if (closings.length === 0) {
     return `${warningBlock(`<b>No cash closings were recorded for ${escapeHtml(fmtDate(targetDate))}.</b> Every till is unaccounted for — check with the daily manager before the day's cash moves.`)}
@@ -257,26 +356,43 @@ function renderBody(opts: {
       </div>
     </td>`;
 
+  // The discrepancy tile names the side the gap came from, so the manager knows
+  // where to look before reading a single card.
+  const cd = cashDelta(totals);
+  const od = otherDelta(totals);
+  const discHint = Math.round(totals.discrepancy) === 0
+    ? "Tallied"
+    : Math.round(cd) !== 0 && Math.round(od) !== 0
+      ? `Cash ${fmtDisc(cd)} · Other ${fmtDisc(od)}`
+      : Math.round(od) !== 0
+        ? "All on card / UPI"
+        : "All on cash";
+
   const tiles = `
     <table role="presentation" width="100%" style="width:100%;border-collapse:collapse;margin-top:6px">
       <tr>
-        ${tile("Total sale", fmtINR(totals.sale), `${fmtInt(totals.count)} closing${totals.count === 1 ? "" : "s"}`, "#111")}
+        ${tile("POS sale", fmtINR(totals.posTotal), `${fmtInt(totals.count)} closing${totals.count === 1 ? "" : "s"}`, "#111")}
         ${tile("Cash to deposit", fmtINR(cashToDeposit),
                floatRetained > 0
-                 ? `Counted ${escapeHtml(fmtINR(totals.cash))}<br>less float ${escapeHtml(fmtINR(floatRetained))}`
-                 : `Cash counted ${escapeHtml(fmtINR(totals.cash))}`,
+                 ? `Counted ${escapeHtml(fmtINR(totals.cashCounted))}<br>less float ${escapeHtml(fmtINR(floatRetained))}`
+                 : `Cash counted ${escapeHtml(fmtINR(totals.cashCounted))}`,
                "#047857")}
       </tr>
       <tr>
-        ${tile("Non-cash", fmtINR(totals.nonCash), "Card / UPI / online", "#111")}
-        ${tile("Discrepancy", fmtDisc(totals.discrepancy),
-               totals.discrepancy === 0 ? "Tallied" : totals.discrepancy > 0 ? "Excess" : "Short",
+        ${tile("Other payments", fmtINR(totals.nonCashActual),
+               Math.round(od) === 0
+                 ? "Card / UPI / online"
+                 : `Settled · ${escapeHtml(fmtDisc(od))} vs POS`,
+               "#111")}
+        ${tile("Discrepancy", fmtDisc(totals.discrepancy), escapeHtml(discHint),
                discColor(totals.discrepancy))}
       </tr>
     </table>`;
 
   // ── by unit (Box Office / F&B) ────────────────────────────────────────
-  // 4 columns. Non-cash and petty ride as a subline under the unit name.
+  // One card per unit. A single wide table could not carry POS and actual for
+  // both payment sides without overflowing a phone, so each unit gets its own
+  // 4-column reconciliation instead.
   const byUnit = new Map<string, Agg>();
   for (const c of closings) {
     let a = byUnit.get(c.operating_unit_id);
@@ -284,33 +400,13 @@ function renderBody(opts: {
     addTo(a, c);
   }
   const unitOrder = new Map(units.map((u, i) => [u.id, u.display_order ?? i]));
-  const unitRows = Array.from(byUnit.entries())
-    .sort((x, y) => (unitOrder.get(x[0]) ?? 999) - (unitOrder.get(y[0]) ?? 999))
-    .map(([id, a]) => `
-      <tr>
-        <td ${CL}>${strong(escapeHtml(unitName(id)))}
-          ${sub(`Non-cash ${fmtINR(a.nonCash)} · Petty ${fmtINR(a.petty)}`)}
-        </td>
-        <td ${CR}>${fmtINR(a.sale)}</td>
-        <td ${CR}>${fmtINR(a.cash)}</td>
-        <td ${CR}><span style="color:${discColor(a.discrepancy)}">${fmtDisc(a.discrepancy)}</span></td>
-      </tr>`).join("");
+  const orderedUnits = Array.from(byUnit.entries())
+    .sort((x, y) => (unitOrder.get(x[0]) ?? 999) - (unitOrder.get(y[0]) ?? 999));
 
-  const unitTable = `
-    ${tableOpen()}
-      ${headRow(`
-        <th ${HL}>Unit</th>
-        <th ${HR}>Sale</th>
-        <th ${HR}>Cash</th>
-        <th ${HR}>Disc.</th>`)}
-      <tbody>${unitRows}</tbody>
-      <tfoot><tr style="background:#f0f0f0;font-weight:600">
-        <td ${FL}>Total${sub(`Non-cash ${fmtINR(totals.nonCash)} · Petty ${fmtINR(totals.petty)}`)}</td>
-        <td ${FR}>${fmtINR(totals.sale)}</td>
-        <td ${FR}>${fmtINR(totals.cash)}</td>
-        <td ${FR}><span style="color:${discColor(totals.discrepancy)}">${fmtDisc(totals.discrepancy)}</span></td>
-      </tr></tfoot>
-    </table>`;
+  // The all-units card is only worth its space when there is more than one to
+  // add up — with a single unit it would just repeat the card above it.
+  const unitCards = orderedUnits.map(([id, a]) => unitCard(unitName(id), a)).join("")
+    + (orderedUnits.length > 1 ? unitCard("All units", totals, true) : "");
 
   // ── by cashier ────────────────────────────────────────────────────────
   // 3 columns: who (+ counters), sale (+ cash/non-cash split), disc (+ status).
@@ -324,15 +420,17 @@ function renderBody(opts: {
     addTo(a, c);
     a.counters.add(counterName(c.pos_counter_id));
   }
+  // Sale is the POS figure; the subline is what actually came in, so the two
+  // together explain the Diff column without needing a fourth column.
   const cashierRows = Array.from(byCashier.values())
-    .sort((x, y) => y.sale - x.sale)
+    .sort((x, y) => y.posTotal - x.posTotal)
     .map((a) => `
       <tr>
         <td ${CL}>${strong(escapeHtml(nameOf(a.email)))}
           ${sub(escapeHtml(Array.from(a.counters).join(", ")))}
         </td>
-        <td ${CR}>${fmtINR(a.sale)}
-          ${sub(`Cash ${fmtINR(a.cash)} · Non-cash ${fmtINR(a.nonCash)}`)}
+        <td ${CR}>${fmtINR(a.posTotal)}
+          ${sub(`Actual cash ${fmtINR(actualCash(a))} · other ${fmtINR(a.nonCashActual)}`)}
         </td>
         <td ${CR}><span style="color:${discColor(a.discrepancy)}">${fmtDisc(a.discrepancy)}</span>
           ${sub(statusText(a))}
@@ -369,8 +467,8 @@ function renderBody(opts: {
   return `
     ${warnings.join("")}
     ${tiles}
-    ${h2("By unit")}
-    ${unitTable}
+    ${h2("By unit — POS vs actual")}
+    ${unitCards}
     ${h2("By cashier")}
     ${cashierTable}
     ${pettySection(petty, nameOf, unitName, targetDate)}`;
