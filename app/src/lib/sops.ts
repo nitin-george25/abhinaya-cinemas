@@ -76,6 +76,111 @@ export const DEFAULT_SOP_AREA_ID = SOP_AREA_DEFS[0]!.id;
 
 export const SOP_BUCKET = "sop-documents";
 
+/**
+ * Code prefix → area slug, for reading a dropped file's area off its name.
+ * "PRJ" is here because the v1 projection documents were issued with that
+ * prefix rather than the master plan's "PR" — codes are recorded as printed,
+ * so both must resolve to the same area.
+ */
+const AREA_BY_PREFIX: Record<string, string> = {
+  BO: "box-office",
+  FB: "fb",
+  PR: "projection",
+  PRJ: "projection",
+  HK: "housekeeping",
+  FH: "front-of-house",
+  SE: "safety",
+  CA: "cash",
+  IN: "inventory",
+  PE: "people",
+  OC: "open-close",
+  MF: "maintenance",
+  CX: "customer-experience",
+  CO: "compliance",
+  MK: "marketing",
+};
+
+/**
+ * The "linked daily check / metric" each SOP feeds, from PART A of the master
+ * plan — the bridge from the written standard to the monthly audit. Used to
+ * pre-fill the description when a matching code is uploaded; always editable
+ * before it is saved. Codes not listed here simply start blank.
+ */
+const METRIC_BY_CODE: Record<string, string> = {
+  "BO-01": "Float verified & signed",
+  "BO-02": "Queue wait ≤ 4 min",
+  "BO-03": "Valid-scan rate",
+  "BO-04": "Change log complete",
+  "BO-05": "Refund within policy",
+  "BO-06": "Settlement matched",
+  "BO-07": "Comp register signed",
+  "BO-08": "Board updated",
+  "BO-09": "Advance & terms logged",
+  "BO-10": "Manual log reconciled",
+  "BO-11": "Handover sheet signed",
+  "FB-01": "Display & price board ready",
+  "FB-02": "Freshness / hold time",
+  "FB-03": "Machine hygiene check",
+  "FB-04": "Order accuracy ≥ target",
+  "FB-05": "Upsell / combo rate",
+  "FB-06": "Hygiene score",
+  "FB-07": "GRN & FIFO adherence",
+  "FB-08": "Temp / expiry log",
+  "FB-09": "Wastage % vs target",
+  "FB-10": "Cleaning sign-off",
+  "FB-11": "Stock variance",
+  "HK-01": "Cycle log signed",
+  "HK-02": "Cleanliness score ≥ 90%",
+  "HK-03": "Deep-clean sign-off",
+  "HK-04": "Turnaround within gap",
+  "HK-05": "Segregation compliance",
+  "PRJ-01": "Start-up log complete",
+  "PRJ-02": "Playlist verified",
+  "PRJ-03": "Schedule matches board",
+  "PRJ-04": "Pre-show check done",
+  "PRJ-05": "≥ 98% start within 2 min",
+  "PRJ-06": "Compliance reel played",
+  "PRJ-07": "Fault-response time",
+  "PRJ-08": "Incident logged",
+  "PRJ-09": "Hours logged",
+  "PRJ-10": "PM calendar met",
+  "PRJ-11": "Turnaround within gap",
+};
+
+export interface ParsedSopFile {
+  areaId: string | null;
+  code: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * Read an SOP's area, code and title off its file name. The library's naming
+ * convention (master plan §B3) is "<CODE> <Title>.pdf", e.g.
+ *   "BO-01 Counter Opening & Cash Float Set-up.pdf"
+ * so a folder of correctly named documents can be dropped in and filed without
+ * anyone retyping thirty-eight titles.
+ *
+ * Anything that doesn't match comes back with areaId null and the bare file
+ * name as the title — the upload form shows those rows for the user to fix
+ * rather than guessing.
+ */
+export function parseSopFileName(fileName: string): ParsedSopFile {
+  const stem = fileName.replace(/\.pdf$/i, "");
+  const m = /^([A-Za-z]{2,3})-(\d{1,3})\s+(.+)$/.exec(stem);
+  if (!m) {
+    return { areaId: null, code: "", title: stem.trim(), description: "" };
+  }
+  const prefix = m[1]!.toUpperCase();
+  const code = `${prefix}-${m[2]}`;
+  return {
+    areaId: AREA_BY_PREFIX[prefix] ?? null,
+    code,
+    title: m[3]!.trim(),
+    description: METRIC_BY_CODE[code] ?? "",
+  };
+}
+
 // ── mapper ──────────────────────────────────────────────────────────────────
 
 function toSop(r: SopRow): Sop {
@@ -192,6 +297,61 @@ export async function addSop(
     // Don't leave an orphan object behind if the row insert was rejected.
     await sb.storage.from(SOP_BUCKET).remove([path]);
     throw new Error(error.message);
+  }
+  return toSop(data as SopRow);
+}
+
+/**
+ * Replace an existing SOP's document — the revision path from §B3, where a
+ * fix bumps v1.0 to v1.1 and a rewrite becomes v2.0. Uploads the new file,
+ * repoints the row, and only then removes the old object, so a failure part-way
+ * never leaves the row pointing at a file that is gone.
+ */
+export async function replaceSopDocument(
+  cinemaId: string,
+  sop: Sop,
+  input: { file: File; title?: string; description?: string; version?: string },
+  updatedBy: string,
+): Promise<Sop> {
+  const sb = getSupabase();
+
+  const safeName = input.file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${cinemaId}/${sop.areaId}/${crypto.randomUUID()}_${safeName}`;
+
+  const up = await sb.storage
+    .from(SOP_BUCKET)
+    .upload(path, input.file, { upsert: false, contentType: "application/pdf" });
+  if (up.error) throw new Error(up.error.message);
+
+  const { data: pub } = sb.storage.from(SOP_BUCKET).getPublicUrl(path);
+
+  const patch: Record<string, string> = {
+    doc_url: pub.publicUrl,
+    storage_path: path,
+    updated_by: updatedBy,
+  };
+  if (input.title !== undefined) patch.title = input.title.trim();
+  if (input.description !== undefined) {
+    patch.description = input.description.trim();
+  }
+  if (input.version !== undefined && input.version.trim()) {
+    patch.version = input.version.trim();
+  }
+
+  const { data, error } = await sb
+    .from("sops")
+    .update(patch)
+    .eq("id", sop.id)
+    .select("*")
+    .single();
+  if (error) {
+    await sb.storage.from(SOP_BUCKET).remove([path]);
+    throw new Error(error.message);
+  }
+
+  // Safe now: the row points at the new object.
+  if (sop.storagePath) {
+    await sb.storage.from(SOP_BUCKET).remove([sop.storagePath]);
   }
   return toSop(data as SopRow);
 }
