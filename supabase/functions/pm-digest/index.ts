@@ -24,13 +24,17 @@
 //   PM_DIGEST_FROM  (optional, default "Abhinaya PM <noreply@mail.abhinayacinemas.com>")
 //   PM_DIGEST_TO    (optional override: comma-separated list. When set, ALL
 //                    active projects are sent to exactly these addresses and the
-//                    per-recipient routing is bypassed — handy for testing.)
+//                    per-recipient routing is bypassed — handy for testing.
+//                    Now also settable in the console at Settings →
+//                    Notifications, which takes precedence over this env var.)
 //   SUPABASE_URL              (auto-injected)
 //   SUPABASE_SERVICE_ROLE_KEY (auto-injected — bypasses RLS, reads every project)
 // ============================================================================
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+
+import { corsHeaders, parseList, readParams, resolveRecipients, withCors } from "../_shared/digest-recipients.ts";
 
 // ---------- types (mirror app/src/lib/db-types.ts row shapes) ----------
 type ProjectRow = {
@@ -229,18 +233,17 @@ function emailShell(opts: { eyebrow: string; title: string; subtitle: string; bo
 }
 
 // ---------- handler ----------
-Deno.serve(async (req: Request): Promise<Response> => {
-  const url = new URL(req.url);
-  const dry = url.searchParams.get("dry") === "1";
-  const mode = url.searchParams.get("mode") === "weekly" ? "weekly" : "daily";
-  const overrideDate = url.searchParams.get("date");
-  const toOverrideQS = url.searchParams.get("to"); // single test recipient via query string
+async function handle(req: Request): Promise<Response> {
+  const params = await readParams(req);
+  const dry = params.dry === "1";
+  const mode = params.mode === "weekly" ? "weekly" : "daily";
+  const overrideDate = params.date;
+  const toOverrideQS = params.to || null; // test recipient(s) via query string / body
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = Deno.env.get("RESEND_API_KEY") || "";
   const fromAddr = Deno.env.get("PM_DIGEST_FROM") || "Abhinaya PM <noreply@mail.abhinayacinemas.com>";
-  const toOverrideEnv = (Deno.env.get("PM_DIGEST_TO") || "").split(",").map((s) => s.trim()).filter(Boolean);
 
   if (!supabaseUrl || !supabaseKey) {
     return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var", { status: 500 });
@@ -253,6 +256,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const windowStart = mode === "weekly" ? addDays(today, -7) : addDays(today, -1);
 
   const sb: SupabaseClient = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+
+  // Unlike the other digests, PM normally fans out per project member. The
+  // console list is therefore an OVERRIDE (one email, all projects) rather than
+  // the recipient list — same role PM_DIGEST_TO has always had. `source ===
+  // "default"` means neither the console nor the env var set one, so the
+  // per-member fanout stands.
+  const pmConfigured = await resolveRecipients({
+    sb, key: "pm",
+    envValue: Deno.env.get("PM_DIGEST_TO"),
+    queryTo: null,     // the ?to= test override is handled separately below
+    defaults: [],
+  });
+  const toOverrideEnv = pmConfigured.source === "default" ? [] : pmConfigured.to;
+  if (!pmConfigured.enabled && !dry && !toOverrideQS) {
+    return new Response(JSON.stringify({ ok: true, mode, skipped: "disabled in console (Settings > Notifications)" }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  }
 
   // 1) active projects
   const projRes = await sb
@@ -335,7 +356,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   type Send = { to: string[]; projectIds: string[] };
   const sends: Send[] = [];
   if (toOverrideQS) {
-    sends.push({ to: [toOverrideQS], projectIds: ids });        // test: one address, all projects
+    sends.push({ to: parseList(toOverrideQS), projectIds: ids }); // test: given address(es), all projects
   } else if (toOverrideEnv.length) {
     sends.push({ to: toOverrideEnv, projectIds: ids });          // forced recipient list, all projects
   } else {
@@ -363,7 +384,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const anyErr = results.some((r) => !r.ok);
-  return new Response(JSON.stringify({ ok: !anyErr, mode, target: today, activeProjects: projects.length, emails: results }), {
+  return new Response(JSON.stringify({
+    ok: !anyErr, mode, target: today, activeProjects: projects.length,
+    sentTo: results.flatMap((r) => r.to), recipientSource: pmConfigured.source, emails: results,
+  }), {
     status: anyErr ? 502 : 200, headers: { "Content-Type": "application/json" },
   });
+}
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  return withCors(await handle(req));
 });

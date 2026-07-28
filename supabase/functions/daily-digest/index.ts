@@ -8,10 +8,14 @@
 //   curl 'https://xkmjygegtpmmwwnyoufn.supabase.co/functions/v1/daily-digest?dry=1&date=2026-05-29' \
 //        -H 'Authorization: Bearer <SUPABASE_ANON_KEY>'
 //
+// RECIPIENTS are managed in the console at Settings → Notifications, not by an
+// env var. ../_shared/digest-recipients.ts owns the resolution order
+// (?to= > console list > DIGEST_TO > hardcoded default) and the enabled switch.
+//
 // Env vars (set in Supabase Dashboard → Edge Functions → Secrets):
 //   RESEND_API_KEY  (required)
-//   DIGEST_TO       (optional, comma-separated list. Default:
-//                    nitin.george@abhinayacinemas.com, ajim20@hotmail.com, shinu.thomas@abhinayacinemas.com)
+//   DIGEST_TO       (legacy fallback only — applies while the console list is
+//                    empty. Prefer Settings → Notifications.)
 //   DIGEST_FROM     (optional, default Abhinaya DCR <noreply@mail.abhinayacinemas.com>)
 //   SUPABASE_URL              (auto-injected)
 //   SUPABASE_SERVICE_ROLE_KEY (auto-injected)
@@ -19,6 +23,8 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+
+import { corsHeaders, readParams, resolveRecipients, withCors } from "../_shared/digest-recipients.ts";
 
 // ---------- types ----------
 type Entry = { id: string; entry_date: string; movie_id: string; screen_id: string; share?: number; shows: any[]; updated_by?: string; updated_at?: string; };
@@ -218,23 +224,18 @@ function renderBody(opts: {
 }
 
 // ---------- handler ----------
-Deno.serve(async (req: Request): Promise<Response> => {
-  const url = new URL(req.url);
-  const dry = url.searchParams.get("dry") === "1";
-  const overrideDate = url.searchParams.get("date");
+async function handle(req: Request): Promise<Response> {
+  const params = await readParams(req);
+  const dry = params.dry === "1";
+  const overrideDate = params.date;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = Deno.env.get("RESEND_API_KEY") || "";
   const fromAddr = Deno.env.get("DIGEST_FROM") || "Abhinaya DCR <noreply@mail.abhinayacinemas.com>";
-  const toAddr = Deno.env.get("DIGEST_TO") || "nitin.george@abhinayacinemas.com,ajim20@hotmail.com,shinu.thomas@abhinayacinemas.com";
-  const toAddrs = toAddr.split(",").map((s) => s.trim()).filter(Boolean);
 
   if (!supabaseUrl || !supabaseKey) {
     return new Response("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var", { status: 500 });
-  }
-  if (!resendKey && !dry) {
-    return new Response("Missing RESEND_API_KEY env var (use ?dry=1 to preview without sending)", { status: 500 });
   }
 
   let target: string;
@@ -262,7 +263,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (fbRes.error)  return new Response("fb_entries query: " + fbRes.error.message, { status: 500 });
 
   const cfg: Cfg = (cfgRes.data?.data) || {};
-  const cinemaName = cfg.cinema?.name || "Abhinaya Cinemas, Changanacherry";
+
+  // Recipients come from Settings -> Notifications in the console. The config
+  // blob is already loaded above, so hand it over rather than re-reading it.
+  const recipients = await resolveRecipients({
+    sb, key: "daily",
+    envValue: Deno.env.get("DIGEST_TO"),
+    queryTo: params.to,
+    cinema: (cfg.cinema ?? null) as unknown as Record<string, unknown> | null,
+  });
+  const toAddrs = recipients.to;
+  const cinemaName = recipients.cinemaName;
 
   const boByEntry = ((boRes.data || []) as Entry[]).map((e) => aggregateBOEntry(e, cfg));
   const noBoAtAll = boByEntry.length === 0;
@@ -294,13 +305,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
 
+  // Switched off in Settings -> Notifications. Not an error: the cron keeps
+  // firing and keeps no-opping until someone turns it back on.
+  if (!recipients.enabled) {
+    return new Response(JSON.stringify({ ok: true, target, skipped: "disabled in console (Settings > Notifications)" }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!resendKey) {
+    return new Response("Missing RESEND_API_KEY env var (use ?dry=1 to preview without sending)", { status: 500 });
+  }
+
   const resend = new Resend(resendKey);
   const { error } = await resend.emails.send({
     from: fromAddr, to: toAddrs, subject, html,
   });
   if (error) return new Response("Resend error: " + JSON.stringify(error), { status: 500 });
 
-  return new Response(JSON.stringify({ ok: true, target, sentTo: toAddrs, screens: boByEntry.length, fb: !!fbForDay, missingScreens }), {
+  return new Response(JSON.stringify({ ok: true, target, sentTo: toAddrs, recipientSource: recipients.source, screens: boByEntry.length, fb: !!fbForDay, missingScreens }), {
     status: 200, headers: { "Content-Type": "application/json" },
   });
+}
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  return withCors(await handle(req));
 });
