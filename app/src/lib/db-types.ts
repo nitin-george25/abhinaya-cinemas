@@ -801,3 +801,23 @@ export interface GuideRow {
   updated_at:  string | null;
   updated_by:  string | null;
 }
+
+/** `public.sops` — one row per SOP document (Operations → Standard Operating
+ *  Procedures). area_id is a fixed slug kept in lockstep with lib/sops.ts;
+ *  `code` is the code as printed on the document (e.g. 'BO-01'). */
+export interface SopRow {
+  id:           string;
+  cinema_id:    string;
+  area_id:      string;
+  code:         string;
+  title:        string;
+  description:  string | null;
+  doc_url:      string;
+  storage_path: string | null;
+  version:      string;
+  sort_order:   number;
+  created_by:   string | null;
+  created_at:   string | null;
+  updated_at:   string | null;
+  updated_by:   string | null;
+}
