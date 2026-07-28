@@ -5,6 +5,12 @@
 // Statement": a credit/debit account that settles the distributor's share of
 // the box office. This module turns a movie's DCR entries into that statement.
 //
+// SCOPE: one statement settles ONE SCREEN × ONE MOVIE. Every function here
+// takes a screenId and looks only at that screen's entries — a film that played
+// two screens is settled with two statements, each with its own run span, run
+// weeks, hold-over date and publicity base. Terms (share %, publicity, TDS) are
+// per film, so the two statements share their rates but never their money.
+//
 // The weekly NET / SHARE figures reuse the SAME math as the DCR engine
 // (computeShallow → netShare / distShare / exShare), so a Picture Ending
 // always reconciles with the daily reports it is built from. NET is already
@@ -200,7 +206,8 @@ export interface PictureEndingTotals {
 export interface PictureEndingComputed {
   movie: Movie;
   distributor: Distributor | undefined;
-  screens: { id: UUID; name: string }[];
+  /** The single screen this statement settles. */
+  screen: { id: UUID; name: string };
   runFrom?: DateISO;
   runTo?: DateISO;
   totalDays: number;
@@ -255,11 +262,14 @@ function fullHouseCollection(
 }
 
 /**
- * The DETECTED hold-over date: the earliest day a movie's best 3 shows on a
- * screen together collect LESS than one 100% (full-house) show, valued at that
- * day's top-show price card. Per (date, screen); returns the earliest across the
- * run. null when the threshold is never crossed (or there's no usable price
- * data).
+ * The DETECTED hold-over date for one movie ON ONE SCREEN: the earliest day the
+ * film's best 3 shows there together collect LESS than one 100% (full-house)
+ * show, valued at that day's top-show price card. null when the threshold is
+ * never crossed (or there's no usable price data).
+ *
+ * Screen-scoped because a full house is a property of the screen — the same
+ * film can be holding over in the big audi while still filling the small one,
+ * and each screen's statement is settled on its own signal.
  *
  * This is the raw signal only. The date actually used as the publicity cutoff
  * comes out of `resolveHoldOverDate`, which layers the distributor's standing
@@ -274,9 +284,16 @@ function fullHouseCollection(
 export function computeHoldOverDate(
   state: AppState,
   movieId: UUID,
+  screenId: UUID,
 ): DateISO | null {
   const days = state.entries
-    .filter((e) => e.movieId === movieId && e.date && (e.shows || []).length)
+    .filter(
+      (e) =>
+        e.movieId === movieId &&
+        e.screenId === screenId &&
+        e.date &&
+        (e.shows || []).length,
+    )
     .slice()
     .sort((a, b) => (a.date! < b.date! ? -1 : a.date! > b.date! ? 1 : 0));
 
@@ -374,11 +391,22 @@ interface WeekAcc {
   share: number;
 }
 
-/** Roll a movie's collecting DCR days into per-run-week settlement rows. */
-export function summarizeWeeks(state: AppState, movieId: UUID): PictureEndingWeek[] {
+/**
+ * Roll one screen's collecting DCR days for a movie into per-run-week rows.
+ *
+ * Run weeks stay anchored to the RELEASE date, not to the screen's own first
+ * day, so week numbers (and therefore the movie's stepped weekly share rates)
+ * mean the same thing on every screen. A film moved to a second screen in its
+ * third week opens that screen's statement at week 3.
+ */
+export function summarizeWeeks(
+  state: AppState,
+  movieId: UUID,
+  screenId: UUID,
+): PictureEndingWeek[] {
   const movie = state.movies.find((m) => m.id === movieId);
   const collecting = state.entries
-    .filter((e) => e.movieId === movieId && e.date)
+    .filter((e) => e.movieId === movieId && e.screenId === screenId && e.date)
     .map((e) => ({ e, cs: computeShallow(state, e, null) }))
     .filter(({ cs }) => cs.audience > 0 || cs.netShare !== 0);
 
@@ -527,26 +555,24 @@ export function pictureEndingTotals(
 }
 
 /**
- * Exhibitor share + collecting-day count earned up to & including `throughDate`
- * (the whole run when `throughDate` is null). This is the base publicity is
- * charged on — 2% of ex-share TILL the hold-over day.
+ * Exhibitor share + collecting-day count earned on ONE SCREEN up to & including
+ * `throughDate` (that screen's whole run when `throughDate` is null). This is
+ * the base publicity is charged on — 2% of ex-share TILL the hold-over day.
  *
- * Multi-screen note: the cutoff is a single DATE across every screen, and the
- * hold-over date is the earliest a screen dips below its own full house. For the
- * single-screen cinema this is exact. If a film ever runs on two screens at once
- * and one screen holds over before the other, the stronger screen's later
- * ex-share past that date is excluded here — revisit (pool best-3 across screens,
- * or make the cutoff per-screen) before relying on this for multi-screen runs.
+ * Both the cutoff and the ex-share it filters are screen-scoped, so a film that
+ * holds over early in one audi and keeps running in another earns publicity on
+ * each screen's own days.
  */
 export function publicityBaseFor(
   state: AppState,
   movieId: UUID,
+  screenId: UUID,
   throughDate: DateISO | null,
 ): { exShare: number; days: number } {
   const dates = new Set<string>();
   let exShare = 0;
   for (const e of state.entries) {
-    if (e.movieId !== movieId || !e.date) continue;
+    if (e.movieId !== movieId || e.screenId !== screenId || !e.date) continue;
     if (throughDate && e.date > throughDate) continue; // inclusive of hold-over day
     const cs = computeShallow(state, e, null);
     if (cs.audience <= 0 && cs.netShare === 0) continue;
@@ -556,38 +582,51 @@ export function publicityBaseFor(
   return { exShare: r2(exShare), days: dates.size };
 }
 
-/** Build the full computed statement for a movie. Returns null if unknown. */
+/**
+ * The screens a film actually played on, in catalog order — the choices the
+ * statement builder offers. A film with entries on two screens needs two
+ * statements, one per screen.
+ */
+export function movieScreens(
+  state: AppState,
+  movieId: UUID,
+): { id: UUID; name: string }[] {
+  const ran = new Set(
+    state.entries.filter((e) => e.movieId === movieId).map((e) => e.screenId),
+  );
+  return state.screens
+    .filter((s) => ran.has(s.id))
+    .map((s) => ({ id: s.id, name: s.name }));
+}
+
+/**
+ * Build the full computed statement for ONE movie ON ONE SCREEN.
+ * Returns null when the movie or the screen is not in the catalog.
+ */
 export function buildPictureEnding(
   state: AppState,
   movieId: UUID,
+  screenId: UUID,
   inputs: PictureEndingInputs,
 ): PictureEndingComputed | null {
   const movie = state.movies.find((m) => m.id === movieId);
   if (!movie) return null;
+  const screen = screenById(state, screenId);
+  if (!screen) return null;
   const distributor = state.distributors.find((d) => d.id === movie.distributorId);
 
-  const weeks = summarizeWeeks(state, movieId);
+  const weeks = summarizeWeeks(state, movieId, screenId);
   // weeks[0].from IS the run anchor — summarizeWeeks windows week 1 from the
   // release date (or the first collecting day when there is none).
   const ho = resolveHoldOverDate(
-    computeHoldOverDate(state, movieId),
+    computeHoldOverDate(state, movieId, screenId),
     weeks[0]?.from,
     distributor?.holdOverRule,
     inputs.holdOverDateOverride,
   );
   // Publicity base = ex-share till the hold-over day (full run if it never held over).
-  const publicity = publicityBaseFor(state, movieId, ho.applied);
+  const publicity = publicityBaseFor(state, movieId, screenId, ho.applied);
   const totals = pictureEndingTotals(weeks, inputs, publicity);
-
-  const screenIds = [
-    ...new Set(
-      state.entries.filter((e) => e.movieId === movieId).map((e) => e.screenId),
-    ),
-  ];
-  const screens = screenIds.map((id) => ({
-    id,
-    name: screenById(state, id)?.name ?? "—",
-  }));
 
   const runFrom = weeks[0]?.from;
   const runTo = weeks[weeks.length - 1]?.to;
@@ -596,7 +635,7 @@ export function buildPictureEnding(
   return {
     movie,
     distributor,
-    screens,
+    screen: { id: screen.id, name: screen.name },
     runFrom,
     runTo,
     totalDays,

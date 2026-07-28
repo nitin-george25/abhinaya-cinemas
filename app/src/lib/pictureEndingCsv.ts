@@ -19,9 +19,12 @@ function dmy(iso?: string | null): string {
 }
 
 export function pictureEndingCsvFilename(c: PictureEndingComputed, statementNo?: number): string {
-  const safe = (c.movie.name || "movie").replace(/\s+/g, "_");
+  const clean = (s: string) => s.replace(/\s+/g, "_");
+  const safeMovie = clean(c.movie.name || "movie");
+  // Screen is part of the identity — one film can be settled once per screen.
+  const safeScreen = clean(c.screen.name || "screen");
   const no = statementNo != null ? `_${statementNo}` : "";
-  return `PictureEnding${no}_${safe}_${c.inputs.statementDate}.csv`;
+  return `PictureEnding${no}_${safeMovie}_${safeScreen}_${c.inputs.statementDate}.csv`;
 }
 
 export function pictureEndingCsvRows(
@@ -52,11 +55,12 @@ export function pictureEndingCsvRows(
   R.push(["Provisional GST ID", c.distributor?.gstin ?? "",
     "", "Name of Theatre", inp.theatreName || cinema.name]);
   R.push(["PAN", c.distributor?.pan ?? "",
-    "", "Run", [dmy(c.runFrom), dmy(c.runTo)].filter(Boolean).join(" to ")]);
+    "", "Screen", c.screen.name]);
   R.push(["Email", c.distributor?.pocEmail ?? "",
-    "", "GST Type", inp.taxKind === "inter" ? "IGST (inter-state)" : "SGST+CGST (in-state)"]);
+    "", "Run", [dmy(c.runFrom), dmy(c.runTo)].filter(Boolean).join(" to ")]);
   R.push(["Representative", inp.representative || c.distributor?.pocName || "",
-    "", "Hold-over Date", c.holdOverDate ? dmy(c.holdOverDate) : ""]);
+    "", "GST Type", inp.taxKind === "inter" ? "IGST (inter-state)" : "SGST+CGST (in-state)"]);
+  R.push(["", "", "", "Hold-over Date", c.holdOverDate ? dmy(c.holdOverDate) : ""]);
   R.push([]);
 
   // ── weekly run table ──

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildPictureEnding, defaultPictureEndingInputs } from "./pictureEnding";
 import { buildPictureEndingPdf } from "./pictureEndingPdf";
-import { pictureEndingCsvRows } from "./pictureEndingCsv";
+import { pictureEndingCsvFilename, pictureEndingCsvRows } from "./pictureEndingCsv";
 import type { CinemaProfile } from "./cinemaProfile";
 import type { AppState, Entry } from "./types";
 
@@ -52,7 +52,7 @@ describe("picture ending document renderers", () => {
   });
   inputs.flexCharge = 500;
   inputs.advances = [{ paidOn: "2025-03-29", amount: 10000, mode: "rtgs", bank: "ICICI", ref: "001571" }];
-  const computed = buildPictureEnding(state, "mov", inputs)!;
+  const computed = buildPictureEnding(state, "mov", "scr", inputs)!;
 
   it("builds a PDF with at least one page", () => {
     const doc = buildPictureEndingPdf(computed, { cinema: CINEMA, statementNo: 1 });
@@ -66,5 +66,11 @@ describe("picture ending document renderers", () => {
     const flat = rows.map((r) => r.join("|")).join("\n");
     expect(flat).toContain("PICTURE ENDING STATEMENT");
     expect(flat).toContain("BALANCE PAYABLE TO DISTRIBUTOR");
+    // The statement settles one screen — the distributor's copy names it.
+    expect(flat).toContain("Screen|Screen 1");
+  });
+
+  it("names the screen in both export filenames", () => {
+    expect(pictureEndingCsvFilename(computed, 1)).toContain("Screen_1");
   });
 });

@@ -4,6 +4,11 @@
 // Persists a generated statement with a running per-cinema statement number,
 // plus a frozen snapshot of the computed weeks/totals/advances so a re-print
 // is identical even if the underlying DCR entries are later edited.
+//
+// A statement settles ONE SCREEN × MOVIE (screen_id / screen_name), so a film
+// that played two screens is filed twice under two numbers. The `advances`
+// snapshot holds only the lines THAT statement deducted — the film's other
+// advances stay available for its other screen.
 // Transactional table, loaded on demand. RLS scopes to cinema + role.
 // ============================================================================
 
@@ -21,6 +26,9 @@ export interface SavedPictureEndingStatement {
   statementNo: number;
   movieId?: string;
   distributorId?: string;
+  /** Screen settled. Absent on statements filed before the screen × movie split. */
+  screenId?: string;
+  screenName?: string;
   movieName?: string;
   movieFormat?: string;
   distributorName?: string;
@@ -56,6 +64,8 @@ function toSaved(r: PictureEndingStatementRow): SavedPictureEndingStatement {
     statementNo: r.statement_no,
     movieId: r.movie_id ?? undefined,
     distributorId: r.distributor_id ?? undefined,
+    screenId: r.screen_id ?? undefined,
+    screenName: r.screen_name ?? undefined,
     movieName: r.movie_name ?? undefined,
     movieFormat: r.movie_format ?? undefined,
     distributorName: r.distributor_name ?? undefined,
@@ -140,6 +150,8 @@ export async function savePictureEndingStatement(
       statement_no: nextNo,
       movie_id: computed.movie.id,
       distributor_id: computed.movie.distributorId ?? null,
+      screen_id: computed.screen.id,
+      screen_name: computed.screen.name,
       movie_name: computed.movie.name,
       movie_format: opts.movieFormat ?? inputs.movieFormat ?? null,
       distributor_name: computed.distributor?.name ?? computed.movie.distributor ?? null,

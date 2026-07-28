@@ -50,9 +50,14 @@ export function downloadPictureEndingPdf(
   opts: PictureEndingPdfOpts,
 ): string {
   const doc = buildPictureEndingPdf(computed, opts);
-  const safeMovie = (computed.movie.name || "movie").replace(/\s+/g, "_");
+  const safe = (s: string) => s.replace(/\s+/g, "_");
+  const safeMovie = safe(computed.movie.name || "movie");
+  // The screen is part of the identity — one film can produce a statement per
+  // screen, and two downloads must not collide in the browser's Downloads.
+  const safeScreen = safe(computed.screen.name || "screen");
   const no = opts.statementNo != null ? `_${opts.statementNo}` : "";
-  const filename = `PictureEnding${no}_${safeMovie}_${computed.inputs.statementDate}.pdf`;
+  const filename =
+    `PictureEnding${no}_${safeMovie}_${safeScreen}_${computed.inputs.statementDate}.pdf`;
   doc.save(filename);
   return filename;
 }
@@ -148,6 +153,8 @@ export function buildPictureEndingPdf(
     ["Date", dmy(inp.statementDate)],
     ["Statement No.", opts.statementNo != null ? String(opts.statementNo) : "—"],
     ["Name of Theatre", inp.theatreName || cinema.name || ""],
+    // A statement settles one screen; the distributor's copy has to say which.
+    ["Screen", C.screen.name],
     ["Run", [dmy(C.runFrom), dmy(C.runTo)].filter(Boolean).join("  to  ")],
     ["GST Type", inp.taxKind === "inter" ? "IGST (inter-state)" : "SGST+CGST (in-state)"],
     ["Hold-over Date", C.holdOverDate ? dmy(C.holdOverDate) : "—"],
@@ -169,7 +176,7 @@ export function buildPictureEndingPdf(
   };
   kv(x0, colW, left);
   kv(x0 + colW + 14, colW, right);
-  y += 6 * 14 + 12;
+  y += Math.max(left.length, right.length) * 14 + 12;
 
   // ── weekly run table ───────────────────────────────────────────────────
   const PCT = [18, 18, 10, 22, 12, 20]; // From, To, Days, Net, Share%, Share
