@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { Modal } from "../../components/ui/Modal";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Field, Input, Select } from "../../components/ui/Input";
 import { useSync } from "../../lib/hooks/SyncContext";
@@ -41,6 +42,9 @@ export default function SopsPage() {
   const [sops, setSops] = useState<Sop[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // "Read wide" drops the SOP list and gives the document the full column —
+  // a four-page bilingual SOP is a lot to read through a 60% viewport.
+  const [wide, setWide] = useState(false);
 
   const reload = useCallback(async () => {
     if (!state.cinemaId) return;
@@ -142,99 +146,128 @@ export default function SopsPage() {
 
       {/* Body */}
       {!area || area.sops.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line bg-paper-card px-6 py-16 text-center">
-          <p className="text-sm text-ink-muted">
-            {!loaded
-              ? "Loading SOPs…"
-              : area
-                ? `No SOPs written for ${area.fullName} yet.`
-                : "No SOPs yet."}
-          </p>
+        <div className="rounded-xl border border-dashed border-line bg-paper-card px-6 py-16 text-center">
+          {!loaded ? (
+            <p className="text-sm text-ink-muted">Loading SOPs…</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-ink">
+                {area ? `Nothing written for ${area.fullName} yet` : "No SOPs yet"}
+              </p>
+              {area ? (
+                <p className="mx-auto mt-1.5 max-w-md text-sm text-ink-muted">
+                  SOPs in this area are coded{" "}
+                  <span className="font-mono text-xs">{area.prefix}-01</span>{" "}
+                  onwards.
+                  {canEdit
+                    ? " Upload them once they're signed off."
+                    : null}
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
       ) : (
-        <div className="grid gap-5 md:grid-cols-[260px_1fr]">
-          {/* SOP list for the active area */}
-          <aside className="space-y-1">
-            <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-ink-muted">
-              {area.fullName}
-            </p>
-            {area.sops.map((s) => {
-              const active = s.id === activeSop?.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => navigate(`/operations/sops/${area.id}/${s.id}`)}
-                  className={
-                    "w-full rounded-md px-3 py-2 text-left text-sm transition-colors " +
-                    (active
-                      ? "bg-line/50 font-medium text-ink"
-                      : "text-ink-muted hover:bg-line/30 hover:text-ink")
-                  }
-                >
-                  <span className="mr-2 font-mono text-xs text-ink-muted">
-                    {s.code}
-                  </span>
-                  {s.title}
-                </button>
-              );
-            })}
-          </aside>
-
-          {/* Selected SOP + inline document */}
-          {activeSop ? (
-            <section className="min-w-0 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-lg font-semibold text-ink">
-                    <span className="mr-2 font-mono text-sm text-ink-muted">
-                      {activeSop.code}
-                    </span>
-                    {activeSop.title}
-                  </h3>
-                  <p className="mt-1 text-sm leading-relaxed text-ink-muted">
-                    {activeSop.description
-                      ? `${activeSop.description} · `
-                      : null}
-                    {activeSop.version}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <a
-                    href={activeSop.docUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center rounded-md border border-line px-2.5 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-line/30 hover:text-ink"
+        <div
+          className={
+            wide && activeSop
+              ? "grid gap-5"
+              : "grid gap-5 md:grid-cols-[264px_minmax(0,1fr)]"
+          }
+        >
+          {/* SOP list for the active area. Hidden while reading wide — but
+              only when there is a document on screen to read, so the list can
+              never become unreachable. */}
+          {!(wide && activeSop) ? (
+            <aside className="space-y-0.5">
+              <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                {area.fullName}
+              </p>
+              {area.sops.map((s) => {
+                const active = s.id === activeSop?.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => navigate(`/operations/sops/${area.id}/${s.id}`)}
+                    className={
+                      "flex w-full items-baseline gap-2.5 rounded-lg px-3 py-2 text-left transition-colors " +
+                      (active
+                        ? "bg-amber-50 text-ink ring-1 ring-inset ring-amber-200"
+                        : "text-ink-muted hover:bg-line/30 hover:text-ink")
+                    }
                   >
-                    Open PDF
-                  </a>
-                  <CopyLinkButton
-                    path={`/operations/sops/${area.id}/${activeSop.id}`}
-                  />
-                  {canEdit ? (
-                    <DeleteSopButton
-                      sop={activeSop}
-                      onDeleted={async () => {
-                        navigate(`/operations/sops/${area.id}`, {
-                          replace: true,
-                        });
-                        await reload();
-                      }}
+                    {/* Fixed-width code so the titles line up down the list. */}
+                    <span
+                      className={
+                        "w-[52px] shrink-0 font-mono text-[11px] " +
+                        (active ? "text-amber-700" : "text-ink-muted")
+                      }
+                    >
+                      {s.code}
+                    </span>
+                    <span
+                      className={
+                        "min-w-0 text-sm leading-snug " +
+                        (active ? "font-medium" : "")
+                      }
+                    >
+                      {s.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </aside>
+          ) : null}
+
+          {/* Selected SOP — header strip + the document on a neutral desk. */}
+          {activeSop ? (
+            <section className="min-w-0">
+              <div className="overflow-hidden rounded-xl border border-line bg-paper-card shadow-sm">
+                <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="amber" className="font-mono">
+                        {activeSop.code}
+                      </Badge>
+                      <h3 className="text-base font-semibold leading-tight text-ink">
+                        {activeSop.title}
+                      </h3>
+                      <Badge>{activeSop.version}</Badge>
+                    </div>
+                    {activeSop.description ? (
+                      <p className="mt-1.5 text-xs text-ink-muted">
+                        <span className="uppercase tracking-wide">
+                          Daily check
+                        </span>
+                        <span className="mx-1.5 text-line">·</span>
+                        {activeSop.description}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <FrameButton onClick={() => setWide((w) => !w)}>
+                      {wide ? "Show list" : "Read wide"}
+                    </FrameButton>
+                    <FrameLink href={activeSop.docUrl}>Open PDF</FrameLink>
+                    <CopyLinkButton
+                      path={`/operations/sops/${area.id}/${activeSop.id}`}
                     />
-                  ) : null}
-                </div>
-              </div>
-              <div
-                className="relative w-full overflow-hidden rounded-lg border border-line bg-paper-card"
-                style={{ height: "72vh", minHeight: 480 }}
-              >
-                <iframe
-                  key={activeSop.id}
-                  src={activeSop.docUrl}
-                  title={`${activeSop.code} ${activeSop.title}`}
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full"
-                  style={{ border: 0 }}
-                />
+                    {canEdit ? (
+                      <DeleteSopButton
+                        sop={activeSop}
+                        onDeleted={async () => {
+                          navigate(`/operations/sops/${area.id}`, {
+                            replace: true,
+                          });
+                          await reload();
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                </header>
+
+                <SopDocumentFrame sop={activeSop} wide={wide} />
               </div>
             </section>
           ) : null}
@@ -258,6 +291,107 @@ export default function SopsPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The document itself. The PDF is embedded rather than parsed — see the
+ * `#toolbar=0` note below — and sits on a neutral "desk" so the white page has
+ * an edge, instead of bleeding into the card.
+ *
+ * PDF open parameters hide the browser viewer's own grey chrome and fit the
+ * page to the width we give it, so the embed reads as part of the console
+ * rather than a browser plugin bolted into a box. Chrome and Edge honour them;
+ * Firefox's pdf.js ignores them and shows its own toolbar, which is a fine
+ * fallback. Print and download stay available via "Open PDF".
+ */
+function SopDocumentFrame({ sop, wide }: { sop: Sop; wide: boolean }) {
+  const [ready, setReady] = useState(false);
+
+  // Re-arm the loading state whenever the document changes.
+  useEffect(() => {
+    setReady(false);
+  }, [sop.id]);
+
+  return (
+    <div
+      className="relative w-full bg-line/40"
+      style={{
+        height: wide ? "calc(100vh - 260px)" : "calc(100vh - 330px)",
+        minHeight: 520,
+      }}
+    >
+      {!ready ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <p className="text-xs text-ink-muted">Opening {sop.code}…</p>
+        </div>
+      ) : null}
+      {/* Capped and centred: fit-to-width on a very wide screen would blow an
+          A4 page up to billboard size. The page keeps a sane reading measure
+          and the desk shows either side of it. */}
+      <div className="absolute inset-0 mx-auto w-full max-w-[1000px]">
+        <iframe
+          key={sop.id}
+          src={`${sop.docUrl}#toolbar=0&navpanes=0&view=FitH`}
+          title={`${sop.code} ${sop.title}`}
+          onLoad={() => setReady(true)}
+          className={
+            "h-full w-full transition-opacity duration-200 " +
+            (ready ? "opacity-100" : "opacity-0")
+          }
+          style={{ border: 0 }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The small bordered control used along the document header. Button and link
+ * share one class so "Open PDF" sits flush with its neighbours rather than
+ * being an anchor that merely looks similar.
+ */
+const FRAME_BTN =
+  "inline-flex shrink-0 items-center rounded-md border border-line bg-paper-card px-2.5 py-1.5 " +
+  "text-xs font-medium text-ink-muted transition-colors hover:bg-line/30 hover:text-ink " +
+  "disabled:opacity-50";
+
+function FrameButton({
+  onClick,
+  disabled,
+  title,
+  className,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={className ? `${FRAME_BTN} ${className}` : FRAME_BTN}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FrameLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={FRAME_BTN}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -728,14 +862,13 @@ function DeleteSopButton({
   }
 
   return (
-    <button
-      type="button"
+    <FrameButton
       onClick={remove}
       disabled={busy}
-      className="inline-flex items-center rounded-md border border-line px-2.5 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+      className="hover:!bg-red-50 hover:!text-red-600"
     >
       {busy ? "Removing…" : "Remove"}
-    </button>
+    </FrameButton>
   );
 }
 
@@ -760,13 +893,8 @@ function CopyLinkButton({ path }: { path: string }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={copy}
-      title="Copy a shareable link"
-      className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-line/30 hover:text-ink"
-    >
+    <FrameButton onClick={copy} title="Copy a shareable link">
       {copied ? "Copied!" : "Copy link"}
-    </button>
+    </FrameButton>
   );
 }
