@@ -115,164 +115,175 @@ export default function SopsPage() {
         ) : null}
       </div>
 
-      {/* Area tabs — the fourteen areas of the master plan. */}
-      <div className="border-b border-line">
-        <nav className="-mb-px flex gap-1 overflow-x-auto">
-          {areas.map((a) => {
-            const active = a.id === area?.id;
-            return (
-              <button
-                key={a.id}
-                onClick={() => navigate(`/operations/sops/${a.id}`)}
-                title={a.fullName}
-                className={
-                  "shrink-0 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors " +
-                  (active
-                    ? "border-amber-500 text-ink"
-                    : "border-transparent text-ink-muted hover:text-ink")
-                }
-              >
-                {a.label}
-                {a.sops.length > 0 ? (
-                  <span className="ml-1.5 text-xs text-ink-muted">
-                    {a.sops.length}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Body */}
-      {!area || area.sops.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line bg-paper-card px-6 py-16 text-center">
-          {!loaded ? (
-            <p className="text-sm text-ink-muted">Loading SOPs…</p>
-          ) : (
-            <>
-              <p className="text-sm font-medium text-ink">
-                {area ? `Nothing written for ${area.fullName} yet` : "No SOPs yet"}
-              </p>
-              {area ? (
-                <p className="mx-auto mt-1.5 max-w-md text-sm text-ink-muted">
-                  SOPs in this area are coded{" "}
-                  <span className="font-mono text-xs">{area.prefix}-01</span>{" "}
-                  onwards.
-                  {canEdit
-                    ? " Upload them once they're signed off."
-                    : null}
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
-      ) : (
-        <div
-          className={
-            wide && activeSop
-              ? "grid gap-5"
-              : "grid gap-5 md:grid-cols-[264px_minmax(0,1fr)]"
-          }
-        >
-          {/* SOP list for the active area. Hidden while reading wide — but
-              only when there is a document on screen to read, so the list can
-              never become unreachable. */}
-          {!(wide && activeSop) ? (
-            <aside className="space-y-0.5">
-              <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
-                {area.fullName}
-              </p>
-              {area.sops.map((s) => {
-                const active = s.id === activeSop?.id;
-                return (
+      {/* Body — vertical area rail on the left, the document on the right.
+          Fourteen areas never fitted a horizontal tab strip; stacked, the
+          list reads as the master plan's contents page, and the active area
+          opens in place to show its SOPs. */}
+      <div
+        className={
+          wide && activeSop
+            ? "grid gap-5"
+            : "grid gap-5 md:grid-cols-[268px_minmax(0,1fr)]"
+        }
+      >
+        {/* Hidden while reading wide — but only when there is a document on
+            screen to read, so the nav can never become unreachable. */}
+        {!(wide && activeSop) ? (
+          <aside className="space-y-0.5 md:max-h-[calc(100vh-190px)] md:overflow-y-auto md:pr-1">
+            {areas.map((a) => {
+              const activeArea = a.id === area?.id;
+              return (
+                <div key={a.id}>
                   <button
-                    key={s.id}
-                    onClick={() => navigate(`/operations/sops/${area.id}/${s.id}`)}
+                    onClick={() => navigate(`/operations/sops/${a.id}`)}
+                    title={a.fullName}
                     className={
-                      "flex w-full items-baseline gap-2.5 rounded-lg px-3 py-2 text-left transition-colors " +
-                      (active
-                        ? "bg-amber-50 text-ink ring-1 ring-inset ring-amber-200"
+                      "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors " +
+                      (activeArea
+                        ? "bg-ink font-medium text-white"
                         : "text-ink-muted hover:bg-line/30 hover:text-ink")
                     }
                   >
-                    {/* Fixed-width code so the titles line up down the list. */}
+                    <span className="min-w-0 flex-1 truncate">{a.label}</span>
                     <span
                       className={
-                        "w-[52px] shrink-0 font-mono text-[11px] " +
-                        (active ? "text-amber-700" : "text-ink-muted")
+                        "shrink-0 text-xs tabular-nums " +
+                        (activeArea
+                          ? "text-white/60"
+                          : a.sops.length > 0
+                            ? "text-ink-muted"
+                            : "text-line")
                       }
                     >
-                      {s.code}
-                    </span>
-                    <span
-                      className={
-                        "min-w-0 text-sm leading-snug " +
-                        (active ? "font-medium" : "")
-                      }
-                    >
-                      {s.title}
+                      {a.sops.length || "—"}
                     </span>
                   </button>
-                );
-              })}
-            </aside>
-          ) : null}
 
-          {/* Selected SOP — header strip + the document on a neutral desk. */}
-          {activeSop ? (
-            <section className="min-w-0">
-              <div className="overflow-hidden rounded-xl border border-line bg-paper-card shadow-sm">
-                <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line px-4 py-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="amber" className="font-mono">
-                        {activeSop.code}
-                      </Badge>
-                      <h3 className="text-base font-semibold leading-tight text-ink">
-                        {activeSop.title}
-                      </h3>
-                      <Badge>{activeSop.version}</Badge>
+                  {/* The open area's SOPs, indented beneath it. */}
+                  {activeArea && a.sops.length > 0 ? (
+                    <div className="mb-1 mt-0.5 space-y-0.5 pl-2">
+                      {a.sops.map((s) => {
+                        const activeDoc = s.id === activeSop?.id;
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() =>
+                              navigate(`/operations/sops/${a.id}/${s.id}`)
+                            }
+                            className={
+                              "flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors " +
+                              (activeDoc
+                                ? "bg-amber-50 text-ink ring-1 ring-inset ring-amber-200"
+                                : "text-ink-muted hover:bg-line/30 hover:text-ink")
+                            }
+                          >
+                            {/* Fixed-width code so titles line up down the list. */}
+                            <span
+                              className={
+                                "w-[50px] shrink-0 font-mono text-[11px] " +
+                                (activeDoc ? "text-amber-700" : "text-ink-muted")
+                              }
+                            >
+                              {s.code}
+                            </span>
+                            <span
+                              className={
+                                "min-w-0 text-[13px] leading-snug " +
+                                (activeDoc ? "font-medium" : "")
+                              }
+                            >
+                              {s.title}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    {activeSop.description ? (
-                      <p className="mt-1.5 text-xs text-ink-muted">
-                        <span className="uppercase tracking-wide">
-                          Daily check
-                        </span>
-                        <span className="mx-1.5 text-line">·</span>
-                        {activeSop.description}
-                      </p>
-                    ) : null}
-                  </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </aside>
+        ) : null}
 
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <FrameButton onClick={() => setWide((w) => !w)}>
-                      {wide ? "Show list" : "Read wide"}
-                    </FrameButton>
-                    <FrameLink href={activeSop.docUrl}>Open PDF</FrameLink>
-                    <CopyLinkButton
-                      path={`/operations/sops/${area.id}/${activeSop.id}`}
+        {/* Selected SOP — header strip + the document on a neutral desk. */}
+        {activeSop && area ? (
+          <section className="min-w-0">
+            <div className="overflow-hidden rounded-xl border border-line bg-paper-card shadow-sm">
+              <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="amber" className="font-mono">
+                      {activeSop.code}
+                    </Badge>
+                    <h3 className="text-base font-semibold leading-tight text-ink">
+                      {activeSop.title}
+                    </h3>
+                    <Badge>{activeSop.version}</Badge>
+                  </div>
+                  {activeSop.description ? (
+                    <p className="mt-1.5 text-xs text-ink-muted">
+                      <span className="uppercase tracking-wide">
+                        Daily check
+                      </span>
+                      <span className="mx-1.5 text-line">·</span>
+                      {activeSop.description}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <FrameButton onClick={() => setWide((w) => !w)}>
+                    {wide ? "Show list" : "Read wide"}
+                  </FrameButton>
+                  <FrameLink href={activeSop.docUrl}>Open PDF</FrameLink>
+                  <CopyLinkButton
+                    path={`/operations/sops/${area.id}/${activeSop.id}`}
+                  />
+                  {canEdit ? (
+                    <DeleteSopButton
+                      sop={activeSop}
+                      onDeleted={async () => {
+                        navigate(`/operations/sops/${area.id}`, {
+                          replace: true,
+                        });
+                        await reload();
+                      }}
                     />
-                    {canEdit ? (
-                      <DeleteSopButton
-                        sop={activeSop}
-                        onDeleted={async () => {
-                          navigate(`/operations/sops/${area.id}`, {
-                            replace: true,
-                          });
-                          await reload();
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                </header>
+                  ) : null}
+                </div>
+              </header>
 
-                <SopDocumentFrame sop={activeSop} wide={wide} />
-              </div>
-            </section>
-          ) : null}
-        </div>
-      )}
+              <SopDocumentFrame sop={activeSop} wide={wide} />
+            </div>
+          </section>
+        ) : (
+          <section className="min-w-0">
+            <div className="flex h-full min-h-[420px] items-center justify-center rounded-xl border border-dashed border-line bg-paper-card px-6 py-16 text-center">
+              {!loaded ? (
+                <p className="text-sm text-ink-muted">Loading SOPs…</p>
+              ) : (
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    {area
+                      ? `Nothing written for ${area.fullName} yet`
+                      : "No SOPs yet"}
+                  </p>
+                  {area ? (
+                    <p className="mx-auto mt-1.5 max-w-md text-sm text-ink-muted">
+                      SOPs in this area are coded{" "}
+                      <span className="font-mono text-xs">
+                        {area.prefix}-01
+                      </span>{" "}
+                      onwards.
+                      {canEdit ? " Upload them once they're signed off." : null}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
 
       {addOpen ? (
         <UploadSopsModal

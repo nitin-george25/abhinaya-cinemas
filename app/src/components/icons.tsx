@@ -66,6 +66,8 @@ export const IconSpinner = ({ className = "w-4 h-4" }: IconProps) => (
   </svg>
 );
 export const IconChevronDown = svg("M5 8l5 5 5-5");
+// Panel with a rail down one side — the collapse/expand control for the nav.
+export const IconSidebar = svg("M3 4h14v12H3V4zm5 0v12");
 export const IconCash = svg(
   "M2 6h16v8H2zM2 9h16M10 12.5a2 2 0 1 0 0-3 2 2 0 0 0 0 3z",
 );
