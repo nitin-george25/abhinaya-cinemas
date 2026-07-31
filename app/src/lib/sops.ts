@@ -199,8 +199,8 @@ function toSop(r: SopRow): Sop {
 // ── read (warn + safe default, never throws) ────────────────────────────────
 
 /**
- * Every SOP for a cinema, in display order. Returns [] (and warns) on error so
- * the page still renders its area tabs.
+ * Every SOP for a cinema. Returns [] (and warns) on error so the page still
+ * renders its area rail. Display order is settled by groupSops.
  */
 export async function listSops(cinemaId: string): Promise<Sop[]> {
   const sb = getSupabase();
@@ -208,7 +208,6 @@ export async function listSops(cinemaId: string): Promise<Sop[]> {
     .from("sops")
     .select("*")
     .eq("cinema_id", cinemaId)
-    .order("sort_order", { ascending: true })
     .order("code", { ascending: true });
   if (error) {
     console.warn("[sops] listSops", error.message);
@@ -217,15 +216,49 @@ export async function listSops(cinemaId: string): Promise<Sop[]> {
   return ((data as SopRow[] | null) ?? []).map(toSop);
 }
 
+const CODE_RE = /^([A-Z]+)[-\s]?(\d+)?(.*)$/;
+
 /**
- * Group a flat SOP list into the fixed area tabs. Areas with nothing written
- * yet come back empty — the page shows a "not written yet" state, which is
- * itself useful: it is the library's own progress bar.
+ * Order SOPs the way their codes read: FB-01, FB-02, … FB-11.
+ *
+ * Plain text ordering would file FB-11 before FB-2, so the number is compared
+ * numerically rather than character by character. Codes are zero-padded today,
+ * which hides the problem, but nothing stops someone typing "FB-5" in the
+ * upload form and this keeps that in the right place.
+ *
+ * The letter prefix is compared first, so an area holding more than one prefix
+ * stays grouped — Projection currently carries the legacy PRJ-xx documents and
+ * would take PR-xx if those are ever reissued.
+ */
+export function compareSopCodes(a: string, b: string): number {
+  const ma = CODE_RE.exec(a.trim().toUpperCase());
+  const mb = CODE_RE.exec(b.trim().toUpperCase());
+  if (!ma || !mb) return a.localeCompare(b);
+
+  const byPrefix = ma[1]!.localeCompare(mb[1]!);
+  if (byPrefix !== 0) return byPrefix;
+
+  // A code with no number at all sorts last rather than as zero.
+  const na = ma[2] ? parseInt(ma[2], 10) : Number.MAX_SAFE_INTEGER;
+  const nb = mb[2] ? parseInt(mb[2], 10) : Number.MAX_SAFE_INTEGER;
+  if (na !== nb) return na - nb;
+
+  // Same number — a suffix like "FB-02a" breaks the tie.
+  return (ma[3] ?? "").localeCompare(mb[3] ?? "");
+}
+
+/**
+ * Group a flat SOP list into the fixed area rail, each area's documents in
+ * code order. Areas with nothing written yet come back empty — the page shows
+ * a "not written yet" state, which is itself useful: it is the library's own
+ * progress bar.
  */
 export function groupSops(sops: Sop[]): SopArea[] {
   return SOP_AREA_DEFS.map((def) => ({
     ...def,
-    sops: sops.filter((s) => s.areaId === def.id),
+    sops: sops
+      .filter((s) => s.areaId === def.id)
+      .sort((a, b) => compareSopCodes(a.code, b.code)),
   }));
 }
 
@@ -243,8 +276,11 @@ export interface NewSopInput {
 
 /**
  * Upload an SOP document and record it. Owner/manager only (enforced by RLS on
- * both the table and the bucket). New SOPs sort after the existing ones in
- * their area. Returns the created SOP.
+ * both the table and the bucket). Returns the created SOP.
+ *
+ * No sort_order is computed: documents display in code order, so an upload
+ * lands in its numbered place regardless of when it arrived. The column keeps
+ * its default and is left for a future manual override.
  */
 export async function addSop(
   cinemaId: string,
@@ -253,17 +289,6 @@ export async function addSop(
 ): Promise<Sop> {
   const sb = getSupabase();
   const code = input.code.trim().toUpperCase();
-
-  // Append: one past the current max sort_order in this area.
-  const { data: maxRow } = await sb
-    .from("sops")
-    .select("sort_order")
-    .eq("cinema_id", cinemaId)
-    .eq("area_id", input.areaId)
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextSort = ((maxRow as { sort_order: number } | null)?.sort_order ?? -1) + 1;
 
   // uuid-prefixed path: stable, unguessable, and never collides on re-upload.
   const safeName = input.file.name.replace(/[^\w.\-]+/g, "_");
@@ -287,7 +312,6 @@ export async function addSop(
       doc_url: pub.publicUrl,
       storage_path: path,
       version: (input.version ?? "v1.0").trim() || "v1.0",
-      sort_order: nextSort,
       created_by: createdBy,
       updated_by: createdBy,
     })

@@ -12,6 +12,7 @@ import {
   groupSops,
   listSops,
   addSop,
+  compareSopCodes,
   deleteSop,
   parseSopFileName,
   replaceSopDocument,
@@ -488,7 +489,12 @@ function UploadSopsModal({
     }
     setRows((prev) => {
       const seen = new Set(prev.map((r) => r.key));
-      return [...prev, ...next.filter((r) => !seen.has(r.key))];
+      // Queue in code order so the review list and the upload progress read
+      // the same way the library will — BO-01, BO-02, … — rather than in
+      // whatever order the file picker handed them over.
+      return [...prev, ...next.filter((r) => !seen.has(r.key))].sort((a, b) =>
+        compareSopCodes(a.code, b.code),
+      );
     });
   }
 
