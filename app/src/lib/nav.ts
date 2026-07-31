@@ -115,6 +115,9 @@ export const NAV: NavItem[] = [
       },
       // Moved here from F&B — the daily SOP checklists.
       { kind: "leaf", to: "/operations/checklist", label: "Checklists", roles: ENTRY_ROLES },
+      // The SOP library the checklists are pulled from — the written standard
+      // behind every daily check. Read by anyone on shift; owner/manager edit.
+      { kind: "leaf", to: "/operations/sops", label: "Standard Operating Procedures", roles: ENTRY_ROLES },
     ],
   },
   {

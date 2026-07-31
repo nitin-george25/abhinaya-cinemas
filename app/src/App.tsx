@@ -47,6 +47,7 @@ import PaymentsAdvancesPage from "./pages/payments/Advances";
 import RenovationsPage from "./pages/projects/Renovations";
 import ProjectDetailPage from "./pages/projects/ProjectDetail";
 import DailyManagerRosterPage from "./pages/operations/DailyManagerRoster";
+import SopsPage from "./pages/operations/Sops";
 import GuidesPage from "./pages/Guides";
 import InvoicesPage from "./pages/Invoices";
 
@@ -184,6 +185,11 @@ function AppGate() {
                   <Route path="/operations/rosters" element={<Navigate to="/operations/rosters/daily-managers" replace />} />
                   <Route path="/operations/rosters/daily-managers" element={<DailyManagerRosterPage />} />
                   <Route path="/operations/checklist" element={<FBChecklistPage />} />
+                  {/* SOP library. Area and SOP are in the URL so each is
+                      shareable: /operations/sops/:areaId[/:sopId]. */}
+                  <Route path="/operations/sops" element={<SopsPage />} />
+                  <Route path="/operations/sops/:areaId" element={<SopsPage />} />
+                  <Route path="/operations/sops/:areaId/:sopId" element={<SopsPage />} />
                 </>
               ) : null}
 
