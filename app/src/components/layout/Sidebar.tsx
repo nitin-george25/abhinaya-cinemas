@@ -1,10 +1,15 @@
 // ============================================================================
 // Sidebar — desktop-only dark nav (hidden on < md). Mobile uses MobileNav.tsx.
 //
-// Collapsible: the full nav is a 240px column, collapsed it is a 64px rail of
-// group icons. The choice is remembered across sessions, since it is a working
-// preference (a wide table or a side-by-side document reads better with the
-// nav out of the way) rather than something to re-pick every visit.
+// Retracts to a 64px icon rail and opens to the full 240px column on hover,
+// closing again when the pointer leaves. The open panel OVERLAYS the content
+// rather than pushing it: the rail keeps its width in the layout, so the page
+// underneath never reflows as the pointer crosses the nav.
+//
+// Hover alone would strand keyboard users, so focus moving into the nav opens
+// it too, and the footer carries a pin that locks it open. The pin is
+// remembered across sessions — someone who wants a permanent nav should say so
+// once, not every visit.
 // ============================================================================
 
 import { useMemo, useState, useEffect } from "react";
@@ -14,13 +19,13 @@ import { IconChevronDown, IconSidebar } from "../icons";
 import { NAV, filterForRole, groupLeafTos, roleLabel, type NavGroup, type NavLeaf, type NavSubGroup } from "../../lib/nav";
 import type { Role } from "../../lib/hooks/useSupabaseSync";
 
-const COLLAPSE_KEY = "ac.sidebar.collapsed";
+const PIN_KEY = "ac.sidebar.pinned";
 
-function readCollapsed(): boolean {
+function readPinned(): boolean {
   try {
-    return localStorage.getItem(COLLAPSE_KEY) === "1";
+    return localStorage.getItem(PIN_KEY) === "1";
   } catch {
-    // Private mode / storage disabled — default to the full nav.
+    // Private mode / storage disabled — start from the rail.
     return false;
   }
 }
@@ -43,92 +48,109 @@ export function Sidebar({ role }: { role: Role }) {
     if (activeGroupId) setOpenId(activeGroupId);
   }, [activeGroupId]);
 
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [pinned, setPinned] = useState(readPinned);
+  const [hovering, setHovering] = useState(false);
+  const open = pinned || hovering;
+
   useEffect(() => {
     try {
-      localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
+      localStorage.setItem(PIN_KEY, pinned ? "1" : "0");
     } catch {
       // Not being able to remember the preference is not worth failing over.
     }
-  }, [collapsed]);
-
-  /** Opening a group from the rail expands the nav so its children are usable. */
-  function openFromRail(id: string) {
-    setCollapsed(false);
-    setOpenId(id);
-  }
+  }, [pinned]);
 
   return (
-    <aside
-      className={cn(
-        "hidden md:flex md:flex-col shrink-0 bg-ink text-white transition-[width] duration-200",
-        collapsed ? "w-16" : "w-60",
-      )}
-    >
+    // The spacer holds the rail's width in the layout; the fixed panel is what
+    // actually grows, over the content. `hidden` also hides the panel, which
+    // is how this stays desktop-only.
+    <aside className={cn("hidden shrink-0 md:block", pinned ? "w-60" : "w-16")}>
       <div
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        onFocusCapture={() => setHovering(true)}
+        onBlurCapture={(e) => {
+          // Only close once focus has actually left the nav — moving between
+          // its own links fires blur too.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setHovering(false);
+          }
+        }}
         className={cn(
-          "h-14 flex items-center gap-3 border-b border-white/10 shrink-0",
-          collapsed ? "justify-center px-0" : "px-5",
+          // Fixed to the viewport, so the nav (and its pin) stay reachable on
+          // a long page instead of scrolling away with the content.
+          "fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden bg-ink text-white",
+          "transition-[width] duration-200 ease-out",
+          open ? "w-60" : "w-16",
+          !pinned && hovering ? "shadow-2xl shadow-black/40" : null,
         )}
       >
-        {/* Logomark — the ?v=2 cache-buster forces browsers to refetch even
-            though /img/* is marked `immutable` in _headers. The
-            asset on disk was unintentionally swapped to a 2084x2084
-            square; restored to the original 238x200 in this commit. */}
-        <img
-          src="/img/logomark-white.png?v=2"
-          alt="Abhinaya Cinemas"
-          className="h-7 w-auto shrink-0"
-        />
-        {!collapsed ? (
-          <div className="leading-tight min-w-0">
-            <div className="font-display text-[13px] font-bold tracking-wider truncate">ABHINAYA</div>
-            <div className="text-[10px] text-white/50 tracking-wider truncate">CINEMAS · CONSOLE</div>
-          </div>
-        ) : null}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto py-3">
-        {visible.map((item) =>
-          item.kind === "leaf" ? (
-            <LeafLink key={item.to} item={item} collapsed={collapsed} />
-          ) : (
-            <Group
-              key={item.id}
-              group={item}
-              collapsed={collapsed}
-              open={!collapsed && openId === item.id}
-              onToggle={() =>
-                collapsed
-                  ? openFromRail(item.id)
-                  : setOpenId((p) => (p === item.id ? null : item.id))
-              }
-            />
-          ),
-        )}
-      </nav>
-
-      <div
-        className={cn(
-          "flex items-center gap-2 border-t border-white/10 py-3",
-          collapsed ? "justify-center px-0" : "px-5",
-        )}
-      >
-        {!collapsed ? (
-          <span className="flex-1 truncate text-[10px] uppercase tracking-wider text-white/30">
-            v2 preview · {roleLabel(role)}
-          </span>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? "Expand menu" : "Collapse menu"}
-          aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-          aria-expanded={!collapsed}
-          className="shrink-0 rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/5 hover:text-white"
+        <div
+          className={cn(
+            "h-14 flex items-center gap-3 border-b border-white/10 shrink-0",
+            open ? "px-5" : "justify-center px-0",
+          )}
         >
-          <IconSidebar className="w-4 h-4" />
-        </button>
+          {/* Logomark — the ?v=2 cache-buster forces browsers to refetch even
+              though /img/* is marked `immutable` in _headers. The
+              asset on disk was unintentionally swapped to a 2084x2084
+              square; restored to the original 238x200 in this commit. */}
+          <img
+            src="/img/logomark-white.png?v=2"
+            alt="Abhinaya Cinemas"
+            className="h-7 w-auto shrink-0"
+          />
+          {open ? (
+            <div className="leading-tight min-w-0">
+              <div className="font-display text-[13px] font-bold tracking-wider truncate">ABHINAYA</div>
+              <div className="text-[10px] text-white/50 tracking-wider truncate">CINEMAS · CONSOLE</div>
+            </div>
+          ) : null}
+        </div>
+
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3">
+          {visible.map((item) =>
+            item.kind === "leaf" ? (
+              <LeafLink key={item.to} item={item} collapsed={!open} />
+            ) : (
+              <Group
+                key={item.id}
+                group={item}
+                collapsed={!open}
+                open={open && openId === item.id}
+                onToggle={() =>
+                  setOpenId((p) => (p === item.id ? null : item.id))
+                }
+              />
+            ),
+          )}
+        </nav>
+
+        <div
+          className={cn(
+            "flex items-center gap-2 border-t border-white/10 py-3",
+            open ? "px-5" : "justify-center px-0",
+          )}
+        >
+          {open ? (
+            <span className="flex-1 truncate text-[10px] uppercase tracking-wider text-white/30">
+              v2 preview · {roleLabel(role)}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setPinned((p) => !p)}
+            title={pinned ? "Unpin menu" : "Keep menu open"}
+            aria-label={pinned ? "Unpin menu" : "Keep menu open"}
+            aria-pressed={pinned}
+            className={cn(
+              "shrink-0 rounded-md p-1.5 transition-colors hover:bg-white/5 hover:text-white",
+              pinned ? "text-amber-300" : "text-white/40",
+            )}
+          >
+            <IconSidebar className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </aside>
   );
