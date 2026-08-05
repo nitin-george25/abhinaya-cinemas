@@ -113,20 +113,32 @@ export async function handlePaymentOutbound(
 ): Promise<Response> {
   const BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN");
   const CHAN = Deno.env.get("SLACK_PAYMENTS_CHANNEL_ID");
-  if (!BOT_TOKEN) return json({ error: "SLACK_BOT_TOKEN not configured" }, 500);
+  // These messages reach the console user, so name the missing piece.
+  if (!BOT_TOKEN) {
+    return json({ error: "Slack isn't set up for this environment (SLACK_BOT_TOKEN secret missing)." }, 500);
+  }
   if (!paymentId) return json({ error: "paymentId required" }, 400);
 
   const p = await loadPaymentForSlack(svc, paymentId);
   if (!p) return json({ error: "payment not found" }, 404);
 
   if (kind === "payment_card") {
-    if (!PAYMENT_POST_ROLES.has(role)) return json({ error: "not permitted" }, 403);
-    if (!CHAN) return json({ error: "SLACK_PAYMENTS_CHANNEL_ID not configured" }, 500);
+    if (!PAYMENT_POST_ROLES.has(role)) {
+      return json({ error: `your role (${role || "unknown"}) can't post payment cards` }, 403);
+    }
+    if (!CHAN) {
+      return json({ error: "the payments Slack channel isn't set (SLACK_PAYMENTS_CHANNEL_ID secret missing)." }, 500);
+    }
     const text = `Payment awaiting approval: ${inr(Number(p.amount) || 0)} — ${p.payee_name ?? ""}`;
     const pj = await slackApi("chat.postMessage", BOT_TOKEN, {
       channel: CHAN, text, blocks: paymentBlocks(p, false, deepLink),
     });
-    if (!pj.ok) return json({ error: `chat.postMessage failed: ${pj.error}` }, 502);
+    if (!pj.ok) {
+      const hint = pj.error === "not_in_channel" || pj.error === "channel_not_found"
+        ? " — invite the bot to that channel (/invite @<app>) and check the channel id"
+        : "";
+      return json({ error: `Slack rejected the card: ${pj.error}${hint}` }, 502);
+    }
     await svc.from("payment_requests")
       .update({ slack_channel: pj.channel, slack_ts: pj.ts })
       .eq("id", p.id);
@@ -139,7 +151,7 @@ export async function handlePaymentOutbound(
     const uj = await slackApi("chat.update", BOT_TOKEN, {
       channel: p.slack_channel, ts: p.slack_ts, text, blocks: paymentBlocks(p, true),
     });
-    if (!uj.ok) return json({ error: `chat.update failed: ${uj.error}` }, 502);
+    if (!uj.ok) return json({ error: `Slack rejected the card update: ${uj.error}` }, 502);
     return json({ ok: true });
   }
 

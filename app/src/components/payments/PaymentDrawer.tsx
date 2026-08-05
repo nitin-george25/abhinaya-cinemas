@@ -3,7 +3,9 @@
 //
 // For a general payment it loads the full record + audit trail and renders the
 // routine lifecycle stepper (§6.1) with state- and role-gated actions:
-//   draft     → Submit / Cancel              (raiser)
+//   draft     → Edit / Submit / Cancel       (raiser; Edit reopens the typed
+//               form at /payments/create?id=… — also the revise path after a
+//               rejection, which parks the payment back in 'draft')
 //   awaiting  → Approve / Reject             (owner; interim console path until
 //               Cancel                        Slack lands in phase 3)
 //   approved  → Mark paid / Cancel           (accountant + owner)
@@ -11,6 +13,7 @@
 // ============================================================================
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -70,6 +73,7 @@ export function PaymentDrawer({
   onClose: () => void;
   onChanged: () => void | Promise<void>;
 }) {
+  const navigate = useNavigate();
   const isPayment = row.kind === "payment";
   const canRaise = role === "owner" || role === "manager" || role === "accountant";
   const isOwner = role === "owner";
@@ -80,6 +84,7 @@ export function PaymentDrawer({
   const [loading, setLoading] = useState(isPayment);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
 
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [showReject, setShowReject] = useState(false);
@@ -110,10 +115,15 @@ export function PaymentDrawer({
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [row.id]);
 
   async function act(fn: () => Promise<void>) {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setWarn(null);
     try { await fn(); await load(); await onChanged(); }
     catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
+  }
+
+  /** The Slack card is best-effort, but a failure must be visible, not silent. */
+  function noteSlack(reason: string | null, what: string) {
+    if (reason) setWarn(`${what}, but Slack wasn't updated: ${reason}`);
   }
 
   const status = detail?.status ?? row.status;
@@ -141,6 +151,7 @@ export function PaymentDrawer({
           </div>
 
           {err ? <div className="text-sm text-red-600">{err}</div> : null}
+          {warn ? <div className="text-sm text-amber-700">{warn}</div> : null}
 
           {!isPayment ? (
             <div className="rounded-lg border border-line bg-paper px-3 py-3 text-sm text-ink-muted">
@@ -183,9 +194,11 @@ export function PaymentDrawer({
                 </div>
               ) : null}
 
-              {status === "rejected" && detail.rejectedReason ? (
+              {/* A rejection parks the payment back in 'draft' with the reason
+                  attached, so key off the reason, not a 'rejected' status. */}
+              {detail.rejectedReason && (status === "draft" || status === "rejected") ? (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  Rejected — {detail.rejectedReason}
+                  Sent back — {detail.rejectedReason}. Edit the draft and resubmit.
                 </div>
               ) : null}
 
@@ -245,21 +258,33 @@ export function PaymentDrawer({
         {isPayment && detail ? (
           <div className="mt-auto flex flex-wrap gap-2 border-t border-line px-5 py-4">
             {status === "draft" ? (
-              <Button
-                disabled={busy || !canRaise}
-                onClick={() => void act(async () => {
-                  await submitPayment(detail.id);
-                  await postPaymentCard(detail.id, window.location.href);
-                })}
-              >
-                Submit for approval
-              </Button>
+              <>
+                <Button
+                  disabled={busy || !canRaise}
+                  onClick={() => void act(async () => {
+                    await submitPayment(detail.id);
+                    noteSlack(await postPaymentCard(detail.id, window.location.href), "Submitted");
+                  })}
+                >
+                  Submit for approval
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy || !canRaise}
+                  onClick={() => navigate(`/payments/create?id=${detail.id}`)}
+                >
+                  Edit
+                </Button>
+              </>
             ) : null}
             {["pending", "awaiting_approval", "awaiting_payment_approval"].includes(status) && isOwner ? (
               <>
                 <Button
                   disabled={busy}
-                  onClick={() => void act(async () => { await approvePayment(detail.id); await syncPaymentCard(detail.id); })}
+                  onClick={() => void act(async () => {
+                    await approvePayment(detail.id);
+                    noteSlack(await syncPaymentCard(detail.id), "Approved");
+                  })}
                 >Approve</Button>
                 <Button variant="secondary" disabled={busy} onClick={() => setShowReject(true)}>Reject</Button>
               </>
@@ -313,7 +338,13 @@ export function PaymentDrawer({
               <Button
                 variant="danger"
                 disabled={busy || !rejectReason.trim()}
-                onClick={() => { setShowReject(false); void act(async () => { await rejectPayment(detail.id, rejectReason); await syncPaymentCard(detail.id); }).then(() => setRejectReason("")); }}
+                onClick={() => {
+                  setShowReject(false);
+                  void act(async () => {
+                    await rejectPayment(detail.id, rejectReason);
+                    noteSlack(await syncPaymentCard(detail.id), "Rejected");
+                  }).then(() => setRejectReason(""));
+                }}
               >
                 Reject
               </Button>

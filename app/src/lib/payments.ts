@@ -292,6 +292,43 @@ export async function createPayment(d: CreatePaymentInput): Promise<string> {
   return (data as { id: string }).id;
 }
 
+/**
+ * Revise a parked draft (the same fields the create form collects). Goes through
+ * fn_payment_update_draft, which refuses anything past 'draft' so an approved
+ * amount can never be edited (§11) and every revision lands in the audit trail.
+ * Leaving `invoiceUrl` / `proformaUrl` undefined keeps the attached file.
+ */
+export async function updateDraftPayment(
+  id: string,
+  d: Omit<CreatePaymentInput, "requestedByEmail" | "status">,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (!(d.amount > 0)) throw new Error("Enter a positive amount.");
+  if (!d.payeeName.trim()) throw new Error("Pick or enter a payee.");
+  const { error } = await sb.rpc("fn_payment_update_draft", {
+    p_payment_id:           id,
+    p_operating_unit_id:    d.operatingUnitId,
+    p_payment_type_id:      d.paymentTypeId,
+    p_bank_account_id:      d.bankAccountId ?? null,
+    p_payee_name:           d.payeeName,
+    p_payee_party_id:       d.payeePartyId ?? null,
+    p_payee_distributor_id: d.payeeDistributorId ?? null,
+    p_payee_account_last4:  d.payeeAccountLast4 ?? null,
+    p_payee_ifsc:           d.payeeIfsc ?? null,
+    p_amount:               d.amount,
+    p_needed_by:            d.neededBy ?? null,
+    p_purpose:              (d.note && d.note.trim()) || (d.typeName && d.typeName.trim()) || null,
+    p_invoice_url:          d.invoiceUrl ?? null,
+    p_is_advance:           d.isAdvance ?? false,
+    p_advance_movie_id:     d.advanceMovieId ?? null,
+    p_advance_proforma_id:  d.advanceProformaId ?? null,
+    p_advance_party_id:     d.advancePartyId ?? null,
+    p_proforma_url:         d.proformaUrl ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
 // ── Inbox (phase 2) ─────────────────────────────────────────────────────────
 
 export type PaymentKind = "payment" | "project" | "petty";
@@ -442,10 +479,16 @@ export interface PaymentDetail {
   isAsset:              boolean;
   payeeName:            string;
   payeePartyId:         string | null;
+  payeeDistributorId:   string | null;
+  payeeAccountLast4:    string | null;
+  payeeIfsc:            string | null;
   amount:               number;
   paidAmount:           number | null;
   status:               string;
   isAdvance:            boolean;
+  advanceMovieId:       string | null;
+  advanceProformaId:    string | null;
+  advancePartyId:       string | null;
   purpose:              string | null;
   neededBy:             string | null;
   invoiceUrl:           string | null;
@@ -465,8 +508,11 @@ export interface PaymentDetail {
 
 interface PaymentDetailRow {
   id: string; operating_unit_id: string; payment_type_id: string | null;
-  payee_name: string; payee_party_id: string | null; amount: number | string; paid_amount: number | string | null;
+  payee_name: string; payee_party_id: string | null; payee_distributor_id: string | null;
+  payee_account_last4: string | null; payee_ifsc: string | null;
+  amount: number | string; paid_amount: number | string | null;
   status: string; is_advance: boolean; purpose: string | null; needed_by: string | null;
+  advance_movie_id: string | null; advance_proforma_id: string | null; advance_party_id: string | null;
   invoice_url: string | null; proforma_url: string | null; bank_account_id: string | null;
   paid_via_bank_account_id: string | null; bank_reference: string | null;
   quote_locked_vendor: string | null; quote_locked_amount: number | string | null;
@@ -493,9 +539,15 @@ export async function getPaymentDetail(id: string): Promise<PaymentDetail | null
     accountingHead: r.payment_types?.accounting_head ?? null,
     invoiceRule: r.payment_types?.invoice_rule ?? null,
     isAsset: !!r.payment_types?.is_asset,
-    payeeName: r.payee_name, payeePartyId: r.payee_party_id, amount: Number(r.amount),
+    payeeName: r.payee_name, payeePartyId: r.payee_party_id,
+    payeeDistributorId: r.payee_distributor_id,
+    payeeAccountLast4: r.payee_account_last4, payeeIfsc: r.payee_ifsc,
+    amount: Number(r.amount),
     paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
-    status: r.status, isAdvance: !!r.is_advance, purpose: r.purpose, neededBy: r.needed_by,
+    status: r.status, isAdvance: !!r.is_advance,
+    advanceMovieId: r.advance_movie_id, advanceProformaId: r.advance_proforma_id,
+    advancePartyId: r.advance_party_id,
+    purpose: r.purpose, neededBy: r.needed_by,
     invoiceUrl: r.invoice_url, proformaUrl: r.proforma_url,
     bankAccountId: r.bank_account_id, paidViaBankAccountId: r.paid_via_bank_account_id,
     bankReference: r.bank_reference,
@@ -781,33 +833,45 @@ export async function netAdvances(finalPaymentId: string, apps: AdvanceApplicati
 // must inspect it — and read the Edge Function's response body — to surface why
 // a card wasn't sent (missing secret, bot not in channel, …).
 
-async function invokeEdge(fn: string, body: Record<string, unknown>): Promise<void> {
+/** Returns null on success, or a human-readable reason the call failed. */
+async function invokeEdge(fn: string, body: Record<string, unknown>): Promise<string | null> {
   const sb = getSupabase();
-  if (!sb) return;
+  if (!sb) return "Supabase not configured";
   try {
     const { error } = await sb.functions.invoke(fn, { body });
-    if (error) {
-      let detail = error.message;
-      // FunctionsHttpError carries the original Response on `.context`.
-      const ctx = (error as unknown as { context?: Response }).context;
-      if (ctx && typeof ctx.text === "function") {
-        try { detail = await ctx.text(); } catch { /* keep message */ }
-      }
-      console.warn(`[payments] ${fn} (${String(body.kind ?? "")}) failed:`, detail);
+    if (!error) return null;
+    let detail = error.message;
+    // FunctionsHttpError carries the original Response on `.context`.
+    const ctx = (error as unknown as { context?: Response }).context;
+    if (ctx && typeof ctx.text === "function") {
+      try {
+        const raw = await ctx.text();
+        // The Edge Functions answer {"error":"…"}; fall back to the raw body.
+        try { detail = (JSON.parse(raw) as { error?: string }).error ?? raw; }
+        catch { detail = raw || detail; }
+      } catch { /* keep message */ }
     }
+    console.warn(`[payments] ${fn} (${String(body.kind ?? "")}) failed:`, detail);
+    return detail;
   } catch (e) {
     console.warn(`[payments] ${fn} threw:`, (e as Error).message);
+    return (e as Error).message;
   }
 }
 
-/** Post the interactive #payments approval card after a payment is submitted. */
-export async function postPaymentCard(id: string, deepLink?: string | null): Promise<void> {
-  await invokeEdge("notify-slack", { kind: "payment_card", paymentId: id, deepLink: deepLink ?? null });
+/**
+ * Post the interactive #payments approval card after a payment is submitted.
+ * Best-effort — a Slack hiccup must never block the transition — but the reason
+ * is returned so the caller can tell the user the card didn't go out (a silent
+ * console.warn is why missing Slack secrets looked like "nothing happened").
+ */
+export async function postPaymentCard(id: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_card", paymentId: id, deepLink: deepLink ?? null });
 }
 
 /** Edit the posted card in place after a console-side decision. */
-export async function syncPaymentCard(id: string): Promise<void> {
-  await invokeEdge("notify-slack", { kind: "payment_card_decided", paymentId: id });
+export async function syncPaymentCard(id: string): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_card_decided", paymentId: id });
 }
 
 // ── Zoho F&B push (phase 6) ─────────────────────────────────────────────────
