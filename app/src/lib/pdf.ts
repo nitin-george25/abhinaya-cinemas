@@ -16,7 +16,7 @@
 import jsPDF from "jspdf";
 
 import { fmtTime, int, money } from "./format";
-import { N } from "./engine";
+import { N, dcrShowOrder } from "./engine";
 import type {
   Cinema,
   ComputedEntry,
@@ -85,8 +85,10 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
   const grandH = 13, gGrand = 10;
   const sumRH = 11.5, termsH = 30, gSum = 8, footH = 16;
 
-  // Only render shows that actually sold something — keeps the page tidy.
-  const shows = (C.shows || []).filter(
+  // Chronological display order (matches the serial roll), then only render
+  // shows that actually sold something — keeps the page tidy. Sorting before
+  // filtering makes the surviving shows number 1..n in showtime order.
+  const shows = dcrShowOrder(C.shows || []).filter(
     (s) => s.totals && s.totals.tickets > 0,
   );
 
