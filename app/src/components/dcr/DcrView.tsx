@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { int, money, fmtTime, weekday } from "../../lib/format";
+import { dcrShowOrder } from "../../lib/engine";
 import { LOGO_DATA_URL } from "../../assets/logo";
 import type {
   Cinema,
@@ -65,7 +66,7 @@ export function DcrView({ computed, cinema, tax }: Props) {
       </div>
 
       <div className="px-6 pb-2 space-y-4">
-        {C.shows.map((sh, idx) => (
+        {dcrShowOrder(C.shows).map((sh, idx) => (
           <ShowBlock key={idx} idx={idx} show={sh} tax={tax} />
         ))}
       </div>

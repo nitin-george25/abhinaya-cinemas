@@ -11,14 +11,19 @@
 //                       target, paid-from bank account, needed-by, note.
 //   Step 3  Review    — summary + Save draft / Submit for approval.
 //
-// Phase 1 has no inbox or Slack yet: "Submit" creates the row as 'pending' so it
-// flows into the existing /cash/payments approval queue; "Save draft" parks it
-// as 'draft' for the phase-2 inbox. Both write the typed columns added in
-// migrations payments_01..03.
+// The same screen edits a parked draft: /payments/create?id=<payment id> loads
+// the row, opens at Details, and saves through fn_payment_update_draft (which
+// refuses anything past 'draft', so an approved amount can never be edited).
+// This is also the revise path after an owner rejects — a rejection sends the
+// payment back to 'draft' with the reason attached.
+//
+// "Submit" runs the draft → awaiting_approval transition and posts the Slack
+// approval card; "Save draft" parks it for the inbox. Both write the typed
+// columns added in migrations payments_01..03.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -34,6 +39,8 @@ import { fmtINR } from "../../lib/dashboard";
 import {
   listPaymentTypes,
   createPayment,
+  updateDraftPayment,
+  getPaymentDetail,
   createProforma,
   uploadPaymentFile,
   submitPayment,
@@ -60,6 +67,8 @@ export default function PaymentsCreatePage() {
   const { state } = useSync();
   const refs = useCashRefs();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const editId = params.get("id");
   const role = state.role;
   const canRaise = role === "owner" || role === "manager" || role === "accountant";
 
@@ -70,7 +79,9 @@ export default function PaymentsCreatePage() {
   const [types, setTypes] = useState<PaymentType[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [savedEdit, setSavedEdit] = useState(false);
 
   useEffect(() => {
     if (!refs.cinemaId) return;
@@ -104,9 +115,44 @@ export default function PaymentsCreatePage() {
   const [advanceMovieId, setAdvanceMovieId] = useState("");
   const [proforma, setProforma] = useState<File | null>(null);
 
+  // Files already attached to the draft being edited — kept unless replaced.
+  const [existingInvoiceUrl, setExistingInvoiceUrl] = useState<string | null>(null);
+  const [existingProformaUrl, setExistingProformaUrl] = useState<string | null>(null);
+  const [loadingDraft, setLoadingDraft] = useState(!!editId);
+
   const [busy, setBusy] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [autofilled, setAutofilled] = useState(false);
+
+  // ── edit mode — rehydrate the parked draft ────────────────────────────────
+  useEffect(() => {
+    if (!editId) return;
+    let alive = true;
+    setLoadingDraft(true);
+    void getPaymentDetail(editId).then((d) => {
+      if (!alive) return;
+      setLoadingDraft(false);
+      if (!d) { setErr("Couldn't load that draft."); return; }
+      if (d.status !== "draft") {
+        setErr(`This payment is ${d.status} — only a draft can be edited.`);
+        return;
+      }
+      setTypeId(d.paymentTypeId);
+      setUnitId(d.operatingUnitId);
+      setBankId(d.bankAccountId ?? "");
+      setPartyId(d.payeePartyId ?? "");
+      setDistributorId(d.payeeDistributorId ?? "");
+      setAmount(String(d.amount));
+      setNeededBy(d.neededBy ?? "");
+      setNote(d.purpose ?? "");
+      setIsAdvance(d.isAdvance);
+      setAdvanceMovieId(d.advanceMovieId ?? "");
+      setExistingInvoiceUrl(d.invoiceUrl);
+      setExistingProformaUrl(d.proformaUrl);
+      setStep(2);   // the type is already chosen; land on Details
+    });
+    return () => { alive = false; };
+  }, [editId]);
 
   // Read the invoice and pre-fill amount/note (best-effort — never blocks).
   async function onInvoicePicked(file: File | null) {
@@ -195,13 +241,14 @@ export default function PaymentsCreatePage() {
   async function submit(asDraft: boolean) {
     const problem = detailsComplete();
     if (problem) { setErr(problem); return; }
-    if (!asDraft && invoiceRequired && !invoice) {
+    if (!asDraft && invoiceRequired && !invoice && !existingInvoiceUrl) {
       setErr("Attach the invoice for this payment (or save it as a draft).");
       return;
     }
     if (!refs.cinemaId || !state.email || !type) return;
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setWarn(null);
     try {
+      // Only a newly picked file is uploaded; null leaves the draft's file as is.
       let invoiceUrl: string | null = null;
       if (invoice) invoiceUrl = await uploadPaymentFile(invoice, state.email);
 
@@ -219,7 +266,7 @@ export default function PaymentsCreatePage() {
         });
       }
 
-      const id = await createPayment({
+      const fields = {
         operatingUnitId: unitId,
         paymentTypeId: type.id,
         bankAccountId: bankId || null,
@@ -238,17 +285,26 @@ export default function PaymentsCreatePage() {
         neededBy: neededBy || null,
         note: note || null,
         typeName: type.name,
-        requestedByEmail: state.email,
-        status: "draft",
-      });
+      };
+
+      let id: string;
+      if (editId) {
+        await updateDraftPayment(editId, fields);
+        id = editId;
+      } else {
+        id = await createPayment({ ...fields, requestedByEmail: state.email, status: "draft" });
+      }
+
       // Asset types must gather quotations before any payment — route there.
       if (type.isAsset) { navigate("/payments/quotations"); return; }
       // Submitting routes through the lifecycle (draft → awaiting_approval) and
       // posts the interactive approval card to #payments. Saving leaves a draft.
       if (!asDraft) {
         await submitPayment(id);
-        await postPaymentCard(id, `${window.location.origin}/payments`);
+        const slackErr = await postPaymentCard(id, `${window.location.origin}/payments`);
+        if (slackErr) setWarn(`Submitted, but the Slack approval card didn't go out: ${slackErr}`);
       }
+      if (editId) { setSavedEdit(true); return; }
       setCreatedId(id);
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
@@ -258,7 +314,8 @@ export default function PaymentsCreatePage() {
     setCreatedId(null); setStep(1); setTypeId(null);
     setPartyId(""); setDistributorId(""); setAmount(""); setNeededBy("");
     setNote(""); setInvoice(null); setIsAdvance(false); setAdvanceMovieId("");
-    setProforma(null); setErr(null);
+    setProforma(null); setErr(null); setWarn(null);
+    setExistingInvoiceUrl(null); setExistingProformaUrl(null);
   }
 
   // ── permission denied ──────────────────────────────────────────────────────
@@ -273,19 +330,40 @@ export default function PaymentsCreatePage() {
   }
 
   // ── success ────────────────────────────────────────────────────────────────
-  if (createdId) {
+  if (createdId || savedEdit) {
+    const ref = createdId ?? editId ?? "";
     return (
       <Card className="mx-auto max-w-[760px]">
         <CardBody className="space-y-4 py-10 text-center">
-          <h2 className="font-display text-2xl uppercase tracking-tight">Payment saved</h2>
+          <h2 className="font-display text-2xl uppercase tracking-tight">
+            {savedEdit ? "Draft updated" : "Payment saved"}
+          </h2>
           <p className="text-sm text-ink-muted">
-            Reference <span className="font-mono">{createdId.slice(0, 8)}</span> — it now sits in
+            Reference <span className="font-mono">{ref.slice(0, 8)}</span> — it now sits in
             the approval queue.
           </p>
+          {warn ? <p className="text-sm text-amber-700">{warn}</p> : null}
           <div className="flex justify-center gap-2">
-            <Button variant="secondary" onClick={resetForm}>Make another</Button>
-            <Link to="/cash/payments"><Button>Go to payments</Button></Link>
+            {savedEdit
+              ? <Link to="/payments"><Button>Back to inbox</Button></Link>
+              : <>
+                  <Button variant="secondary" onClick={resetForm}>Make another</Button>
+                  <Link to="/payments"><Button>Go to payments</Button></Link>
+                </>}
           </div>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  // ── loading a draft for editing ────────────────────────────────────────────
+  if (loadingDraft) {
+    return (
+      <Card className="mx-auto max-w-[760px]">
+        <CardBody className="space-y-3 py-10">
+          <div className="h-4 w-1/3 animate-pulse rounded bg-line" />
+          <div className="h-4 w-2/3 animate-pulse rounded bg-line" />
+          <div className="h-4 w-1/2 animate-pulse rounded bg-line" />
         </CardBody>
       </Card>
     );
@@ -294,11 +372,14 @@ export default function PaymentsCreatePage() {
   return (
     <div className="mx-auto max-w-[760px] space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-2xl uppercase tracking-tight">Make a Payment</h2>
+        <h2 className="font-display text-2xl uppercase tracking-tight">
+          {editId ? "Edit draft payment" : "Make a Payment"}
+        </h2>
         <Stepper step={step} labels={STEPS} />
       </div>
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {warn ? <div className="text-sm text-amber-700">{warn}</div> : null}
 
       {/* ── Step 1 — Type ─────────────────────────────────────────────────── */}
       {step === 1 ? (
@@ -435,6 +516,13 @@ export default function PaymentsCreatePage() {
                   className="block w-full text-sm"
                 />
                 {proforma ? <div className="mt-1 truncate text-xs text-ink-muted">{proforma.name}</div> : null}
+                {!proforma && existingProformaUrl ? (
+                  <div className="mt-1 text-xs text-ink-muted">
+                    <a href={existingProformaUrl} target="_blank" rel="noreferrer" className="text-amber-700 hover:underline">
+                      Proforma already attached
+                    </a>{" "}— pick a file to replace it.
+                  </div>
+                ) : null}
               </Field>
             ) : null}
 
@@ -448,6 +536,13 @@ export default function PaymentsCreatePage() {
                   className="block w-full text-sm"
                 />
                 {invoice ? <div className="mt-1 truncate text-xs text-ink-muted">{invoice.name}</div> : null}
+                {!invoice && existingInvoiceUrl ? (
+                  <div className="mt-1 text-xs text-ink-muted">
+                    <a href={existingInvoiceUrl} target="_blank" rel="noreferrer" className="text-amber-700 hover:underline">
+                      Invoice already attached
+                    </a>{" "}— pick a file to replace it.
+                  </div>
+                ) : null}
                 {extracting ? (
                   <div className="mt-1 text-xs text-ink-muted">Reading invoice…</div>
                 ) : autofilled ? (
@@ -507,7 +602,9 @@ export default function PaymentsCreatePage() {
               {neededBy ? <Row label="Needed by" value={neededBy} /> : null}
               <Row
                 label="Invoice"
-                value={invoice ? invoice.name : (type.invoiceRule === "exempt" ? "Not required" : "Not attached")}
+                value={invoice ? invoice.name
+                  : existingInvoiceUrl ? "Already attached"
+                  : type.invoiceRule === "exempt" ? "Not required" : "Not attached"}
               />
               {note ? <Row label="Note" value={note} /> : null}
             </dl>
@@ -522,7 +619,7 @@ export default function PaymentsCreatePage() {
                 ) : (
                   <>
                     <Button variant="secondary" disabled={busy} onClick={() => void submit(true)}>
-                      {busy ? "Saving…" : "Save draft"}
+                      {busy ? "Saving…" : editId ? "Save changes" : "Save draft"}
                     </Button>
                     <Button disabled={busy} onClick={() => void submit(false)}>
                       {busy ? "Submitting…" : "Submit for approval"}

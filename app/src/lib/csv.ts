@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { weekday, fmtTime } from "./format";
-import { N } from "./engine";
+import { N, dcrShowOrder } from "./engine";
 import type { Cinema, ComputedEntry } from "./types";
 
 type Row = Array<string | number | null | undefined>;
@@ -59,7 +59,7 @@ export function dcrCsvRows(C: ComputedEntry, cinema: Cinema): Row[] {
     "TMC", "Cess", "E-Tax", "Total", "GST",
   ]);
 
-  C.shows.forEach((s, i) => {
+  dcrShowOrder(C.shows).forEach((s, i) => {
     s.rows.forEach((r) =>
       R.push([
         `Show ${i + 1} ${fmtTime(s.showtime)}`,
@@ -135,7 +135,7 @@ export function tallyCsvRows(C: ComputedEntry): Row[] {
     throw new Error("Tally CSV: movie and screen are required.");
   }
   const R: Row[] = [["filim", "Distributor", "Show", "Class", "From ", "To"]];
-  C.shows.forEach((s, i) => {
+  dcrShowOrder(C.shows).forEach((s, i) => {
     s.rows.forEach((r) => {
       if (r.tickets > 0) {
         R.push([

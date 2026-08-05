@@ -233,6 +233,33 @@ function chronoShows(entries: Entry[]): ChronoShow[] {
 }
 
 /**
+ * DCR display order for a computed entry's shows: chronological by showtime,
+ * using the SAME comparator as chronoShows above (date is constant within one
+ * entry, so it reduces to showtime, then original index). This keeps the DCR's
+ * "SHOW n" numbering in step with the ticket serial roll, which is assigned
+ * chronologically — the two used to disagree whenever shows were entered out of
+ * time order (e.g. a night show keyed in before an earlier matinee).
+ *
+ * Applied ONLY at the DCR output layer (on-screen view, PDF, CSV, Tally).
+ * computeEntry deliberately keeps `shows` in entry order so the Entry editor's
+ * index-based access (computed.shows[matIdx]) stays valid. The sort is stable
+ * (equal / blank showtimes keep their original relative order) and every money
+ * total is order-independent, so no figures change — only the visible sequence
+ * and the show numbers.
+ */
+export function dcrShowOrder<T extends { showtime?: string }>(
+  shows: readonly T[],
+): T[] {
+  return shows
+    .map((sh, i) => ({ sh, i }))
+    .sort(
+      (a, b) =>
+        (a.sh.showtime || "").localeCompare(b.sh.showtime || "") || a.i - b.i,
+    )
+    .map((x) => x.sh);
+}
+
+/**
  * Build a map of ticket serial ranges keyed by `${entryId}__${showIdx}__${classId}`.
  *
  * Walks shows chronologically per (screen, class), advancing a counter that

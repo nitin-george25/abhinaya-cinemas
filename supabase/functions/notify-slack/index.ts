@@ -69,9 +69,22 @@ Deno.serve(async (req: Request) => {
   const callerEmail = userRes.user.email.toLowerCase();
 
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
-  const { data: callerRow } = await svc
+  // Resolve the role case-insensitively. Every RLS policy compares
+  // lower(email); a mixed-case authorized_users row would otherwise resolve to
+  // no role here and silently 403 the Slack post. (An exact hit is the common
+  // path; the scan is a fallback over a table with a handful of rows. `ilike`
+  // is avoided because `_` in an email is a LIKE wildcard.)
+  let role = "";
+  const { data: exactRow } = await svc
     .from("authorized_users").select("role").eq("email", callerEmail).maybeSingle();
-  const role = (callerRow?.role as string) ?? "";
+  if (exactRow?.role) {
+    role = exactRow.role as string;
+  } else {
+    const { data: all } = await svc.from("authorized_users").select("email, role");
+    const hit = (all as Array<{ email: string | null; role: string | null }> | null ?? [])
+      .find((u) => (u.email ?? "").toLowerCase() === callerEmail);
+    role = hit?.role ?? "";
+  }
 
   let body: Body;
   try { body = (await req.json()) as Body; }

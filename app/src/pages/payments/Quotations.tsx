@@ -38,6 +38,7 @@ export default function PaymentsQuotationsPage() {
   const [detail, setDetail] = useState<PaymentDetail | null>(null);
   const [quotes, setQuotes] = useState<PaymentQuotation[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function reloadList() {
@@ -56,7 +57,7 @@ export default function PaymentsQuotationsPage() {
   useEffect(() => { void reloadDetail(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [selId]);
 
   async function run(fn: () => Promise<void>) {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setWarn(null);
     try { await fn(); await reloadDetail(); await reloadList(); }
     catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
@@ -76,6 +77,7 @@ export default function PaymentsQuotationsPage() {
       </div>
 
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {warn ? <div className="text-sm text-amber-700">{warn}</div> : null}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
         {/* List */}
@@ -171,7 +173,8 @@ export default function PaymentsQuotationsPage() {
                       disabled={busy}
                       onClick={() => void run(async () => {
                         await submitPayment(detail.id);
-                        await postPaymentCard(detail.id, `${window.location.origin}/payments`);
+                        const slackErr = await postPaymentCard(detail.id, `${window.location.origin}/payments`);
+                        if (slackErr) setWarn(`Submitted, but the Slack approval card didn't go out: ${slackErr}`);
                       })}
                     >
                       Submit for payment
