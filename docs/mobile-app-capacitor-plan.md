@@ -1,5 +1,6 @@
 # Console → Native App (Capacitor) — Implementation Plan
 
+> Turns the DCR console (`app/`, React 18 + Vite 5 + TS + Tailwind, served
 > today at `admin.abhinayacinemas.com`) into installable **Android + iOS**
 > apps distributed through Google Play and the Apple App Store, without
 > forking the codebase. Roadmap item #15 (`state-and-roadmap.md`), decided
