@@ -11,9 +11,13 @@
 //                       target, paid-from bank account, needed-by, note.
 //   Step 3  Review    — summary + Save draft / Submit for approval.
 //
-// The same screen edits a parked draft: /payments/create?id=<payment id> loads
-// the row, opens at Details, and saves through fn_payment_update_draft (which
-// refuses anything past 'draft', so an approved amount can never be edited).
+// The same screen edits an existing payment: /payments/create?id=<payment id>
+// loads the row and opens at Details. Saving goes through fn_payment_edit, which
+// owns the whole rule (payments_80): the raiser edits a draft; past draft the
+// owner may edit any time and the accountant for 24h after the payment last
+// moved; paid / posted / cancelled are frozen. Changing the amount or payee of
+// an approved payment sends it back for re-approval with a fresh Slack card;
+// editing one still awaiting a decision re-renders the pending card in place.
 // This is also the revise path after an owner rejects — a rejection sends the
 // payment back to 'draft' with the reason attached.
 //
@@ -39,7 +43,8 @@ import { fmtINR } from "../../lib/dashboard";
 import {
   listPaymentTypes,
   createPayment,
-  updateDraftPayment,
+  editPayment,
+  refreshPaymentCard,
   getPaymentDetail,
   createProforma,
   uploadPaymentFile,
@@ -50,6 +55,7 @@ import {
   usesNoPayee,
   PAYEE_CATEGORY_LABEL,
   type PaymentType,
+  type PaymentEditOutcome,
 } from "../../lib/payments";
 
 const STEPS = ["Type", "Details", "Review"];
@@ -82,6 +88,10 @@ export default function PaymentsCreatePage() {
   const [warn, setWarn] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [savedEdit, setSavedEdit] = useState(false);
+  // Status of the payment being edited — a draft can still be submitted from
+  // here; anything past draft is a pure edit (its lifecycle is already running).
+  const [editStatus, setEditStatus] = useState<string | null>(null);
+  const [editOutcome, setEditOutcome] = useState<PaymentEditOutcome | null>(null);
 
   useEffect(() => {
     if (!refs.cinemaId) return;
@@ -132,11 +142,15 @@ export default function PaymentsCreatePage() {
     void getPaymentDetail(editId).then((d) => {
       if (!alive) return;
       setLoadingDraft(false);
-      if (!d) { setErr("Couldn't load that draft."); return; }
-      if (d.status !== "draft") {
-        setErr(`This payment is ${d.status} — only a draft can be edited.`);
+      if (!d) { setErr("Couldn't load that payment."); return; }
+      // Frozen states never reach the form; the window rule for everything else
+      // is enforced by fn_payment_edit on save (and by the drawer, which only
+      // offers Edit when fn_payment_can_edit says so).
+      if (["paid", "posted", "cancelled"].includes(d.status)) {
+        setErr(`This payment is ${d.status} — it can no longer be edited.`);
         return;
       }
+      setEditStatus(d.status);
       setTypeId(d.paymentTypeId);
       setUnitId(d.operatingUnitId);
       setBankId(d.bankAccountId ?? "");
@@ -289,8 +303,19 @@ export default function PaymentsCreatePage() {
 
       let id: string;
       if (editId) {
-        await updateDraftPayment(editId, fields);
+        const outcome = await editPayment(editId, fields);
+        setEditOutcome(outcome);
         id = editId;
+        // Keep Slack honest about what the owner is being asked to approve: a
+        // still-pending card is re-rendered, and a payment sent back for
+        // re-approval gets a fresh card (the old one is a decided artefact).
+        if (outcome === "refresh") {
+          const slackErr = await refreshPaymentCard(id, `${window.location.origin}/payments`);
+          if (slackErr) setWarn(`Saved, but the Slack card wasn't updated: ${slackErr}`);
+        } else if (outcome === "reapproval") {
+          const slackErr = await postPaymentCard(id, `${window.location.origin}/payments`);
+          if (slackErr) setWarn(`Saved, but the new Slack approval card didn't go out: ${slackErr}`);
+        }
       } else {
         id = await createPayment({ ...fields, requestedByEmail: state.email, status: "draft" });
       }
@@ -299,7 +324,8 @@ export default function PaymentsCreatePage() {
       if (type.isAsset) { navigate("/payments/quotations"); return; }
       // Submitting routes through the lifecycle (draft → awaiting_approval) and
       // posts the interactive approval card to #payments. Saving leaves a draft.
-      if (!asDraft) {
+      // A payment past draft is already in flight — editing it never re-submits.
+      if (!asDraft && (!editId || editStatus === "draft")) {
         await submitPayment(id);
         const slackErr = await postPaymentCard(id, `${window.location.origin}/payments`);
         if (slackErr) setWarn(`Submitted, but the Slack approval card didn't go out: ${slackErr}`);
@@ -336,11 +362,15 @@ export default function PaymentsCreatePage() {
       <Card className="mx-auto max-w-[760px]">
         <CardBody className="space-y-4 py-10 text-center">
           <h2 className="font-display text-2xl uppercase tracking-tight">
-            {savedEdit ? "Draft updated" : "Payment saved"}
+            {savedEdit ? "Payment updated" : "Payment saved"}
           </h2>
           <p className="text-sm text-ink-muted">
-            Reference <span className="font-mono">{ref.slice(0, 8)}</span> — it now sits in
-            the approval queue.
+            Reference <span className="font-mono">{ref.slice(0, 8)}</span> —{" "}
+            {editOutcome === "reapproval"
+              ? "the amount or payee changed, so it has gone back to the owner for approval."
+              : editOutcome === "refresh"
+              ? "the Slack approval card has been updated with the new details."
+              : "it now sits in the approval queue."}
           </p>
           {warn ? <p className="text-sm text-amber-700">{warn}</p> : null}
           <div className="flex justify-center gap-2">
@@ -373,7 +403,7 @@ export default function PaymentsCreatePage() {
     <div className="mx-auto max-w-[760px] space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-2xl uppercase tracking-tight">
-          {editId ? "Edit draft payment" : "Make a Payment"}
+          {editId ? (editStatus && editStatus !== "draft" ? "Edit payment" : "Edit draft payment") : "Make a Payment"}
         </h2>
         <Stepper step={step} labels={STEPS} />
       </div>
@@ -621,9 +651,14 @@ export default function PaymentsCreatePage() {
                     <Button variant="secondary" disabled={busy} onClick={() => void submit(true)}>
                       {busy ? "Saving…" : editId ? "Save changes" : "Save draft"}
                     </Button>
-                    <Button disabled={busy} onClick={() => void submit(false)}>
-                      {busy ? "Submitting…" : "Submit for approval"}
-                    </Button>
+                    {/* A payment past draft is already in the owner's queue —
+                        saving is the only move; whether it needs re-approval is
+                        decided by the DB from what changed, not by a button. */}
+                    {editStatus && editStatus !== "draft" ? null : (
+                      <Button disabled={busy} onClick={() => void submit(false)}>
+                        {busy ? "Submitting…" : "Submit for approval"}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>

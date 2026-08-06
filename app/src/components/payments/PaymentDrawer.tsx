@@ -12,7 +12,9 @@
 //               OTP reaches the OWNER's phone, so it has to be asked for before
 //               the money can move; the ask goes out as a Slack thread reply)
 //   otp_requested → Mark paid (with the transaction receipt) / Ask again
-// PM project expenses and petty rows are read-only windows here.
+// Edit is offered wherever fn_payment_can_edit allows it: the raiser on a draft,
+// the owner any time before paid, the accountant for 24h after the payment last
+// moved. PM project expenses and petty rows are read-only windows here.
 // ============================================================================
 
 import { useEffect, useState } from "react";
@@ -35,6 +37,7 @@ import {
   approvePayment,
   rejectPayment,
   cancelPayment,
+  canEditPayment,
   requestPaymentOtp,
   postPaymentCard,
   postOtpRequest,
@@ -102,14 +105,19 @@ export function PaymentDrawer({
   const [showNet, setShowNet] = useState(false);
   const [candidates, setCandidates] = useState<OutstandingAdvance[]>([]);
   const [zoho, setZoho] = useState<ZohoPushStatus | null>(null);
+  // Whether this user may edit this payment right now — the owner any time, the
+  // accountant for 24h after it last moved. Asked of the DB (fn_payment_can_edit)
+  // rather than re-derived here, so the button and the rule can't drift apart.
+  const [canEdit, setCanEdit] = useState(false);
 
   async function load() {
     if (!isPayment) return;
     setLoading(true);
-    const [d, a, applied, z] = await Promise.all([
-      getPaymentDetail(row.id), listPaymentAudit(row.id), appliedTotalForPayment(row.id), getZohoPushStatus(row.id),
+    const [d, a, applied, z, edit] = await Promise.all([
+      getPaymentDetail(row.id), listPaymentAudit(row.id), appliedTotalForPayment(row.id),
+      getZohoPushStatus(row.id), canEditPayment(row.id),
     ]);
-    setDetail(d); setAudit(a); setAppliedTotal(applied); setZoho(z); setLoading(false);
+    setDetail(d); setAudit(a); setAppliedTotal(applied); setZoho(z); setCanEdit(edit); setLoading(false);
   }
 
   async function openNet() {
@@ -290,12 +298,23 @@ export function PaymentDrawer({
                 </Button>
                 <Button
                   variant="secondary"
-                  disabled={busy || !canRaise}
+                  disabled={busy || !canEdit}
                   onClick={() => navigate(`/payments/create?id=${detail.id}`)}
                 >
                   Edit
                 </Button>
               </>
+            ) : null}
+            {/* Past draft, editing is bounded: owner any time, accountant for
+                24h after the payment last moved, nobody once it's paid. */}
+            {status !== "draft" && canEdit ? (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => navigate(`/payments/create?id=${detail.id}`)}
+              >
+                Edit
+              </Button>
             ) : null}
             {["pending", "awaiting_approval", "awaiting_payment_approval"].includes(status) && isOwner ? (
               <>

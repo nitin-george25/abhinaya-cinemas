@@ -32,10 +32,11 @@ token, same interactivity Request URL — but a **different channel** and a
 | Piece | Where |
 | --- | --- |
 | Post / edit the card, thread replies | `supabase/functions/_shared/payments.ts` → `handlePaymentOutbound` |
-| Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`, `payment_otp_request`, `payment_paid_note`) |
+| Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`, `payment_card_refresh`, `payment_otp_request`, `payment_paid_note`) |
 | Button clicks + reject modal | `supabase/functions/slack-interactions` (actions `payment_approve`, `payment_reject`) |
 | DB transition from Slack | `fn_slack_payment_decide` (migration `20260629140000_payments_20_slack.sql`) |
 | OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260806120000_payments_70_otp_receipt.sql`) |
+| Edit window + re-approval | `fn_payment_edit` / `fn_payment_can_edit` (migration `20260806130000_payments_80_edit_window.sql`) |
 | Console callers | `app/src/lib/payments.ts` → `postPaymentCard` / `syncPaymentCard` / `postOtpRequest` / `postPaidNote` |
 
 Posting is **best-effort** — a Slack outage never blocks the payment — but the
@@ -104,6 +105,18 @@ console user" — the card posts fine, only the decision is blocked.
    receipt**. On success a "Payment made" reply lands in the same thread with the
    receipt link, and the console shows the receipt under Documents.
 
+7. Edit a payment that's still awaiting approval → the posted card re-renders in
+   place with the new figures and a ":pencil2: Revised" note. Edit an *approved*
+   payment's amount or payee → it drops back to awaiting approval and a **new**
+   card is posted (the old one stays as the record of what was approved).
+
 If a thread reply fails (bot removed, channel id wrong), the transition still
 goes through and the console shows an amber "…, but Slack wasn't updated: …"
 notice — the accountant then has to ask the owner for the OTP by other means.
+
+> **A generic "Payment requested — Project: —, Amount: ₹0" card in #payments
+> means this function is running an older build.** Any `payment_*` kind it
+> doesn't recognise used to fall through to the one-way PM webhook and post that
+> empty card; it now answers `this notify-slack deployment doesn't handle the
+> kind "…"` instead. Redeploy `notify-slack` **and** `slack-interactions` — they
+> share `_shared/payments.ts`.

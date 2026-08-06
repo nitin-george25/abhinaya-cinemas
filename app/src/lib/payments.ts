@@ -293,20 +293,33 @@ export async function createPayment(d: CreatePaymentInput): Promise<string> {
 }
 
 /**
- * Revise a parked draft (the same fields the create form collects). Goes through
- * fn_payment_update_draft, which refuses anything past 'draft' so an approved
- * amount can never be edited (§11) and every revision lands in the audit trail.
- * Leaving `invoiceUrl` / `proformaUrl` undefined keeps the attached file.
+ * What the caller should do about Slack after an edit (payments_80):
+ *   draft      — nothing was posted yet
+ *   in_place   — edited past approval, but the amount/payee didn't move
+ *   refresh    — the pending card is stale; re-render it
+ *   reapproval — the amount or payee moved on an approved payment; it went back
+ *                to awaiting_approval and needs a fresh card
  */
-export async function updateDraftPayment(
+export type PaymentEditOutcome = "draft" | "in_place" | "refresh" | "reapproval";
+
+/**
+ * Revise a payment (the same fields the create form collects). Goes through
+ * fn_payment_edit, which owns the whole rule: drafts are the raiser's; past
+ * draft the owner may edit any time and the accountant for 24h after the
+ * payment last moved; paid/posted/cancelled are frozen. Changing the amount or
+ * payee of an approved payment sends it back for re-approval. Every edit lands
+ * in the audit trail. Leaving `invoiceUrl` / `proformaUrl` undefined keeps the
+ * attached file.
+ */
+export async function editPayment(
   id: string,
   d: Omit<CreatePaymentInput, "requestedByEmail" | "status">,
-): Promise<void> {
+): Promise<PaymentEditOutcome> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
   if (!(d.amount > 0)) throw new Error("Enter a positive amount.");
   if (!d.payeeName.trim()) throw new Error("Pick or enter a payee.");
-  const { error } = await sb.rpc("fn_payment_update_draft", {
+  const { data, error } = await sb.rpc("fn_payment_edit", {
     p_payment_id:           id,
     p_operating_unit_id:    d.operatingUnitId,
     p_payment_type_id:      d.paymentTypeId,
@@ -327,6 +340,19 @@ export async function updateDraftPayment(
     p_proforma_url:         d.proformaUrl ?? null,
   });
   if (error) throw new Error(error.message);
+  return (data as PaymentEditOutcome | null) ?? "in_place";
+}
+
+/**
+ * Whether the signed-in user may edit this payment right now. Asks the DB rather
+ * than re-deriving the window in the browser — one rule, one place.
+ */
+export async function canEditPayment(id: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { data, error } = await sb.rpc("fn_payment_can_edit", { p_payment_id: id });
+  if (error) { console.warn("[payments] canEditPayment", error.message); return false; }
+  return data === true;
 }
 
 // ── Inbox (phase 2) ─────────────────────────────────────────────────────────
@@ -897,6 +923,11 @@ export async function postPaymentCard(id: string, deepLink?: string | null): Pro
 /** Edit the posted card in place after a console-side decision. */
 export async function syncPaymentCard(id: string): Promise<string | null> {
   return await invokeEdge("notify-slack", { kind: "payment_card_decided", paymentId: id });
+}
+
+/** Re-render a still-pending card after an edit, buttons intact. */
+export async function refreshPaymentCard(id: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_card_refresh", paymentId: id, deepLink: deepLink ?? null });
 }
 
 /**

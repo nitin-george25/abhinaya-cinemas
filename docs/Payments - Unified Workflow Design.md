@@ -41,6 +41,7 @@ a natural fast-follow), and a full table merge.
 | D1 | Consolidation depth | **One shared engine + unified inbox.** Keep source tables; consolidate at the workflow + UI layer. Petty and PM stay specialized *feeders*. |
 | D2 | Approval mechanism | **Interactive Slack Approve/Reject buttons.** Console maps the clicking Slack user → `authorized_users` and records who approved. |
 | D2a | Disbursement OTP (added 2026-08-06) | **Approval and the bank OTP are separate beats.** After approval the accountant requests the OTP; the ask is a reply on the same Slack card, the owner shares the code there, and the console never stores it. Mark-paid requires the OTP step *and* a transaction receipt. |
+| D10 | Editing a payment (added 2026-08-06) | **Bounded, audited, never after paid.** Raiser edits a draft; past draft the **owner** edits any time and the **accountant** for **24h after the payment last moved**; managers stay raise-only. Paid/posted/cancelled are frozen — correct with an offsetting entry. Changing the **amount or payee** of an approved payment returns it to `awaiting_approval` with a fresh Slack card. |
 | D3 | Approval authority | **Owner approves every payment.** No threshold delegation. (The ₹5,000 manager threshold is retired for approval.) |
 | D4 | Quotation stage | **Required only for asset purchases.** Routine/opex payments skip it. PM projects keep their own quote flow. |
 | D5 | Asset approval count | **Owner approves twice** — the quotation (locks vendor + price), then the disbursement. |
@@ -172,6 +173,16 @@ is never stored — the console can't verify a bank OTP and has no business hold
 one; what's recorded is who asked, when, and which Slack reply carries it.
 **Mark paid is refused** until the OTP has been asked for and a **transaction
 receipt** is attached.
+
+**Editing (payments_80, D10).** `fn_payment_edit` owns the rule and returns what
+the caller should do about Slack — `draft` (nothing posted yet), `in_place`,
+`refresh` (the pending card is stale, re-render it) or `reapproval` (amount or
+payee moved on an approved payment: status drops to `awaiting_approval`, the
+approval and OTP stamps are cleared, and a fresh card goes out). The accountant's
+24-hour window is measured from the payment's **last transition**, read off
+`payment_audit` — not from `created_at`, so a payment approved on day three is
+still fixable on day three. `fn_payment_can_edit` exposes the same rule to the
+UI so the Edit button and the enforcement can't drift apart.
 
 ### 6.2 Asset purchase (capex — two owner approvals, D4/D5)
 

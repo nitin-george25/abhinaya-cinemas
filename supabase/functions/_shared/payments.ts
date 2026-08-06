@@ -27,7 +27,8 @@ export async function loadPaymentForSlack(svc: any, id: string) {
       "approved_by_email, rejected_reason, slack_channel, slack_ts, otp_slack_ts, " +
       "operating_unit_id, payment_type_id, is_advance, mode, " +
       "bank_account_id, payee_account_last4, payee_ifsc, " +
-      "paid_amount, paid_at, bank_reference, payment_receipt_url, paid_via_bank_account_id",
+      "paid_amount, paid_at, bank_reference, payment_receipt_url, paid_via_bank_account_id, " +
+      "edited_at",
     )
     .eq("id", id)
     .maybeSingle();
@@ -114,7 +115,15 @@ export function paymentBlocks(p: any, decided: boolean, deepLink?: string | null
     if (deepLink) {
       elements.push({ type: "button", text: { type: "plain_text", text: "Open in console" }, url: deepLink });
     }
-    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "Only the owner can approve." }] });
+    blocks.push({
+      type: "context",
+      elements: [{
+        type: "mrkdwn",
+        text: p.edited_at
+          ? ":pencil2: Revised since it was raised. Only the owner can approve."
+          : "Only the owner can approve.",
+      }],
+    });
     blocks.push({ type: "actions", block_id: `payment:${p.id}`, elements });
   }
   return blocks;
@@ -263,6 +272,22 @@ export async function handlePaymentOutbound(
     const pj = await slackApi("chat.postMessage", BOT_TOKEN, payload);
     if (!pj.ok) return json({ error: `Slack rejected the paid note: ${pj.error}` }, 502);
     return json({ ok: true, ts: pj.ts });
+  }
+
+  // An edit while the payment is still awaiting a decision leaves the posted
+  // card showing stale figures — re-render it in place, buttons intact, so the
+  // owner never approves a number that has since changed.
+  if (kind === "payment_card_refresh") {
+    if (!PAYMENT_POST_ROLES.has(role)) {
+      return json({ error: `your role (${role || "unknown"}) can't update payment cards` }, 403);
+    }
+    if (!p.slack_channel || !p.slack_ts) return json({ ok: true, skipped: "no slack message stored" });
+    const text = `Payment awaiting approval (revised): ${inr(Number(p.amount) || 0)} — ${p.payee_name ?? ""}`;
+    const uj = await slackApi("chat.update", BOT_TOKEN, {
+      channel: p.slack_channel, ts: p.slack_ts, text, blocks: paymentBlocks(p, false, deepLink),
+    });
+    if (!uj.ok) return json({ error: `Slack rejected the card update: ${uj.error}` }, 502);
+    return json({ ok: true });
   }
 
   if (kind === "payment_card_decided") {
