@@ -102,7 +102,7 @@ export default function PaymentsInboxPage() {
       {/* KPI tiles */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Awaiting owner" value={fmtINR(kpis.awaitingAmt)} hint={`${kpis.awaitingCount} pending`} />
-        <Kpi label="Ready to pay" value={fmtINR(kpis.approvedAmt)} hint="approved" tone="green" />
+        <Kpi label="Ready to pay" value={fmtINR(kpis.approvedAmt)} hint="approved · OTP asked" tone="green" />
         <Kpi label="Paid (in view)" value={fmtINR(kpis.paidAmt)} hint="general payments" />
         <Kpi label="Drafts" value={String(kpis.draftCount)} hint="not submitted" />
       </div>

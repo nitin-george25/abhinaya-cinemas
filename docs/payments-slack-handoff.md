@@ -2,7 +2,21 @@
 
 Every submitted payment posts an interactive **Approve / Reject** card to a
 dedicated **#payments** channel, and any console-side decision edits that card in
-place. This is the same mechanism as the petty-expense flow
+place. Two further messages land **as replies in that card's thread** (added
+2026-08-06, migration `payments_70`), so one payment reads as one conversation:
+
+| Thread message | Posted when | By |
+| --- | --- | --- |
+| :closed_lock_with_key: **Payment OTP needed** | accountant clicks **Request payment OTP** on an approved payment | accountant / owner |
+| :white_check_mark: **Payment made** (+ receipt link) | accountant marks it paid | accountant / owner |
+
+The owner answers the OTP ask with the bank's code **as a normal thread reply**.
+Nothing reads or stores that reply — a bank OTP can't be verified by us and has no
+business sitting in the database. The console records only that it was asked for,
+by whom, and when. Both replies use `reply_broadcast`, so they also surface in the
+channel rather than hiding in the thread.
+
+This is the same mechanism as the petty-expense flow
 ([petty-slack-handoff.md](petty-slack-handoff.md)) — same Slack app, same bot
 token, same interactivity Request URL — but a **different channel** and a
 **different secret**, and that is the piece that gets missed.
@@ -17,11 +31,12 @@ token, same interactivity Request URL — but a **different channel** and a
 
 | Piece | Where |
 | --- | --- |
-| Post / edit the card | `supabase/functions/_shared/payments.ts` → `handlePaymentOutbound` |
-| Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`) |
+| Post / edit the card, thread replies | `supabase/functions/_shared/payments.ts` → `handlePaymentOutbound` |
+| Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`, `payment_otp_request`, `payment_paid_note`) |
 | Button clicks + reject modal | `supabase/functions/slack-interactions` (actions `payment_approve`, `payment_reject`) |
 | DB transition from Slack | `fn_slack_payment_decide` (migration `20260629140000_payments_20_slack.sql`) |
-| Console callers | `app/src/lib/payments.ts` → `postPaymentCard` / `syncPaymentCard` |
+| OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260806120000_payments_70_otp_receipt.sql`) |
+| Console callers | `app/src/lib/payments.ts` → `postPaymentCard` / `syncPaymentCard` / `postOtpRequest` / `postPaidNote` |
 
 Posting is **best-effort** — a Slack outage never blocks the payment — but the
 reason is now returned to the console and shown as an amber notice
@@ -82,3 +97,13 @@ console user" — the card posts fine, only the decision is blocked.
    **Edit** action to revise and resubmit.
 4. New payment → approve **in the console** → the Slack card updates in place
    with the buttons removed.
+5. On an approved payment, the accountant's only action is **Request payment
+   OTP** → a "Payment OTP needed" reply appears in that card's thread. Reply to
+   it with a code as the owner (nothing is stored — this is the handshake).
+6. **Mark paid** is now available; it refuses to submit without a **transaction
+   receipt**. On success a "Payment made" reply lands in the same thread with the
+   receipt link, and the console shows the receipt under Documents.
+
+If a thread reply fails (bot removed, channel id wrong), the transition still
+goes through and the console shows an amber "…, but Slack wasn't updated: …"
+notice — the accountant then has to ask the owner for the OTP by other means.
