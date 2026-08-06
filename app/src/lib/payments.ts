@@ -338,6 +338,7 @@ export async function editPayment(
     p_advance_proforma_id:  d.advanceProformaId ?? null,
     p_advance_party_id:     d.advancePartyId ?? null,
     p_proforma_url:         d.proformaUrl ?? null,
+    p_mode:                 d.mode ?? null,
   });
   if (error) throw new Error(error.message);
   return (data as PaymentEditOutcome | null) ?? "in_place";
@@ -512,6 +513,7 @@ export interface PaymentDetail {
   payeeAccountLast4:    string | null;
   payeeIfsc:            string | null;
   amount:               number;
+  mode:                 PaymentRequestMode | null;
   paidAmount:           number | null;
   status:               string;
   isAdvance:            boolean;
@@ -542,7 +544,8 @@ interface PaymentDetailRow {
   id: string; operating_unit_id: string; payment_type_id: string | null;
   payee_name: string; payee_party_id: string | null; payee_distributor_id: string | null;
   payee_account_last4: string | null; payee_ifsc: string | null;
-  amount: number | string; paid_amount: number | string | null;
+  amount: number | string; mode: PaymentRequestMode | null;
+  paid_amount: number | string | null;
   status: string; is_advance: boolean; purpose: string | null; needed_by: string | null;
   advance_movie_id: string | null; advance_proforma_id: string | null; advance_party_id: string | null;
   invoice_url: string | null; proforma_url: string | null; bank_account_id: string | null;
@@ -576,7 +579,7 @@ export async function getPaymentDetail(id: string): Promise<PaymentDetail | null
     payeeName: r.payee_name, payeePartyId: r.payee_party_id,
     payeeDistributorId: r.payee_distributor_id,
     payeeAccountLast4: r.payee_account_last4, payeeIfsc: r.payee_ifsc,
-    amount: Number(r.amount),
+    amount: Number(r.amount), mode: r.mode ?? null,
     paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
     status: r.status, isAdvance: !!r.is_advance,
     advanceMovieId: r.advance_movie_id, advanceProformaId: r.advance_proforma_id,

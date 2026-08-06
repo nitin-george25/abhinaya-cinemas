@@ -41,7 +41,6 @@ a natural fast-follow), and a full table merge.
 | D1 | Consolidation depth | **One shared engine + unified inbox.** Keep source tables; consolidate at the workflow + UI layer. Petty and PM stay specialized *feeders*. |
 | D2 | Approval mechanism | **Interactive Slack Approve/Reject buttons.** Console maps the clicking Slack user → `authorized_users` and records who approved. |
 | D2a | Disbursement OTP (added 2026-08-06) | **Approval and the bank OTP are separate beats.** After approval the accountant requests the OTP; the ask is a reply on the same Slack card, the owner shares the code there, and the console never stores it. Mark-paid requires the OTP step *and* a transaction receipt. |
-| D10 | Editing a payment (added 2026-08-06) | **Bounded, audited, never after paid.** Raiser edits a draft; past draft the **owner** edits any time and the **accountant** for **24h after the payment last moved**; managers stay raise-only. Paid/posted/cancelled are frozen — correct with an offsetting entry. Changing the **amount or payee** of an approved payment returns it to `awaiting_approval` with a fresh Slack card. |
 | D3 | Approval authority | **Owner approves every payment.** No threshold delegation. (The ₹5,000 manager threshold is retired for approval.) |
 | D4 | Quotation stage | **Required only for asset purchases.** Routine/opex payments skip it. PM projects keep their own quote flow. |
 | D5 | Asset approval count | **Owner approves twice** — the quotation (locks vendor + price), then the disbursement. |
@@ -49,6 +48,8 @@ a natural fast-follow), and a full table merge.
 | D7 | Petty-cash float top-up | **A payment type in "Make a Payment"** — all money leaving the bank is created in one place. (Distinct from petty *expenses*, which stay in the closings flow.) |
 | D8 | Vendor-advance netting | **Auto-suggest, accountant confirms.** Many advances may net against one final payment; partials allowed. Proforma optional (vendor-only match when absent). |
 | D9 | Distributor share advance | **Per distributor, per movie, auto-net** off the console-computed settlement — no accountant confirmation. |
+| D10 | Editing a payment (added 2026-08-06) | **Bounded, audited, never after paid.** Raiser edits a draft; past draft the **owner** edits any time and the **accountant** for **24h after the payment last moved**; managers stay raise-only. Paid/posted/cancelled are frozen — correct with an offsetting entry. Changing the **amount or payee** of an approved payment returns it to `awaiting_approval` with a fresh Slack card. |
+| D11 | Per-unit payment defaults (added 2026-08-06) | **Each operating unit names the account it normally pays from, and its usual mode.** Set in Settings → Cash → Operating units (`operating_units.default_bank_account_id` / `default_payment_mode`); "Make a Payment" pre-selects them when the unit is chosen and the accountant can still override per payment. Unset falls back to the cinema's primary account + bank transfer. |
 
 ---
 

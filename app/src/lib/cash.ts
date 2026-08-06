@@ -62,6 +62,10 @@ export interface OperatingUnit {
   archivedAt:          string | null;
   /** Recommended cash float to retain in till. Migration 10. */
   defaultFloatAmount:  number;
+  /** Pay-from account "Make a Payment" pre-selects for this unit. payments_90. */
+  defaultBankAccountId: string | null;
+  /** Payment mode "Make a Payment" pre-selects for this unit. payments_90. */
+  defaultPaymentMode:   PaymentRequestMode | null;
 }
 
 /** POS counter (till) inside an operating unit. Migration 18. */
@@ -280,6 +284,8 @@ export function mapOperatingUnit(r: OperatingUnitRow): OperatingUnit {
     displayOrder: r.display_order,
     archivedAt: r.archived_at,
     defaultFloatAmount: Number(r.default_float_amount ?? 0),
+    defaultBankAccountId: r.default_bank_account_id ?? null,
+    defaultPaymentMode: r.default_payment_mode ?? null,
   };
 }
 
@@ -1788,6 +1794,31 @@ export async function updateOperatingUnitFloat(
     .from("operating_units")
     .update({
       default_float_amount: amount,
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Set a unit's payment defaults (payments_90) — the account and mode that
+ * "Make a Payment" pre-selects when this unit is chosen. Passing null for either
+ * clears it, in which case the form falls back to the cinema's primary account.
+ * Owner-only per RLS, like the rest of the operating_units writes.
+ */
+export async function updateOperatingUnitPayDefaults(
+  id: string,
+  d: { bankAccountId: string | null; mode: PaymentRequestMode | null },
+  updatedBy: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb
+    .from("operating_units")
+    .update({
+      default_bank_account_id: d.bankAccountId,
+      default_payment_mode:    d.mode,
       updated_at: new Date().toISOString(),
       updated_by: updatedBy,
     })

@@ -463,6 +463,9 @@ export interface OperatingUnitRow {
   archived_at:            string | null;
   /** Recommended cash to retain in the till as float. Migration 10. */
   default_float_amount:   number;
+  /** Payment defaults "Make a Payment" pre-selects for this unit. payments_90. */
+  default_bank_account_id: string | null;
+  default_payment_mode:    PaymentRequestMode | null;
   created_at:             string | null;
   updated_at:             string | null;
   updated_by:             string | null;

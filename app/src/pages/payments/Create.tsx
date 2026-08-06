@@ -26,7 +26,7 @@
 // columns added in migrations payments_01..03.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
@@ -57,8 +57,16 @@ import {
   type PaymentType,
   type PaymentEditOutcome,
 } from "../../lib/payments";
+import type { PaymentRequestMode } from "../../lib/db-types";
 
 const STEPS = ["Type", "Details", "Review"];
+
+const MODE_LABEL: Record<PaymentRequestMode, string> = {
+  bank_transfer: "Bank transfer",
+  cheque:        "Cheque",
+  cash:          "Cash",
+  upi:           "UPI",
+};
 
 /** Map a payment-type payee category to the parties catalog party_type. */
 function partyTypeFor(t: PaymentType): PartyType {
@@ -114,6 +122,7 @@ export default function PaymentsCreatePage() {
 
   const [unitId, setUnitId] = useState("");
   const [bankId, setBankId] = useState("");
+  const [mode, setMode]     = useState<PaymentRequestMode>("bank_transfer");
   const [partyId, setPartyId] = useState("");
   const [distributorId, setDistributorId] = useState("");
   const [amount, setAmount] = useState("");
@@ -154,6 +163,7 @@ export default function PaymentsCreatePage() {
       setTypeId(d.paymentTypeId);
       setUnitId(d.operatingUnitId);
       setBankId(d.bankAccountId ?? "");
+      setMode(d.mode ?? "bank_transfer");
       setPartyId(d.payeePartyId ?? "");
       setDistributorId(d.payeeDistributorId ?? "");
       setAmount(String(d.amount));
@@ -187,15 +197,28 @@ export default function PaymentsCreatePage() {
     } finally { setExtracting(false); }
   }
 
-  // Default the operating unit + bank account once refs load.
+  // Default the operating unit once refs load.
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
   }, [refs.units, unitId]);
+
+  // Picking a unit pre-selects that unit's pay-from account and mode
+  // (Settings → Cash → Operating units), falling back to the cinema's primary
+  // account. Applied once per unit, so a manual override isn't clobbered — and
+  // never on the first pass in edit mode, where the payment's own values win.
+  const appliedUnit = useRef<string | null>(null);
   useEffect(() => {
-    if (bankId || refs.bankAccounts.length === 0) return;
-    const primary = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
-    if (primary) setBankId(primary.id);
-  }, [refs.bankAccounts, bankId]);
+    if (!unitId || refs.units.length === 0) return;
+    if (editId && loadingDraft) return;                 // wait for the row
+    if (appliedUnit.current === unitId) return;
+    const firstPass = appliedUnit.current === null;
+    appliedUnit.current = unitId;
+    if (firstPass && editId) return;
+    const unit = refs.units.find((u) => u.id === unitId);
+    const fallback = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
+    setBankId(unit?.defaultBankAccountId ?? fallback?.id ?? "");
+    setMode(unit?.defaultPaymentMode ?? "bank_transfer");
+  }, [unitId, refs.units, refs.bankAccounts, editId, loadingDraft]);
 
   // Distributor-payee types are advances by nature (#2 Distributor advance/MG).
   useEffect(() => {
@@ -290,6 +313,7 @@ export default function PaymentsCreatePage() {
         payeeAccountLast4: selectedParty?.accountLast4 ?? null,
         payeeIfsc: selectedParty?.ifsc ?? null,
         amount: Number(amount),
+        mode,
         invoiceUrl,
         isAdvance,
         advanceMovieId: useDistributor && isAdvance ? (advanceMovieId || null) : null,
@@ -588,12 +612,22 @@ export default function PaymentsCreatePage() {
                   {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </Select>
               </Field>
+              {/* Pre-filled from the unit's default (Settings → Cash →
+                  Operating units); always overridable per payment. */}
               <Field label="Paid from (bank account)">
                 <Select value={bankId} onChange={(e) => setBankId(e.target.value)}>
                   <option value="">—</option>
                   {refs.bankAccounts.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}{b.isPrimary ? " · primary" : ""}</option>
                   ))}
+                </Select>
+              </Field>
+              <Field label="Mode">
+                <Select value={mode} onChange={(e) => setMode(e.target.value as PaymentRequestMode)}>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
                 </Select>
               </Field>
             </div>
@@ -628,6 +662,7 @@ export default function PaymentsCreatePage() {
               <Row label="Accounting head" value={type.accountingHead} />
               <Row label="Payee" value={needsPayee ? (payeeName || "—") : "Internal (own till)"} />
               <Row label="Amount" value={fmtINR(Number(amount), 2)} mono />
+              <Row label="Mode" value={MODE_LABEL[mode]} />
               {isAdvance ? <Row label="Advance" value="Yes" /> : null}
               {neededBy ? <Row label="Needed by" value={neededBy} /> : null}
               <Row
