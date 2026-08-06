@@ -39,7 +39,7 @@ export function MarkPaidModal({
   bankAccounts: { id: string; name: string; isPrimary: boolean }[];
   zohoNotice: boolean;
   appliedTotal?: number;
-  uploaderEmail: string;
+  uploaderEmail: string | null;      // the signed-in email; null until sync boots
   onClose: () => void;
   onPaid: () => void | Promise<void>;
   onError: (m: string) => void;
@@ -66,6 +66,7 @@ export function MarkPaidModal({
     if (!bankId) { onError("Pick a bank account."); return; }
     if (!(Number(amount) > 0)) { onError("Enter a positive paid amount."); return; }
     if (!receipt) { onError("Attach the transaction receipt."); return; }
+    if (!uploaderEmail) { onError("Still signing in — try again in a moment."); return; }
     if (differs && !reason.trim()) {
       onError("Give a reason when the paid amount differs from the requested amount.");
       return;
