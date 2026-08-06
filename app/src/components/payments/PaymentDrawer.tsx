@@ -8,8 +8,13 @@
 //               rejection, which parks the payment back in 'draft')
 //   awaiting  → Approve / Reject             (owner; interim console path until
 //               Cancel                        Slack lands in phase 3)
-//   approved  → Mark paid / Cancel           (accountant + owner)
-// PM project expenses and petty rows are read-only windows here.
+//   approved  → Request payment OTP / Cancel (accountant + owner — the bank's
+//               OTP reaches the OWNER's phone, so it has to be asked for before
+//               the money can move; the ask goes out as a Slack thread reply)
+//   otp_requested → Mark paid (with the transaction receipt) / Ask again
+// Edit is offered wherever fn_payment_can_edit allows it: the raiser on a draft,
+// the owner any time before paid, the accountant for 24h after the payment last
+// moved. PM project expenses and petty rows are read-only windows here.
 // ============================================================================
 
 import { useEffect, useState } from "react";
@@ -24,6 +29,7 @@ import { PaymentStatusBadge } from "./PaymentStatusBadge";
 import { MarkPaidModal } from "./MarkPaidModal";
 import { AdvanceNetSheet } from "./AdvanceNetSheet";
 import { fmtINR } from "../../lib/dashboard";
+import { useSync } from "../../lib/hooks/SyncContext";
 import {
   getPaymentDetail,
   listPaymentAudit,
@@ -31,7 +37,10 @@ import {
   approvePayment,
   rejectPayment,
   cancelPayment,
+  canEditPayment,
+  requestPaymentOtp,
   postPaymentCard,
+  postOtpRequest,
   syncPaymentCard,
   appliedTotalForPayment,
   listOutstandingAdvances,
@@ -43,13 +52,14 @@ import {
   type ZohoPushStatus,
 } from "../../lib/payments";
 
-const STEPS = ["Draft", "Awaiting owner", "Approved", "Paid"];
+const STEPS = ["Draft", "Awaiting owner", "Approved", "OTP requested", "Paid"];
 
 function stepIndex(status: string): number {
   switch (status) {
     case "draft": case "rejected": return 0;
     case "approved": return 2;
-    case "paid": case "posted": return 3;
+    case "otp_requested": return 3;
+    case "paid": case "posted": return 4;
     default: return 1; // awaiting / asset mid-states
   }
 }
@@ -74,6 +84,7 @@ export function PaymentDrawer({
   onChanged: () => void | Promise<void>;
 }) {
   const navigate = useNavigate();
+  const { state } = useSync();
   const isPayment = row.kind === "payment";
   const canRaise = role === "owner" || role === "manager" || role === "accountant";
   const isOwner = role === "owner";
@@ -94,14 +105,19 @@ export function PaymentDrawer({
   const [showNet, setShowNet] = useState(false);
   const [candidates, setCandidates] = useState<OutstandingAdvance[]>([]);
   const [zoho, setZoho] = useState<ZohoPushStatus | null>(null);
+  // Whether this user may edit this payment right now — the owner any time, the
+  // accountant for 24h after it last moved. Asked of the DB (fn_payment_can_edit)
+  // rather than re-derived here, so the button and the rule can't drift apart.
+  const [canEdit, setCanEdit] = useState(false);
 
   async function load() {
     if (!isPayment) return;
     setLoading(true);
-    const [d, a, applied, z] = await Promise.all([
-      getPaymentDetail(row.id), listPaymentAudit(row.id), appliedTotalForPayment(row.id), getZohoPushStatus(row.id),
+    const [d, a, applied, z, edit] = await Promise.all([
+      getPaymentDetail(row.id), listPaymentAudit(row.id), appliedTotalForPayment(row.id),
+      getZohoPushStatus(row.id), canEditPayment(row.id),
     ]);
-    setDetail(d); setAudit(a); setAppliedTotal(applied); setZoho(z); setLoading(false);
+    setDetail(d); setAudit(a); setAppliedTotal(applied); setZoho(z); setCanEdit(edit); setLoading(false);
   }
 
   async function openNet() {
@@ -202,8 +218,17 @@ export function PaymentDrawer({
                 </div>
               ) : null}
 
+              {/* OTP handshake — the code lives in Slack, never here. */}
+              {status === "otp_requested" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-ink-soft">
+                  OTP requested{detail.otpRequestedBy ? ` by ${detail.otpRequestedBy}` : ""}
+                  {detail.otpRequestedAt ? ` · ${fmtWhen(detail.otpRequestedAt)}` : ""}.
+                  The owner replies with it in the Slack thread — make the transfer, then mark it paid with the receipt.
+                </div>
+              ) : null}
+
               {/* Files */}
-              {(detail.invoiceUrl || detail.proformaUrl) ? (
+              {(detail.invoiceUrl || detail.proformaUrl || detail.paymentReceiptUrl) ? (
                 <div className="space-y-1">
                   <div className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Documents</div>
                   {detail.invoiceUrl ? (
@@ -211,6 +236,9 @@ export function PaymentDrawer({
                   ) : null}
                   {detail.proformaUrl ? (
                     <a href={detail.proformaUrl} target="_blank" rel="noreferrer" className="block text-sm text-amber-700 hover:underline">Proforma invoice</a>
+                  ) : null}
+                  {detail.paymentReceiptUrl ? (
+                    <a href={detail.paymentReceiptUrl} target="_blank" rel="noreferrer" className="block text-sm text-amber-700 hover:underline">Transaction receipt</a>
                   ) : null}
                 </div>
               ) : null}
@@ -270,12 +298,23 @@ export function PaymentDrawer({
                 </Button>
                 <Button
                   variant="secondary"
-                  disabled={busy || !canRaise}
+                  disabled={busy || !canEdit}
                   onClick={() => navigate(`/payments/create?id=${detail.id}`)}
                 >
                   Edit
                 </Button>
               </>
+            ) : null}
+            {/* Past draft, editing is bounded: owner any time, accountant for
+                24h after the payment last moved, nobody once it's paid. */}
+            {status !== "draft" && canEdit ? (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => navigate(`/payments/create?id=${detail.id}`)}
+              >
+                Edit
+              </Button>
             ) : null}
             {["pending", "awaiting_approval", "awaiting_payment_approval"].includes(status) && isOwner ? (
               <>
@@ -289,8 +328,34 @@ export function PaymentDrawer({
                 <Button variant="secondary" disabled={busy} onClick={() => setShowReject(true)}>Reject</Button>
               </>
             ) : null}
+            {/* The bank OTP reaches the owner, so it has to be asked for before
+                the money moves — this is the accountant's first step, not an
+                optional nicety, and mark-paid is refused until it's done. */}
             {status === "approved" ? (
-              <Button disabled={busy || !canMarkPaid} onClick={() => setShowMarkPaid(true)}>Mark paid</Button>
+              <Button
+                disabled={busy || !canMarkPaid}
+                onClick={() => void act(async () => {
+                  await requestPaymentOtp(detail.id);
+                  noteSlack(await postOtpRequest(detail.id, window.location.href), "OTP requested");
+                })}
+              >
+                Request payment OTP
+              </Button>
+            ) : null}
+            {status === "otp_requested" ? (
+              <>
+                <Button disabled={busy || !canMarkPaid} onClick={() => setShowMarkPaid(true)}>Mark paid</Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy || !canMarkPaid}
+                  onClick={() => void act(async () => {
+                    await requestPaymentOtp(detail.id);
+                    noteSlack(await postOtpRequest(detail.id, window.location.href), "Asked again");
+                  })}
+                >
+                  Ask again
+                </Button>
+              </>
             ) : null}
             {!detail.isAdvance && !["paid", "posted", "cancelled"].includes(status) && canMarkPaid ? (
               <Button variant="secondary" disabled={busy} onClick={() => void openNet()}>Net advances</Button>
@@ -309,9 +374,11 @@ export function PaymentDrawer({
           bankAccounts={bankAccounts}
           zohoNotice={zohoNotice}
           appliedTotal={appliedTotal}
+          uploaderEmail={state.email}
           onClose={() => setShowMarkPaid(false)}
           onPaid={async () => { await load(); await onChanged(); }}
           onError={setErr}
+          onWarn={setWarn}
         />
       ) : null}
 

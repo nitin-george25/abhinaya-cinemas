@@ -10,9 +10,11 @@ import type { PaymentInboxRow } from "../../lib/payments";
 /** The verb the row offers, by lane — purely a hint; the drawer does the work. */
 function ctaFor(row: PaymentInboxRow): string | null {
   if (row.readonly) return null;
+  // The approved lane holds two beats: ask the owner for the bank OTP, then pay.
+  if (row.status === "otp_requested") return "Mark paid";
   switch (row.lane) {
     case "draft":    return "Submit";
-    case "approved": return "Mark paid";
+    case "approved": return "Request OTP";
     case "awaiting": return "View";
     default:         return null;
   }

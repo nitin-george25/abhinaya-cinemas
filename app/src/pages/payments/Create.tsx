@@ -11,9 +11,13 @@
 //                       target, paid-from bank account, needed-by, note.
 //   Step 3  Review    — summary + Save draft / Submit for approval.
 //
-// The same screen edits a parked draft: /payments/create?id=<payment id> loads
-// the row, opens at Details, and saves through fn_payment_update_draft (which
-// refuses anything past 'draft', so an approved amount can never be edited).
+// The same screen edits an existing payment: /payments/create?id=<payment id>
+// loads the row and opens at Details. Saving goes through fn_payment_edit, which
+// owns the whole rule (payments_80): the raiser edits a draft; past draft the
+// owner may edit any time and the accountant for 24h after the payment last
+// moved; paid / posted / cancelled are frozen. Changing the amount or payee of
+// an approved payment sends it back for re-approval with a fresh Slack card;
+// editing one still awaiting a decision re-renders the pending card in place.
 // This is also the revise path after an owner rejects — a rejection sends the
 // payment back to 'draft' with the reason attached.
 //
@@ -22,7 +26,7 @@
 // columns added in migrations payments_01..03.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
@@ -39,7 +43,8 @@ import { fmtINR } from "../../lib/dashboard";
 import {
   listPaymentTypes,
   createPayment,
-  updateDraftPayment,
+  editPayment,
+  refreshPaymentCard,
   getPaymentDetail,
   createProforma,
   uploadPaymentFile,
@@ -50,9 +55,18 @@ import {
   usesNoPayee,
   PAYEE_CATEGORY_LABEL,
   type PaymentType,
+  type PaymentEditOutcome,
 } from "../../lib/payments";
+import type { PaymentRequestMode } from "../../lib/db-types";
 
 const STEPS = ["Type", "Details", "Review"];
+
+const MODE_LABEL: Record<PaymentRequestMode, string> = {
+  bank_transfer: "Bank transfer",
+  cheque:        "Cheque",
+  cash:          "Cash",
+  upi:           "UPI",
+};
 
 /** Map a payment-type payee category to the parties catalog party_type. */
 function partyTypeFor(t: PaymentType): PartyType {
@@ -82,6 +96,10 @@ export default function PaymentsCreatePage() {
   const [warn, setWarn] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [savedEdit, setSavedEdit] = useState(false);
+  // Status of the payment being edited — a draft can still be submitted from
+  // here; anything past draft is a pure edit (its lifecycle is already running).
+  const [editStatus, setEditStatus] = useState<string | null>(null);
+  const [editOutcome, setEditOutcome] = useState<PaymentEditOutcome | null>(null);
 
   useEffect(() => {
     if (!refs.cinemaId) return;
@@ -104,6 +122,7 @@ export default function PaymentsCreatePage() {
 
   const [unitId, setUnitId] = useState("");
   const [bankId, setBankId] = useState("");
+  const [mode, setMode]     = useState<PaymentRequestMode>("bank_transfer");
   const [partyId, setPartyId] = useState("");
   const [distributorId, setDistributorId] = useState("");
   const [amount, setAmount] = useState("");
@@ -132,14 +151,19 @@ export default function PaymentsCreatePage() {
     void getPaymentDetail(editId).then((d) => {
       if (!alive) return;
       setLoadingDraft(false);
-      if (!d) { setErr("Couldn't load that draft."); return; }
-      if (d.status !== "draft") {
-        setErr(`This payment is ${d.status} — only a draft can be edited.`);
+      if (!d) { setErr("Couldn't load that payment."); return; }
+      // Frozen states never reach the form; the window rule for everything else
+      // is enforced by fn_payment_edit on save (and by the drawer, which only
+      // offers Edit when fn_payment_can_edit says so).
+      if (["paid", "posted", "cancelled"].includes(d.status)) {
+        setErr(`This payment is ${d.status} — it can no longer be edited.`);
         return;
       }
+      setEditStatus(d.status);
       setTypeId(d.paymentTypeId);
       setUnitId(d.operatingUnitId);
       setBankId(d.bankAccountId ?? "");
+      setMode(d.mode ?? "bank_transfer");
       setPartyId(d.payeePartyId ?? "");
       setDistributorId(d.payeeDistributorId ?? "");
       setAmount(String(d.amount));
@@ -173,15 +197,28 @@ export default function PaymentsCreatePage() {
     } finally { setExtracting(false); }
   }
 
-  // Default the operating unit + bank account once refs load.
+  // Default the operating unit once refs load.
   useEffect(() => {
     if (!unitId && refs.units.length > 0) setUnitId(refs.units[0]?.id ?? "");
   }, [refs.units, unitId]);
+
+  // Picking a unit pre-selects that unit's pay-from account and mode
+  // (Settings → Cash → Operating units), falling back to the cinema's primary
+  // account. Applied once per unit, so a manual override isn't clobbered — and
+  // never on the first pass in edit mode, where the payment's own values win.
+  const appliedUnit = useRef<string | null>(null);
   useEffect(() => {
-    if (bankId || refs.bankAccounts.length === 0) return;
-    const primary = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
-    if (primary) setBankId(primary.id);
-  }, [refs.bankAccounts, bankId]);
+    if (!unitId || refs.units.length === 0) return;
+    if (editId && loadingDraft) return;                 // wait for the row
+    if (appliedUnit.current === unitId) return;
+    const firstPass = appliedUnit.current === null;
+    appliedUnit.current = unitId;
+    if (firstPass && editId) return;
+    const unit = refs.units.find((u) => u.id === unitId);
+    const fallback = refs.bankAccounts.find((b) => b.isPrimary) ?? refs.bankAccounts[0];
+    setBankId(unit?.defaultBankAccountId ?? fallback?.id ?? "");
+    setMode(unit?.defaultPaymentMode ?? "bank_transfer");
+  }, [unitId, refs.units, refs.bankAccounts, editId, loadingDraft]);
 
   // Distributor-payee types are advances by nature (#2 Distributor advance/MG).
   useEffect(() => {
@@ -276,6 +313,7 @@ export default function PaymentsCreatePage() {
         payeeAccountLast4: selectedParty?.accountLast4 ?? null,
         payeeIfsc: selectedParty?.ifsc ?? null,
         amount: Number(amount),
+        mode,
         invoiceUrl,
         isAdvance,
         advanceMovieId: useDistributor && isAdvance ? (advanceMovieId || null) : null,
@@ -289,8 +327,19 @@ export default function PaymentsCreatePage() {
 
       let id: string;
       if (editId) {
-        await updateDraftPayment(editId, fields);
+        const outcome = await editPayment(editId, fields);
+        setEditOutcome(outcome);
         id = editId;
+        // Keep Slack honest about what the owner is being asked to approve: a
+        // still-pending card is re-rendered, and a payment sent back for
+        // re-approval gets a fresh card (the old one is a decided artefact).
+        if (outcome === "refresh") {
+          const slackErr = await refreshPaymentCard(id, `${window.location.origin}/payments`);
+          if (slackErr) setWarn(`Saved, but the Slack card wasn't updated: ${slackErr}`);
+        } else if (outcome === "reapproval") {
+          const slackErr = await postPaymentCard(id, `${window.location.origin}/payments`);
+          if (slackErr) setWarn(`Saved, but the new Slack approval card didn't go out: ${slackErr}`);
+        }
       } else {
         id = await createPayment({ ...fields, requestedByEmail: state.email, status: "draft" });
       }
@@ -299,7 +348,8 @@ export default function PaymentsCreatePage() {
       if (type.isAsset) { navigate("/payments/quotations"); return; }
       // Submitting routes through the lifecycle (draft → awaiting_approval) and
       // posts the interactive approval card to #payments. Saving leaves a draft.
-      if (!asDraft) {
+      // A payment past draft is already in flight — editing it never re-submits.
+      if (!asDraft && (!editId || editStatus === "draft")) {
         await submitPayment(id);
         const slackErr = await postPaymentCard(id, `${window.location.origin}/payments`);
         if (slackErr) setWarn(`Submitted, but the Slack approval card didn't go out: ${slackErr}`);
@@ -336,11 +386,15 @@ export default function PaymentsCreatePage() {
       <Card className="mx-auto max-w-[760px]">
         <CardBody className="space-y-4 py-10 text-center">
           <h2 className="font-display text-2xl uppercase tracking-tight">
-            {savedEdit ? "Draft updated" : "Payment saved"}
+            {savedEdit ? "Payment updated" : "Payment saved"}
           </h2>
           <p className="text-sm text-ink-muted">
-            Reference <span className="font-mono">{ref.slice(0, 8)}</span> — it now sits in
-            the approval queue.
+            Reference <span className="font-mono">{ref.slice(0, 8)}</span> —{" "}
+            {editOutcome === "reapproval"
+              ? "the amount or payee changed, so it has gone back to the owner for approval."
+              : editOutcome === "refresh"
+              ? "the Slack approval card has been updated with the new details."
+              : "it now sits in the approval queue."}
           </p>
           {warn ? <p className="text-sm text-amber-700">{warn}</p> : null}
           <div className="flex justify-center gap-2">
@@ -373,7 +427,7 @@ export default function PaymentsCreatePage() {
     <div className="mx-auto max-w-[760px] space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-2xl uppercase tracking-tight">
-          {editId ? "Edit draft payment" : "Make a Payment"}
+          {editId ? (editStatus && editStatus !== "draft" ? "Edit payment" : "Edit draft payment") : "Make a Payment"}
         </h2>
         <Stepper step={step} labels={STEPS} />
       </div>
@@ -558,12 +612,22 @@ export default function PaymentsCreatePage() {
                   {refs.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </Select>
               </Field>
+              {/* Pre-filled from the unit's default (Settings → Cash →
+                  Operating units); always overridable per payment. */}
               <Field label="Paid from (bank account)">
                 <Select value={bankId} onChange={(e) => setBankId(e.target.value)}>
                   <option value="">—</option>
                   {refs.bankAccounts.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}{b.isPrimary ? " · primary" : ""}</option>
                   ))}
+                </Select>
+              </Field>
+              <Field label="Mode">
+                <Select value={mode} onChange={(e) => setMode(e.target.value as PaymentRequestMode)}>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
                 </Select>
               </Field>
             </div>
@@ -598,6 +662,7 @@ export default function PaymentsCreatePage() {
               <Row label="Accounting head" value={type.accountingHead} />
               <Row label="Payee" value={needsPayee ? (payeeName || "—") : "Internal (own till)"} />
               <Row label="Amount" value={fmtINR(Number(amount), 2)} mono />
+              <Row label="Mode" value={MODE_LABEL[mode]} />
               {isAdvance ? <Row label="Advance" value="Yes" /> : null}
               {neededBy ? <Row label="Needed by" value={neededBy} /> : null}
               <Row
@@ -621,9 +686,14 @@ export default function PaymentsCreatePage() {
                     <Button variant="secondary" disabled={busy} onClick={() => void submit(true)}>
                       {busy ? "Saving…" : editId ? "Save changes" : "Save draft"}
                     </Button>
-                    <Button disabled={busy} onClick={() => void submit(false)}>
-                      {busy ? "Submitting…" : "Submit for approval"}
-                    </Button>
+                    {/* A payment past draft is already in the owner's queue —
+                        saving is the only move; whether it needs re-approval is
+                        decided by the DB from what changed, not by a button. */}
+                    {editStatus && editStatus !== "draft" ? null : (
+                      <Button disabled={busy} onClick={() => void submit(false)}>
+                        {busy ? "Submitting…" : "Submit for approval"}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>

@@ -39,7 +39,8 @@ a natural fast-follow), and a full table merge.
 | # | Decision | Choice |
 |---|---|---|
 | D1 | Consolidation depth | **One shared engine + unified inbox.** Keep source tables; consolidate at the workflow + UI layer. Petty and PM stay specialized *feeders*. |
-| D2 | Approval mechanism | **Interactive Slack Approve/Reject buttons replace the OTP.** Console maps the clicking Slack user → `authorized_users` and records who approved. |
+| D2 | Approval mechanism | **Interactive Slack Approve/Reject buttons.** Console maps the clicking Slack user → `authorized_users` and records who approved. |
+| D2a | Disbursement OTP (added 2026-08-06) | **Approval and the bank OTP are separate beats.** After approval the accountant requests the OTP; the ask is a reply on the same Slack card, the owner shares the code there, and the console never stores it. Mark-paid requires the OTP step *and* a transaction receipt. |
 | D3 | Approval authority | **Owner approves every payment.** No threshold delegation. (The ₹5,000 manager threshold is retired for approval.) |
 | D4 | Quotation stage | **Required only for asset purchases.** Routine/opex payments skip it. PM projects keep their own quote flow. |
 | D5 | Asset approval count | **Owner approves twice** — the quotation (locks vendor + price), then the disbursement. |
@@ -47,6 +48,8 @@ a natural fast-follow), and a full table merge.
 | D7 | Petty-cash float top-up | **A payment type in "Make a Payment"** — all money leaving the bank is created in one place. (Distinct from petty *expenses*, which stay in the closings flow.) |
 | D8 | Vendor-advance netting | **Auto-suggest, accountant confirms.** Many advances may net against one final payment; partials allowed. Proforma optional (vendor-only match when absent). |
 | D9 | Distributor share advance | **Per distributor, per movie, auto-net** off the console-computed settlement — no accountant confirmation. |
+| D10 | Editing a payment (added 2026-08-06) | **Bounded, audited, never after paid.** Raiser edits a draft; past draft the **owner** edits any time and the **accountant** for **24h after the payment last moved**; managers stay raise-only. Paid/posted/cancelled are frozen — correct with an offsetting entry. Changing the **amount or payee** of an approved payment returns it to `awaiting_approval` with a fresh Slack card. |
+| D11 | Per-unit payment defaults (added 2026-08-06) | **Each operating unit names the account it normally pays from, and its usual mode.** Set in Settings → Cash → Operating units (`operating_units.default_bank_account_id` / `default_payment_mode`); "Make a Payment" pre-selects them when the unit is chosen and the accountant can still override per payment. Unset falls back to the cinema's primary account + bank transfer. |
 
 ---
 
@@ -154,12 +157,33 @@ stateDiagram-v2
   awaiting_approval --> approved: owner clicks Approve in Slack
   awaiting_approval --> rejected: owner clicks Reject (+ reason)
   rejected --> draft: revise & resubmit
-  approved --> paid: accountant marks paid (bank account + reference)
+  approved --> otp_requested: accountant requests the bank OTP (Slack thread reply)
+  otp_requested --> otp_requested: ask again (owner hasn't replied)
+  otp_requested --> paid: owner shares the OTP → accountant pays, marks paid + receipt
   paid --> posted: bank ledger written; F&B → Zoho
   posted --> [*]
 ```
 
 Invoice attached at `draft` unless the type's `invoice_rule = exempt`.
+
+**The OTP step (payments_70).** The bank's transaction OTP reaches the *owner's*
+phone, so approval alone doesn't move money. The accountant asks for it from the
+console; the ask goes out as a **reply on the payment's own Slack card**, so the
+approval, the OTP and the paid confirmation all sit in one thread. The code itself
+is never stored — the console can't verify a bank OTP and has no business holding
+one; what's recorded is who asked, when, and which Slack reply carries it.
+**Mark paid is refused** until the OTP has been asked for and a **transaction
+receipt** is attached.
+
+**Editing (payments_80, D10).** `fn_payment_edit` owns the rule and returns what
+the caller should do about Slack — `draft` (nothing posted yet), `in_place`,
+`refresh` (the pending card is stale, re-render it) or `reapproval` (amount or
+payee moved on an approved payment: status drops to `awaiting_approval`, the
+approval and OTP stamps are cleared, and a fresh card goes out). The accountant's
+24-hour window is measured from the payment's **last transition**, read off
+`payment_audit` — not from `created_at`, so a payment approved on day three is
+still fixable on day three. `fn_payment_can_edit` exposes the same rule to the
+UI so the Edit button and the enforcement can't drift apart.
 
 ### 6.2 Asset purchase (capex — two owner approvals, D4/D5)
 
@@ -172,7 +196,8 @@ stateDiagram-v2
   invoiced --> awaiting_payment_approval: submit for payment (Slack)
   awaiting_payment_approval --> approved: owner approves disbursement (Slack)
   awaiting_payment_approval --> rejected: owner rejects (+ reason)
-  approved --> paid: accountant marks paid
+  approved --> otp_requested: accountant requests the bank OTP (Slack thread reply)
+  otp_requested --> paid: accountant marks paid (+ transaction receipt)
   paid --> posted: bank ledger written
   posted --> [*]
 ```
@@ -282,9 +307,10 @@ Extend, don't duplicate. The general flow extends `payment_requests`; PM keeps
 `payee_distributor_id` (FK → `distributors`, for share types), `is_asset` (derived from
 type), `is_advance bool`, advance link target (`advance_movie_id`, `advance_proforma_id`,
 `advance_party_id`), `proforma_url`, `subtotal/gst/freight/total` (asset invoices),
-`slack_channel`, `slack_ts`, `approved_by_slack_user`. Status enum extended to the §6
+`slack_channel`, `slack_ts`, `approved_by_slack_user`, `otp_requested_at`,
+`otp_requested_by`, `otp_slack_ts`, `payment_receipt_url`. Status enum extended to the §6
 states (`draft, quoting, quote_approved, invoiced, awaiting_approval,
-awaiting_payment_approval, approved, rejected, paid, posted`).
+awaiting_payment_approval, approved, otp_requested, rejected, paid, posted`).
 
 **New tables:**
 - `payment_types` — `id, name, payee_category, invoice_rule (required|exempt|settlement),

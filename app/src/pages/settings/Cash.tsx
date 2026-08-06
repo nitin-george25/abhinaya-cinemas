@@ -19,6 +19,7 @@ import {
   renamePosCounter,
   setOperatingUnitMethods,
   updateOperatingUnitFloat,
+  updateOperatingUnitPayDefaults,
   updatePaymentMethodBank,
   updatePaymentMethodSettlementDays,
   type BankAccount,
@@ -26,7 +27,7 @@ import {
   type PaymentMethod,
   type PosCounter,
 } from "../../lib/cash";
-import type { PaymentFlowType } from "../../lib/db-types";
+import type { PaymentFlowType, PaymentRequestMode } from "../../lib/db-types";
 
 export default function SettingsCashPage() {
   const { state } = useSync();
@@ -145,12 +146,20 @@ export default function SettingsCashPage() {
       <Card>
         <CardHeader><CardTitle>Operating units</CardTitle></CardHeader>
         <CardBody className="space-y-3">
+          <p className="text-xs text-ink-muted">
+            "Pay from" and "Mode" are what <em>Make a Payment</em> pre-selects once
+            this unit is chosen — a starting point the accountant can still change
+            on any individual payment. Leave them unset to fall back to the
+            cinema's primary account and a bank transfer.
+          </p>
           <table className="w-full text-sm">
             <thead className="bg-paper text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th className="px-3 py-2 text-left">Name</th>
                 <th className="px-3 py-2 text-left">Kind</th>
                 <th className="px-3 py-2 text-right">Default float (₹)</th>
+                <th className="px-3 py-2 text-left">Pay from (default)</th>
+                <th className="px-3 py-2 text-left">Mode</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -159,6 +168,7 @@ export default function SettingsCashPage() {
                 <FloatRow
                   key={u.id}
                   unit={u}
+                  bankAccounts={refs.bankAccounts}
                   email={state.email}
                   onSaved={refs.reload}
                   onError={setErr}
@@ -494,28 +504,40 @@ function CounterRow({
  */
 function FloatRow({
   unit,
+  bankAccounts,
   email,
   onSaved,
   onError,
 }: {
   unit: OperatingUnit;
+  bankAccounts: BankAccount[];
   email: string | null;
   onSaved: () => void;
   onError: (m: string) => void;
 }) {
   const [value, setValue] = useState<string>(String(unit.defaultFloatAmount));
+  const [bank, setBank]   = useState<string>(unit.defaultBankAccountId ?? "");
+  const [mode, setMode]   = useState<string>(unit.defaultPaymentMode ?? "");
   const [busy, setBusy]   = useState(false);
+
+  // One Save for the row: the float and the payment defaults live on the same
+  // operating_units row, so writing them together keeps it to one round trip.
   async function save() {
     if (!email) return;
     setBusy(true);
     try {
       await updateOperatingUnitFloat(unit.id, Number(value) || 0, email);
+      await updateOperatingUnitPayDefaults(
+        unit.id,
+        { bankAccountId: bank || null, mode: (mode || null) as PaymentRequestMode | null },
+        email,
+      );
       onSaved();
     } catch (e) { onError((e as Error).message); }
     finally    { setBusy(false); }
   }
   return (
-    <tr className="border-t border-line">
+    <tr className="border-t border-line align-top">
       <td className="px-3 py-2">{unit.name}</td>
       <td className="px-3 py-2">{unit.kind}</td>
       <td className="px-3 py-2 text-right">
@@ -526,6 +548,23 @@ function FloatRow({
           onChange={(e) => setValue(e.target.value)}
           className="text-right tabular-nums w-32 ml-auto"
         />
+      </td>
+      <td className="px-3 py-2">
+        <Select value={bank} onChange={(e) => setBank(e.target.value)} className="w-48">
+          <option value="">Cinema primary</option>
+          {bankAccounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.name}{a.isPrimary ? " · primary" : ""}</option>
+          ))}
+        </Select>
+      </td>
+      <td className="px-3 py-2">
+        <Select value={mode} onChange={(e) => setMode(e.target.value)} className="w-36">
+          <option value="">Not set</option>
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="cheque">Cheque</option>
+          <option value="cash">Cash</option>
+          <option value="upi">UPI</option>
+        </Select>
       </td>
       <td className="px-3 py-2 text-right">
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => void save()}>

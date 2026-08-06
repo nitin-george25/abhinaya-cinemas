@@ -12,6 +12,14 @@
 //   • "petty_decided"  → #petty-expenses  edits the card after a console decision
 // Button clicks land on the separate slack-interactions function.
 //
+// Unified payments (§7 + payments_70), delegated to ../_shared/payments.ts —
+// all four land in #payments, the last two as replies on the approval card:
+//   • "payment_card"         posts the Approve/Reject card
+//   • "payment_card_decided" edits it after a console decision
+//   • "payment_card_refresh" re-renders it after an edit (buttons intact)
+//   • "payment_otp_request"  asks the owner for the bank OTP (thread reply)
+//   • "payment_paid_note"    reports the money out + receipt (thread reply)
+//
 // Secrets (per Supabase project, for staging/prod parity):
 //   • SLACK_PAYMENTS_WEBHOOK_URL, SLACK_INVOICES_WEBHOOK_URL  (PM webhooks)
 //   • SLACK_BOT_TOKEN, SLACK_PETTY_CHANNEL_ID                 (petty kinds)
@@ -97,9 +105,14 @@ Deno.serve(async (req: Request) => {
     return await handlePettyOutbound(svc, role, kind, body.pettyExpenseId);
   }
 
-  // Unified payments interactive card (§7) — delegated to the shared handler.
-  if (kind === "payment_card" || kind === "payment_card_decided") {
-    return await handlePaymentOutbound(svc, role, kind, body.paymentId, body.deepLink ?? null);
+  // Unified payments interactive card (§7) + the OTP handshake and paid note
+  // threaded under it (payments_70) — delegated to the shared handler.
+  if (kind === "payment_card" || kind === "payment_card_decided"
+      || kind === "payment_card_refresh"
+      || kind === "payment_otp_request" || kind === "payment_paid_note") {
+    return await handlePaymentOutbound(
+      svc, role, kind, body.paymentId, body.deepLink ?? null, callerEmail,
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -142,7 +155,7 @@ Deno.serve(async (req: Request) => {
       body.deepLink ? `*Open in console:* ${body.deepLink}` : null,
       `Marked paid by ${callerEmail}.`,
     ];
-  } else {
+  } else if (kind === "payment_request") {
     if (!PAYMENT_ROLES.has(role)) return json({ error: "accountant role required" }, 403);
     webhook = PAYMENTS_HOOK;
     if (!webhook) return json({ error: "SLACK_PAYMENTS_WEBHOOK_URL not configured" }, 500);
@@ -158,6 +171,14 @@ Deno.serve(async (req: Request) => {
       body.deepLink ? `*Open in console:* ${body.deepLink}` : null,
       `Requested by ${callerEmail}.`,
     ];
+  } else {
+    // Anything else is a kind this deployment doesn't know. It used to fall into
+    // the PM branch above and post an empty "Payment requested — Project: —,
+    // Amount: ₹0" card, which reads as a broken notification rather than as the
+    // stale deployment it actually is. Say so instead.
+    return json({
+      error: `this notify-slack deployment doesn't handle the kind "${kind}" — redeploy the function`,
+    }, 400);
   }
 
   const slackPayload = {

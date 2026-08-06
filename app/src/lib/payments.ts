@@ -293,20 +293,33 @@ export async function createPayment(d: CreatePaymentInput): Promise<string> {
 }
 
 /**
- * Revise a parked draft (the same fields the create form collects). Goes through
- * fn_payment_update_draft, which refuses anything past 'draft' so an approved
- * amount can never be edited (§11) and every revision lands in the audit trail.
- * Leaving `invoiceUrl` / `proformaUrl` undefined keeps the attached file.
+ * What the caller should do about Slack after an edit (payments_80):
+ *   draft      — nothing was posted yet
+ *   in_place   — edited past approval, but the amount/payee didn't move
+ *   refresh    — the pending card is stale; re-render it
+ *   reapproval — the amount or payee moved on an approved payment; it went back
+ *                to awaiting_approval and needs a fresh card
  */
-export async function updateDraftPayment(
+export type PaymentEditOutcome = "draft" | "in_place" | "refresh" | "reapproval";
+
+/**
+ * Revise a payment (the same fields the create form collects). Goes through
+ * fn_payment_edit, which owns the whole rule: drafts are the raiser's; past
+ * draft the owner may edit any time and the accountant for 24h after the
+ * payment last moved; paid/posted/cancelled are frozen. Changing the amount or
+ * payee of an approved payment sends it back for re-approval. Every edit lands
+ * in the audit trail. Leaving `invoiceUrl` / `proformaUrl` undefined keeps the
+ * attached file.
+ */
+export async function editPayment(
   id: string,
   d: Omit<CreatePaymentInput, "requestedByEmail" | "status">,
-): Promise<void> {
+): Promise<PaymentEditOutcome> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
   if (!(d.amount > 0)) throw new Error("Enter a positive amount.");
   if (!d.payeeName.trim()) throw new Error("Pick or enter a payee.");
-  const { error } = await sb.rpc("fn_payment_update_draft", {
+  const { data, error } = await sb.rpc("fn_payment_edit", {
     p_payment_id:           id,
     p_operating_unit_id:    d.operatingUnitId,
     p_payment_type_id:      d.paymentTypeId,
@@ -325,8 +338,22 @@ export async function updateDraftPayment(
     p_advance_proforma_id:  d.advanceProformaId ?? null,
     p_advance_party_id:     d.advancePartyId ?? null,
     p_proforma_url:         d.proformaUrl ?? null,
+    p_mode:                 d.mode ?? null,
   });
   if (error) throw new Error(error.message);
+  return (data as PaymentEditOutcome | null) ?? "in_place";
+}
+
+/**
+ * Whether the signed-in user may edit this payment right now. Asks the DB rather
+ * than re-deriving the window in the browser — one rule, one place.
+ */
+export async function canEditPayment(id: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { data, error } = await sb.rpc("fn_payment_can_edit", { p_payment_id: id });
+  if (error) { console.warn("[payments] canEditPayment", error.message); return false; }
+  return data === true;
 }
 
 // ── Inbox (phase 2) ─────────────────────────────────────────────────────────
@@ -349,6 +376,9 @@ export function laneOf(status: string, kind: PaymentKind): PaymentLane {
     case "payment_requested":           // project-expense ready-to-pay
       return "awaiting";
     case "approved":
+    // an OTP ask is the accountant's own next step, so it stays in the
+    // "approved — to pay" lane rather than reading as awaiting the owner
+    case "otp_requested":
       return "approved";
     case "paid":
     case "posted":
@@ -483,6 +513,7 @@ export interface PaymentDetail {
   payeeAccountLast4:    string | null;
   payeeIfsc:            string | null;
   amount:               number;
+  mode:                 PaymentRequestMode | null;
   paidAmount:           number | null;
   status:               string;
   isAdvance:            boolean;
@@ -493,9 +524,12 @@ export interface PaymentDetail {
   neededBy:             string | null;
   invoiceUrl:           string | null;
   proformaUrl:          string | null;
+  paymentReceiptUrl:    string | null;
   bankAccountId:        string | null;
   paidViaBankAccountId: string | null;
   bankReference:        string | null;
+  otpRequestedAt:       string | null;
+  otpRequestedBy:       string | null;
   quoteLockedVendor:    string | null;
   quoteLockedAmount:    number | null;
   rejectedReason:       string | null;
@@ -510,11 +544,14 @@ interface PaymentDetailRow {
   id: string; operating_unit_id: string; payment_type_id: string | null;
   payee_name: string; payee_party_id: string | null; payee_distributor_id: string | null;
   payee_account_last4: string | null; payee_ifsc: string | null;
-  amount: number | string; paid_amount: number | string | null;
+  amount: number | string; mode: PaymentRequestMode | null;
+  paid_amount: number | string | null;
   status: string; is_advance: boolean; purpose: string | null; needed_by: string | null;
   advance_movie_id: string | null; advance_proforma_id: string | null; advance_party_id: string | null;
   invoice_url: string | null; proforma_url: string | null; bank_account_id: string | null;
+  payment_receipt_url: string | null;
   paid_via_bank_account_id: string | null; bank_reference: string | null;
+  otp_requested_at: string | null; otp_requested_by: string | null;
   quote_locked_vendor: string | null; quote_locked_amount: number | string | null;
   rejected_reason: string | null; approved_by_email: string | null;
   approved_by_slack_user: string | null; approved_at: string | null;
@@ -542,15 +579,17 @@ export async function getPaymentDetail(id: string): Promise<PaymentDetail | null
     payeeName: r.payee_name, payeePartyId: r.payee_party_id,
     payeeDistributorId: r.payee_distributor_id,
     payeeAccountLast4: r.payee_account_last4, payeeIfsc: r.payee_ifsc,
-    amount: Number(r.amount),
+    amount: Number(r.amount), mode: r.mode ?? null,
     paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
     status: r.status, isAdvance: !!r.is_advance,
     advanceMovieId: r.advance_movie_id, advanceProformaId: r.advance_proforma_id,
     advancePartyId: r.advance_party_id,
     purpose: r.purpose, neededBy: r.needed_by,
     invoiceUrl: r.invoice_url, proformaUrl: r.proforma_url,
+    paymentReceiptUrl: r.payment_receipt_url,
     bankAccountId: r.bank_account_id, paidViaBankAccountId: r.paid_via_bank_account_id,
     bankReference: r.bank_reference,
+    otpRequestedAt: r.otp_requested_at, otpRequestedBy: r.otp_requested_by,
     quoteLockedVendor: r.quote_locked_vendor,
     quoteLockedAmount: r.quote_locked_amount == null ? null : Number(r.quote_locked_amount),
     rejectedReason: r.rejected_reason,
@@ -608,8 +647,22 @@ export async function rejectPayment(id: string, reason: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Ask the owner for the bank's payment OTP (payments_70). The OTP itself never
+ * enters the console — the owner shares it in the Slack thread and the
+ * accountant uses it at the bank. What this records is that it was asked for,
+ * by whom and when; it also unlocks Mark paid.
+ */
+export async function requestPaymentOtp(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_request_otp", { p_payment_id: id });
+  if (error) throw new Error(error.message);
+}
+
 export interface MarkPaidInput {
   bankAccountId: string;
+  receiptUrl:    string;                 // required since payments_70
   reference?:    string | null;
   paidAmount?:   number | null;
   paidReason?:   string | null;
@@ -626,6 +679,7 @@ export async function markPaid(id: string, d: MarkPaidInput): Promise<void> {
     p_paid_amount:    d.paidAmount ?? null,
     p_paid_reason:    d.paidReason ?? null,
     p_paid_date:      d.paidDate ?? null,
+    p_receipt_url:    d.receiptUrl,
   });
   if (error) throw new Error(error.message);
 }
@@ -872,6 +926,24 @@ export async function postPaymentCard(id: string, deepLink?: string | null): Pro
 /** Edit the posted card in place after a console-side decision. */
 export async function syncPaymentCard(id: string): Promise<string | null> {
   return await invokeEdge("notify-slack", { kind: "payment_card_decided", paymentId: id });
+}
+
+/** Re-render a still-pending card after an edit, buttons intact. */
+export async function refreshPaymentCard(id: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_card_refresh", paymentId: id, deepLink: deepLink ?? null });
+}
+
+/**
+ * Ask the owner for the bank OTP in Slack — posted as a reply on the payment's
+ * own approval card, so approval, OTP and payment share one thread.
+ */
+export async function postOtpRequest(id: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_otp_request", paymentId: id, deepLink: deepLink ?? null });
+}
+
+/** Report the money out (amount, reference, receipt) back into the same thread. */
+export async function postPaidNote(id: string): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_paid_note", paymentId: id });
 }
 
 // ── Zoho F&B push (phase 6) ─────────────────────────────────────────────────

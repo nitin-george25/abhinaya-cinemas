@@ -4,6 +4,9 @@
 // (with a required reason when it differs), and a paid date. On success the row
 // moves to Paid and the bank-ledger row is written by the DB trigger. For F&B
 // it shows a "queued to Zoho" notice (the actual push lands in phase 6).
+//
+// Since payments_70 the transaction receipt is MANDATORY — the DB refuses a
+// mark-paid without one, so the button stays disabled until a file is picked.
 // ============================================================================
 
 import { useState } from "react";
@@ -13,24 +16,34 @@ import { Button } from "../ui/Button";
 import { Field, Input, Select } from "../ui/Input";
 import { MoneyInput } from "./MoneyInput";
 import { fmtINR } from "../../lib/dashboard";
-import { markPaid, pushPaymentToZoho, type PaymentDetail } from "../../lib/payments";
+import {
+  markPaid,
+  pushPaymentToZoho,
+  uploadPaymentFile,
+  postPaidNote,
+  type PaymentDetail,
+} from "../../lib/payments";
 
 export function MarkPaidModal({
   detail,
   bankAccounts,
   zohoNotice,
   appliedTotal = 0,
+  uploaderEmail,
   onClose,
   onPaid,
   onError,
+  onWarn,
 }: {
   detail: PaymentDetail;
   bankAccounts: { id: string; name: string; isPrimary: boolean }[];
   zohoNotice: boolean;
   appliedTotal?: number;
+  uploaderEmail: string | null;      // the signed-in email; null until sync boots
   onClose: () => void;
   onPaid: () => void | Promise<void>;
   onError: (m: string) => void;
+  onWarn: (m: string) => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const net = Math.max(0, detail.amount - appliedTotal);
@@ -44,6 +57,7 @@ export function MarkPaidModal({
   const [amount, setAmount] = useState(String(net));
   const [reason, setReason] = useState("");
   const [paidDate, setPaidDate] = useState(today);
+  const [receipt, setReceipt] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   const differs = Number(amount) !== net;
@@ -51,14 +65,18 @@ export function MarkPaidModal({
   async function confirm() {
     if (!bankId) { onError("Pick a bank account."); return; }
     if (!(Number(amount) > 0)) { onError("Enter a positive paid amount."); return; }
+    if (!receipt) { onError("Attach the transaction receipt."); return; }
+    if (!uploaderEmail) { onError("Still signing in — try again in a moment."); return; }
     if (differs && !reason.trim()) {
       onError("Give a reason when the paid amount differs from the requested amount.");
       return;
     }
     setBusy(true);
     try {
+      const receiptUrl = await uploadPaymentFile(receipt, uploaderEmail);
       await markPaid(detail.id, {
         bankAccountId: bankId,
+        receiptUrl,
         reference: reference || null,
         paidAmount: Number(amount),
         paidReason: differs ? reason : null,
@@ -66,6 +84,9 @@ export function MarkPaidModal({
       });
       // F&B payments push to Zoho Books — best-effort, never blocks the payment.
       if (zohoNotice) await pushPaymentToZoho(detail.id);
+      // Close the loop for whoever shared the OTP — also best-effort.
+      const slackReason = await postPaidNote(detail.id);
+      if (slackReason) onWarn(`Marked paid, but Slack wasn't updated: ${slackReason}`);
       await onPaid();
       onClose();
     } catch (e) { onError((e as Error).message); }
@@ -127,6 +148,18 @@ export function MarkPaidModal({
           <Input value={reference} onChange={(e) => setReference(e.target.value)} />
         </Field>
 
+        <Field label="Transaction receipt (required)">
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm"
+          />
+          {receipt
+            ? <div className="mt-1 truncate text-xs text-ink-muted">{receipt.name}</div>
+            : <div className="mt-1 text-xs text-ink-muted">Bank confirmation screenshot or PDF.</div>}
+        </Field>
+
         {zohoNotice ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-ink-soft">
             F&amp;B payment — will be queued to Zoho Books on confirm (push lands in a later phase).
@@ -135,7 +168,7 @@ export function MarkPaidModal({
 
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button disabled={busy} onClick={() => void confirm()}>
+          <Button disabled={busy || !receipt} onClick={() => void confirm()}>
             {busy ? "Recording…" : "Confirm payment"}
           </Button>
         </div>
