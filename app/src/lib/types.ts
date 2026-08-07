@@ -22,6 +22,8 @@ export interface Cinema {
   /** Scheduled digest email settings. Optional — when unset each digest falls
    *  back to its DIGEST_TO / PM_DIGEST_TO env var, then to a hardcoded list. */
   digests?: DigestsConfig;
+  /** 3D glasses rental rate. Unset falls back to GLASSES_3D_DEFAULT. */
+  glasses3d?: Glasses3dConfig;
 }
 
 /** One scheduled digest email. Stored in `config.cinema.digests.<key>`.
@@ -60,6 +62,23 @@ export interface WhatsappConfig {
   templateName?: string;
   /** Language code for the template — defaults to "en". */
   templateLang?: string;
+}
+
+/**
+ * 3D glasses rental. Stored in `config.cinema.glasses3d`.
+ *
+ * A flat per-head charge collected ON TOP of the printed ticket price when a
+ * 3D show plays. It is CINEMA-ONLY income — never part of Gross Collection,
+ * so it never reaches Net Share and is never split with the distributor. The
+ * DCR prints it as its own line below DS/ES.
+ *
+ * `rate` is GST-INCLUSIVE: a ₹30 rate at 18% is ₹25.42 taxable + ₹4.58 GST.
+ */
+export interface Glasses3dConfig {
+  /** ₹ per pair, inclusive of GST. */
+  rate: number;
+  /** GST rate the inclusive price carries, e.g. 18. */
+  gstPct: number;
 }
 
 /** Slab-specific eTax / GST percentages. */
@@ -270,6 +289,23 @@ export interface Show {
    *  a UI linkage, so the locked math stays bit-identical. Absent on
    *  historical (pre-schedule) shows. */
   scheduleId?: UUID;
+  /**
+   * 3D glasses rental for this show. PRESENCE marks the show as 3D — absent
+   * means a 2D show with no glasses line. Seeded from the schedule's `is3d`
+   * when the show is materialized; the operator can add or clear it by hand
+   * (unscheduled entries, corrections).
+   *
+   * `qty` null/undefined = AUTO: the show's paid ticket count, so it tracks
+   * live as tickets are keyed in. A number is a deliberate override (broken
+   * pairs, patrons with their own glasses). Free passes are NOT charged.
+   *
+   * `rate` and `gstPct` are SNAPSHOTTED at entry time from
+   * `cinema.glasses3d` so a later rate change never re-prices a filed DCR.
+   *
+   * Read only by the glasses lane (showGlasses / entryGlasses) — never by the
+   * locked box-office math.
+   */
+  glasses3d?: { qty?: number | null; rate: number; gstPct: number };
 }
 
 export interface Entry {
@@ -319,6 +355,9 @@ export interface ShowSchedule {
   position: number;
   /** Show dropped from the programme (strike, no print, etc.). */
   cancelled: boolean;
+  /** 3D show — seeds the glasses-rental line when this show is materialized
+   *  for ticket entry. Never read by the DCR engine. */
+  is3d?: boolean;
   notes?: string;
 }
 
@@ -437,6 +476,23 @@ export interface ComputedShowTotals {
   gst: number;
 }
 
+/**
+ * One 3D glasses-rental line — cinema-only income, computed in a lane parallel
+ * to the box office and deliberately absent from every total that feeds the
+ * distributor split.
+ *
+ * `amount` is what the patron paid (GST-inclusive); `taxable` + `gst` are the
+ * split the GST return and the Tally/Zoho posting need.
+ */
+export interface GlassesLine {
+  qty: number;
+  rate: number;                   // ₹/pair, GST-inclusive
+  amount: number;                 // qty × rate
+  taxable: number;                // amount ÷ (1 + gstPct/100)
+  gst: number;                    // amount − taxable
+  gstPct: number;
+}
+
 export interface ComputedShow {
   showtime?: TimeHHMM;
   freePass?: number;
@@ -444,6 +500,8 @@ export interface ComputedShow {
   rows: ComputedShowRow[];
   totals: ComputedShowTotals;
   repBatta: number;               // per-show batta from repDay/repNight
+  /** 3D glasses for this show; undefined on a 2D show. */
+  glasses?: GlassesLine;
 }
 
 export interface ComputedEntryGrand extends ComputedShowTotals {
@@ -462,6 +520,17 @@ export interface CumulativeRow {
   etax: number;
   gst: number;
   audience: number;
+  /**
+   * 3D glasses rental collected (GST-inclusive). CINEMA-ONLY: deliberately
+   * NOT inside grossColl / netShare / distShare / exShare — it rides alongside
+   * them so the cumulative table can show it without ever entering the split.
+   * Rolls through the same generic key loop as every other field, so past days
+   * and pre-tool openings accumulate for free (absent = 0).
+   */
+  glasses: number;
+  /** GST component of `glasses`. Kept out of `gst`, which is ticket GST and
+   *  feeds netShare. */
+  glassesGst: number;
 }
 
 export interface ComputedEntry {
@@ -476,6 +545,9 @@ export interface ComputedEntry {
   runningDay: number | '';
   share: number;
   fund: number;
+  /** Day total of the 3D glasses lane — the sum of every show's `glasses`.
+   *  Zeroed (qty 0) when no show that day was 3D. */
+  glasses: GlassesLine;
 }
 
 // Re-exported for convenience in engine internals.

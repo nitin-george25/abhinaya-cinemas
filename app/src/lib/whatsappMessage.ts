@@ -33,6 +33,9 @@ export interface ShowCardData {
   classes: ShowCardClass[];
   amount: string;          // money0 already applied
   online: number | string;
+  /** 3D glasses rental for this show; null on a 2D show. Cinema-only income —
+   *  reported next to the collection, never inside it. */
+  glasses: { qty: number; rate: number; amount: string } | null;
   last: boolean;
   sum: {
     gross: string;
@@ -40,6 +43,8 @@ export interface ShowCardData {
     tnet: string;
     ds: string;
     es: string;
+    /** Day total of the glasses lane. "" when no show that day was 3D. */
+    glasses: string;
   };
 }
 
@@ -99,6 +104,9 @@ export function showMessageData(
     classes: cs.rows.map((r) => ({ name: r.cls, tickets: N(r.tickets) || 0 })),
     amount: money0(amt),
     online: raw.online ?? "",
+    glasses: cs.glasses
+      ? { qty: cs.glasses.qty, rate: cs.glasses.rate, amount: money0(cs.glasses.amount) }
+      : null,
     // Auto-detected from the schedule (latest scheduled showtime for this
     // movie+screen+day); falls back to the stored flag for legacy days.
     last: isLastShowOfDay(state, entry, showIdx),
@@ -108,6 +116,7 @@ export function showMessageData(
       tnet:  money2(computed.total.netShare),
       ds:    money2(computed.total.distShare),
       es:    money2(computed.total.exShare),
+      glasses: computed.glasses.qty > 0 ? money2(computed.glasses.amount) : "",
     },
   };
 }
@@ -118,6 +127,9 @@ export function buildShowText(d: ShowCardData): string {
   d.classes.forEach((c) => L.push(`${c.name.toUpperCase()} :- ${c.tickets}`));
   L.push(`₹ ${d.amount}`);
   L.push(`online: ${d.online !== "" && d.online != null ? d.online : ""}`);
+  if (d.glasses) {
+    L.push(`3D glasses : ${d.glasses.qty} × ${d.glasses.rate} = ₹ ${d.glasses.amount}`);
+  }
   if (d.last) {
     L.push("");
     L.push(`Gross : ${d.sum.gross}`);
@@ -125,6 +137,7 @@ export function buildShowText(d: ShowCardData): string {
     L.push(`T net : ${d.sum.tnet}`);
     L.push(`Ds : ${d.sum.ds}`);
     L.push(`Es : ${d.sum.es}`);
+    if (d.sum.glasses) L.push(`3D glasses : ${d.sum.glasses}`);
   }
   return L.join("\n");
 }
@@ -239,6 +252,17 @@ export function drawShowCard(
       T(ctx, ov, RIGHT, y + 16, 22, "600", DC.text, "right", 0);
     },
   });
+  // Cinema-only income: shown next to the collection, never folded into it.
+  if (d.glasses) {
+    gap(8);
+    B.push({
+      h: 32,
+      fn: (ctx, y) => {
+        T(ctx, `3D GLASSES (${d.glasses!.qty} × ${d.glasses!.rate})`, PAD, y + 16, 14, "600", DC.muted, "left", 3);
+        T(ctx, "₹ " + grp(d.glasses!.amount), RIGHT, y + 16, 22, "600", DC.text, "right", 0);
+      },
+    });
+  }
 
   if (d.last) {
     gap(22); rule(); gap(18);
@@ -254,6 +278,7 @@ export function drawShowCard(
       ["Distributor (Ds)", d.sum.ds],
       ["Exhibitor (Es)", d.sum.es],
     ];
+    if (d.sum.glasses) rows.push(["3D glasses (cinema)", d.sum.glasses]);
     rows.forEach((rw) =>
       B.push({
         h: 33,

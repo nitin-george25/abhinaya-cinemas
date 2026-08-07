@@ -266,6 +266,7 @@ export function blankSchedule(
     showtime: init?.showtime ?? "",
     position: init?.position ?? nextPos,
     cancelled: init?.cancelled ?? false,
+    is3d: init?.is3d ?? false,
     notes: init?.notes,
   };
 }

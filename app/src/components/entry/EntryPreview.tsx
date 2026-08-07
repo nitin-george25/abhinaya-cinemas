@@ -38,6 +38,13 @@ export function EntryPreview({ computed }: Props) {
           <Row label="Net Share"  value={fmtINR(t.netShare)} highlight />
           <Row label={`Distributor (${computed.share}%)`} value={fmtINR(t.distShare)} muted />
           <Row label="Exhibitor"  value={fmtINR(t.exShare)} muted />
+          {/* Cinema-only: sits below the split because it never entered Gross. */}
+          {computed.glasses.qty > 0 ? (
+            <Row
+              label={`3D Glasses (${fmtInt(computed.glasses.qty)} × ${fmtINR(computed.glasses.rate)})`}
+              value={fmtINR(computed.glasses.amount)}
+            />
+          ) : null}
         </PreviewBlock>
 
         <PreviewBlock title="Previous (this movie · this screen)">

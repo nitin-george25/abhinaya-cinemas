@@ -263,7 +263,7 @@ function ScheduleRow({
 
   return (
     <div className="rounded-xl border border-line p-3 space-y-2">
-      <div className="grid grid-cols-2 sm:grid-cols-[8rem_1fr_12rem_auto] gap-3 sm:items-end">
+      <div className="grid grid-cols-2 sm:grid-cols-[8rem_1fr_12rem_auto_auto] gap-3 sm:items-end">
         <Field label="Time">
           <Input
             type="time"
@@ -292,6 +292,22 @@ function ScheduleRow({
             ))}
           </Select>
         </Field>
+        {/* 3D marks the show for the glasses-rental line at ticket entry. It
+            is cinema-only income and never touches the distributor split. */}
+        <label
+          className="flex items-end gap-2 pb-2 text-sm cursor-pointer whitespace-nowrap"
+          title="3D show — adds the glasses rental line when tickets are entered"
+        >
+          <input
+            type="checkbox"
+            checked={row.is3d ?? false}
+            onChange={(e) =>
+              onPatch(updateSchedule(appState, row.id, { is3d: e.target.checked }))
+            }
+          />
+          3D
+        </label>
+
         <div className="flex items-end">
           <Button
             variant="ghost"

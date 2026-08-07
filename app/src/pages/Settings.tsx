@@ -25,12 +25,13 @@ import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
 import { uid, entryKey } from "../lib/mappers";
 import { clearEntryShareOverrides } from "../lib/entriesApi";
-import { daysBetween, realShowCount } from "../lib/engine";
+import { GLASSES_3D_DEFAULT, daysBetween, realShowCount } from "../lib/engine";
 import { addDaysIso, todayIstIso } from "../lib/dates";
 import type {
   ClassDef,
   Distributor,
   FbProduct,
+  Glasses3dConfig,
   HoldOverRule,
   Movie,
   MovieFormat,
@@ -2463,6 +2464,80 @@ export function TaxSection() {
               className="text-right" />
           </Field>
         </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * 3D glasses rental — the per-head charge collected on top of the printed
+ * ticket price when a 3D show plays.
+ *
+ * Cinema-only income: it never enters Gross Collection, so it never reaches
+ * Net Share and is never split with the distributor. The DCR prints it on its
+ * own line below DS/ES.
+ *
+ * Changing the rate here affects shows entered from now on. Every already-
+ * entered show carries the rate it was entered with, so a filed DCR never
+ * re-prices itself.
+ */
+export function Glasses3dSection() {
+  const { state, setAppState } = useSync();
+  const appState = state.appState;
+  if (!appState || !canEditCatalog(state.role)) return null;
+
+  const cinema = appState.cinema;
+  const g: Glasses3dConfig = cinema.glasses3d ?? GLASSES_3D_DEFAULT;
+
+  function patch(p: Partial<Glasses3dConfig>) {
+    if (!appState) return;
+    setAppState({
+      ...appState,
+      cinema: { ...cinema, glasses3d: { ...g, ...p } },
+    });
+  }
+
+  const taxable = g.rate > 0 ? (g.rate * 100) / (100 + g.gstPct) : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>3D glasses rental</CardTitle>
+        <span className="text-xs text-ink-muted">stored in config.cinema.glasses3d</span>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Rate (₹ / pair)"
+            hint="Inclusive of GST — what the patron actually hands over."
+          >
+            <Input
+              type="number" min={0} step={0.01}
+              value={g.rate}
+              onChange={(e) => patch({ rate: Number(e.target.value) || 0 })}
+              className="text-right"
+            />
+          </Field>
+          <Field label="GST %" hint="The rate the inclusive price carries.">
+            <Input
+              type="number" min={0} max={100} step={0.01}
+              value={g.gstPct}
+              onChange={(e) => patch({ gstPct: Number(e.target.value) || 0 })}
+              className="text-right"
+            />
+          </Field>
+        </div>
+
+        <p className="text-[11px] text-ink-muted leading-snug border border-dashed border-line rounded-md p-3">
+          At ₹{g.rate} inclusive of {g.gstPct}% GST, each pair is{" "}
+          <strong className="text-ink">₹{taxable.toFixed(2)}</strong> taxable +{" "}
+          <strong className="text-ink">₹{(g.rate - taxable).toFixed(2)}</strong> GST.
+          Charged per paid ticket on shows marked 3D on the Schedule page; free
+          passes are not charged. This money is the cinema's — it is never part
+          of Gross Collection or Net Share, and carries no distributor share.
+          Changing the rate applies to shows entered from now on; already-entered
+          shows keep the rate they were filed with.
+        </p>
       </CardBody>
     </Card>
   );

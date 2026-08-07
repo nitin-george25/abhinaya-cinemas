@@ -1,6 +1,6 @@
 // Route page: /settings/tax — Tax slabs and Rep Batta tiers.
 
-import { TaxSection } from "../Settings";
+import { Glasses3dSection, TaxSection } from "../Settings";
 import { DesktopBetterBanner } from "../../components/layout/DesktopBetterBanner";
 
 export default function SettingsTaxPage() {
@@ -17,6 +17,7 @@ export default function SettingsTaxPage() {
         </p>
       </div>
       <TaxSection />
+      <Glasses3dSection />
     </div>
   );
 }

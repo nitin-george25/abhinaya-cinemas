@@ -23,6 +23,7 @@ export function rowToShowSchedule(r: ShowScheduleRow): ShowSchedule {
     showtime: (r.showtime ?? "").slice(0, 5),
     position: r.position ?? 0,
     cancelled: r.cancelled ?? false,
+    is3d: r.is_3d ?? false,
     notes: r.notes ?? undefined,
   };
 }
@@ -47,6 +48,7 @@ export function showScheduleToRow(
     showtime: s.showtime,
     position: s.position ?? 0,
     cancelled: s.cancelled ?? false,
+    is_3d: s.is3d ?? false,
     notes: s.notes ?? null,
     updated_by: updatedBy,
     updated_at: new Date().toISOString(),
@@ -79,5 +81,6 @@ export const showScheduleSignature = (s: ShowSchedule): string =>
     showtime: s.showtime,
     position: s.position ?? 0,
     cancelled: s.cancelled ?? false,
+    is3d: s.is3d ?? false,
     notes: s.notes ?? "",
   });
