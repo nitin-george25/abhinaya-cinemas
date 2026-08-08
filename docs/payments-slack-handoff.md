@@ -35,8 +35,9 @@ token, same interactivity Request URL — but a **different channel** and a
 | Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`, `payment_card_refresh`, `payment_otp_request`, `payment_paid_note`) |
 | Button clicks + reject modal | `supabase/functions/slack-interactions` (actions `payment_approve`, `payment_reject`) |
 | DB transition from Slack | `fn_slack_payment_decide` (migration `20260629140000_payments_20_slack.sql`) |
-| OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260806120000_payments_70_otp_receipt.sql`) |
-| Edit window + re-approval | `fn_payment_edit` / `fn_payment_can_edit` (migration `20260806130000_payments_80_edit_window.sql`) |
+| OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260808130000_payments_70_otp_receipt.sql`) |
+| Edit window + re-approval | `fn_payment_edit` / `fn_payment_can_edit` (migration `20260808140000_payments_80_edit_window.sql`) |
+| Per-unit pay defaults | `operating_units.default_bank_account_id` / `default_payment_mode` (migration `20260808150000_payments_90_unit_pay_defaults.sql`) |
 | Console callers | `app/src/lib/payments.ts` → `postPaymentCard` / `syncPaymentCard` / `postOtpRequest` / `postPaidNote` |
 
 Posting is **best-effort** — a Slack outage never blocks the payment — but the
