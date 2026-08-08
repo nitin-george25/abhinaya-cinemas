@@ -7,7 +7,7 @@ place. Two further messages land **as replies in that card's thread** (added
 
 | Thread message | Posted when | By |
 | --- | --- | --- |
-| :closed_lock_with_key: **Payment OTP needed** | accountant clicks **Request payment OTP** on an approved payment | accountant / owner |
+| :closed_lock_with_key: **OTP requested** (type, payee, amount, mode, paying-from account, payee A/c, unit, approver, purpose, invoice) | accountant clicks **Request payment OTP** on an approved payment | accountant / owner |
 | :white_check_mark: **Payment made** (+ receipt link) | accountant marks it paid | accountant / owner |
 
 The owner answers the OTP ask with the bank's code **as a normal thread reply**.
