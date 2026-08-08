@@ -3,8 +3,9 @@
 //
 //  • signInWithUsername — transforms username → internal email and calls
 //    Supabase's standard signInWithPassword. PIN is the password.
-//  • adminUsers.create / resetPin / updateRole / remove — wraps the
-//    admin-users Edge Function. Owner-only on the server.
+//  • adminUsers.create / grantGoogle / resetPin / updateRole / remove —
+//    wraps the admin-users Edge Function. Owner-only on the server
+//    (create / reset_pin also allow manager for till-side roles).
 //  • listUsers — direct SELECT from authorized_users (RLS allows owner reads).
 //
 // Validation matches what the Edge Function enforces (no point asking the
@@ -15,7 +16,10 @@ import { getSupabase } from "./supabase";
 import type { AuthorizedUserRow } from "./db-types";
 
 export const LOCAL_DOMAIN = "local.abhinayacinemas.com";
+/** Google sign-in is limited to the company Workspace domain. */
+export const CONSOLE_DOMAIN = "abhinayacinemas.com";
 export const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{1,30}[a-z0-9])?$/i;
+export const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 export const PIN_RE = /^\d{6}$/;
 
 export type Role = AuthorizedUserRow["role"];
@@ -25,6 +29,15 @@ export const usernameToEmail = (u: string): string =>
 
 export const isInternalEmail = (email: string | null | undefined): boolean =>
   !!email && email.toLowerCase().endsWith(`@${LOCAL_DOMAIN}`);
+
+/**
+ * True for a real Workspace address the owner may grant Google access to.
+ * `@local.` is excluded explicitly — it ends with the console domain too.
+ */
+export const isConsoleDomainEmail = (email: string): boolean => {
+  const e = email.trim().toLowerCase();
+  return EMAIL_RE.test(e) && e.endsWith(`@${CONSOLE_DOMAIN}`) && !isInternalEmail(e);
+};
 
 /** Extract the username from an internal email; null for real emails. */
 export function usernameFromEmail(email: string | null | undefined): string | null {
@@ -108,6 +121,19 @@ export interface CreatePayload {
   role: Role;
 }
 
+export interface GrantGooglePayload {
+  email: string;
+  fullName: string;
+  role: Role;
+}
+
+/**
+ * How an admin action names its target row: PIN users by username, Google
+ * users by email. Exactly one is sent; the server resolves both onto
+ * authorized_users.email.
+ */
+export type UserTarget = { username: string } | { email: string };
+
 // `payload` is widened to `object` (instead of Record<string, unknown>) so
 // strict-typed interfaces like CreatePayload assign cleanly without a cast.
 // At runtime we just spread it into the JSON body.
@@ -123,11 +149,15 @@ async function invoke<T>(action: string, payload: object): Promise<T> {
 
 export const adminUsers = {
   create: (p: CreatePayload) => invoke<{ ok: true; email: string }>("create", p),
+  /** Owner-only. Adds a @abhinayacinemas.com address to the access list;
+   *  the auth user appears by itself on their first Google sign-in. */
+  grantGoogle: (p: GrantGooglePayload) =>
+    invoke<{ ok: true; email: string }>("grant_google", p),
   resetPin: (username: string, pin: string) =>
     invoke<{ ok: true }>("reset_pin", { username, pin }),
-  updateRole: (username: string, role: Role) =>
-    invoke<{ ok: true }>("update_role", { username, role }),
-  remove: (username: string) => invoke<{ ok: true }>("remove", { username }),
+  updateRole: (target: UserTarget, role: Role) =>
+    invoke<{ ok: true }>("update_role", { ...target, role }),
+  remove: (target: UserTarget) => invoke<{ ok: true }>("remove", target),
 };
 
 // ── list (direct read; admin-users isn't needed) ───────────────────────

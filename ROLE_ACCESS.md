@@ -115,9 +115,17 @@ flows that may or may not appear inside a page.
 
 **Users**
 
-- Create / edit / remove authorized users: owner via `/settings/users`.
-- Cashier role creation is **not yet exposed in the Users UI** — has
-  to be a direct SQL insert. *Recommended change.*
+- Create / edit / remove authorized users: owner via `/settings/users`;
+  manager limited to cashier + daily-manager username users.
+- Grant Google (Workspace) access: owner only, and only for
+  `@abhinayacinemas.com` addresses — "+ Google access" on
+  `/settings/users`. The `authorized_users` row *is* the grant; the
+  auth user appears on their first "Continue with Google" sign-in and
+  no invite email is sent.
+- Google users' role changes and removal are owner-only (a manager
+  cannot re-point them), enforced in the `admin-users` Edge Function.
+- Nobody can remove their own row — the server refuses it so an owner
+  can't lock themselves out.
 
 ## Database RLS summary
 

@@ -2,10 +2,11 @@
 // admin-users — owner-only user management.
 //
 // One Edge Function with action routing. Actions:
-//   • create       { username, pin, fullName, role }
-//   • reset_pin    { username, pin }
-//   • update_role  { username, role }
-//   • remove       { username }
+//   • create        { username, pin, fullName, role }   PIN user
+//   • grant_google  { email, fullName, role }           Google user (owner only)
+//   • reset_pin     { username, pin }
+//   • update_role   { username | email, role }
+//   • remove        { username | email }
 //
 // Auth model:
 //   • Caller's JWT (from the browser session) is verified via getUser().
@@ -18,6 +19,13 @@
 //   No real email is ever sent to this address; it's just Supabase's
 //   identifier for the user.
 //
+// Google users:
+//   authorized_users IS the access list — Google OAuth creates the
+//   auth.users row on first sign-in and the app rejects any session whose
+//   email has no row here. So `grant_google` only inserts the row; there is
+//   no password and nothing to email. Restricted to @abhinayacinemas.com
+//   addresses and to owner callers.
+//
 // Deploy: copy this file's contents into the Supabase dashboard
 //   Edge Functions → Create function → admin-users
 // Env vars needed: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
@@ -27,7 +35,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const LOCAL_DOMAIN = "local.abhinayacinemas.com";
+// Google sign-in is limited to the company Workspace domain. Anything else
+// (gmail.com, a personal address) is rejected before it reaches the table.
+const CONSOLE_DOMAIN = "abhinayacinemas.com";
 const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{1,30}[a-z0-9])?$/i;
+const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const PIN_RE = /^\d{6}$/;
 const ROLES = new Set(["owner", "manager", "daily_manager", "accountant", "cashier"]);
 
@@ -39,10 +51,12 @@ const MANAGER_MANAGEABLE_ROLES = new Set(["cashier", "daily_manager"]);
 type Role = "owner" | "manager" | "daily_manager" | "accountant" | "cashier";
 
 interface CreateBody { action: "create"; username: string; pin: string; fullName: string; role: Role; }
+interface GrantGoogleBody { action: "grant_google"; email: string; fullName: string; role: Role; }
 interface ResetPinBody { action: "reset_pin"; username: string; pin: string; }
-interface UpdateRoleBody { action: "update_role"; username: string; role: Role; }
-interface RemoveBody { action: "remove"; username: string; }
-type Body = CreateBody | ResetPinBody | UpdateRoleBody | RemoveBody;
+/** Target is identified by `username` (PIN user) or `email` (Google user). */
+interface UpdateRoleBody { action: "update_role"; username?: string; email?: string; role: Role; }
+interface RemoveBody { action: "remove"; username?: string; email?: string; }
+type Body = CreateBody | GrantGoogleBody | ResetPinBody | UpdateRoleBody | RemoveBody;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,6 +72,20 @@ function json(body: unknown, status = 200): Response {
 }
 
 const usernameToEmail = (u: string) => `${u.toLowerCase()}@${LOCAL_DOMAIN}`;
+
+/**
+ * Resolve the row an action targets. PIN users come in as `username`,
+ * Google users as `email` — both map onto authorized_users.email, which is
+ * the table's identity.
+ */
+function resolveTarget(b: { username?: string; email?: string }): string | null {
+  if (b.email) {
+    const e = b.email.trim().toLowerCase();
+    return EMAIL_RE.test(e) ? e : null;
+  }
+  if (b.username && USERNAME_RE.test(b.username)) return usernameToEmail(b.username);
+  return null;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -110,10 +138,11 @@ Deno.serve(async (req: Request) => {
   }
 
   switch (body.action) {
-    case "create":      return await createUser(svc, body, callerRole, callerCinemaIds);
-    case "reset_pin":   return await resetPin(svc, body, callerRole);
-    case "update_role": return await updateRole(svc, body, callerRole);
-    case "remove":      return await removeUser(svc, body, callerRole);
+    case "create":       return await createUser(svc, body, callerRole, callerCinemaIds);
+    case "grant_google": return await grantGoogle(svc, body, callerRole, callerCinemaIds);
+    case "reset_pin":    return await resetPin(svc, body, callerRole);
+    case "update_role":  return await updateRole(svc, body, callerRole);
+    case "remove":       return await removeUser(svc, body, callerRole, callerEmail);
     default:
       return json({ error: "unknown action" }, 400);
   }
@@ -132,6 +161,11 @@ async function authoriseTarget(
   if (callerRole === "owner") return null;
   if (newRole && !MANAGER_MANAGEABLE_ROLES.has(newRole)) {
     return "Manager can only assign cashier or daily_manager roles.";
+  }
+  // Google identities are owner territory regardless of the role they
+  // currently hold — a manager must not be able to re-point staff access.
+  if (!targetEmail.endsWith(`@${LOCAL_DOMAIN}`)) {
+    return "Only an owner can manage Google users.";
   }
   // For actions on existing users (reset_pin / update_role / remove),
   // check the target's current role isn't owner/manager/accountant.
@@ -195,6 +229,55 @@ async function createUser(
   return json({ ok: true, email });
 }
 
+/**
+ * Grant console access to a Google (Workspace) identity. Owner-only, and
+ * only for @abhinayacinemas.com addresses — a row here is the entire grant,
+ * so the domain check is the security boundary that keeps a stray gmail
+ * address from being handed the books.
+ */
+async function grantGoogle(
+  svc: Svc,
+  b: GrantGoogleBody,
+  callerRole: Role,
+  callerCinemaIds: string[],
+): Promise<Response> {
+  if (callerRole !== "owner") {
+    return json({ error: "Only an owner can grant Google access." }, 403);
+  }
+
+  const email = (b.email ?? "").trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return json({ error: "Enter a valid email address." }, 400);
+  if (!email.endsWith(`@${CONSOLE_DOMAIN}`)) {
+    return json({ error: `Email must be on @${CONSOLE_DOMAIN}.` }, 400);
+  }
+  if (email.endsWith(`@${LOCAL_DOMAIN}`)) {
+    return json({ error: "That is a username login, not a Google address." }, 400);
+  }
+  if (!b.fullName || b.fullName.trim().length < 2) return json({ error: "Full name required." }, 400);
+  if (!ROLES.has(b.role)) return json({ error: "Invalid role." }, 400);
+
+  const { data: existing } = await svc
+    .from("authorized_users")
+    .select("email")
+    .eq("email", email)
+    .maybeSingle();
+  if (existing) return json({ error: `${email} already has access.` }, 409);
+
+  // No auth user is created: Google OAuth mints auth.users on first
+  // sign-in. cinema_ids is inherited from the granting owner, same as
+  // createUser — an empty array fails every cinema_access() RLS check.
+  const { error } = await svc.from("authorized_users").insert({
+    email,
+    role: b.role,
+    full_name: b.fullName.trim(),
+    username: null,
+    cinema_ids: callerCinemaIds,
+    must_change_pin: false,
+  });
+  if (error) return json({ error: `insert failed: ${error.message}` }, 400);
+  return json({ ok: true, email });
+}
+
 async function resetPin(svc: Svc, b: ResetPinBody, callerRole: Role): Promise<Response> {
   if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
   if (!PIN_RE.test(b.pin)) return json({ error: "PIN must be exactly 6 digits" }, 400);
@@ -220,10 +303,10 @@ async function resetPin(svc: Svc, b: ResetPinBody, callerRole: Role): Promise<Re
 }
 
 async function updateRole(svc: Svc, b: UpdateRoleBody, callerRole: Role): Promise<Response> {
-  if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
+  const email = resolveTarget(b);
+  if (!email) return json({ error: "invalid username or email" }, 400);
   if (!ROLES.has(b.role)) return json({ error: "invalid role" }, 400);
 
-  const email = usernameToEmail(b.username);
   const guard = await authoriseTarget(svc, callerRole, email, b.role);
   if (guard) return json({ error: guard }, 403);
 
@@ -235,10 +318,20 @@ async function updateRole(svc: Svc, b: UpdateRoleBody, callerRole: Role): Promis
   return json({ ok: true });
 }
 
-async function removeUser(svc: Svc, b: RemoveBody, callerRole: Role): Promise<Response> {
-  if (!USERNAME_RE.test(b.username)) return json({ error: "invalid username" }, 400);
+async function removeUser(
+  svc: Svc,
+  b: RemoveBody,
+  callerRole: Role,
+  callerEmail: string,
+): Promise<Response> {
+  const email = resolveTarget(b);
+  if (!email) return json({ error: "invalid username or email" }, 400);
+  // Removing your own row locks you out of the console with no way back
+  // in through the UI. Refuse it outright.
+  if (email === callerEmail) {
+    return json({ error: "You cannot remove your own access." }, 400);
+  }
 
-  const email = usernameToEmail(b.username);
   const guard = await authoriseTarget(svc, callerRole, email);
   if (guard) return json({ error: guard }, 403);
 

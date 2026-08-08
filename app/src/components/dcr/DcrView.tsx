@@ -151,7 +151,7 @@ function ShowBlock({
         <span>
           {/* 3D glasses ride in the header, not the table: the class table is
               the taxed box-office document and this money is never in it. */}
-          {show.glasses
+          {show.glasses && show.glasses.qty > 0
             ? `3D Glasses: ${int(show.glasses.qty)} × ${money(show.glasses.rate)} = ${money(show.glasses.amount)}  ·  `
             : ""}
           No. of Free Pass: {show.freePass ?? 0}

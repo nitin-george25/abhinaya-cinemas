@@ -104,9 +104,10 @@ export function showMessageData(
     classes: cs.rows.map((r) => ({ name: r.cls, tickets: N(r.tickets) || 0 })),
     amount: money0(amt),
     online: raw.online ?? "",
-    glasses: cs.glasses
-      ? { qty: cs.glasses.qty, rate: cs.glasses.rate, amount: money0(cs.glasses.amount) }
-      : null,
+    glasses:
+      cs.glasses && cs.glasses.qty > 0
+        ? { qty: cs.glasses.qty, rate: cs.glasses.rate, amount: money0(cs.glasses.amount) }
+        : null,
     // Auto-detected from the schedule (latest scheduled showtime for this
     // movie+screen+day); falls back to the stored flag for legacy days.
     last: isLastShowOfDay(state, entry, showIdx),

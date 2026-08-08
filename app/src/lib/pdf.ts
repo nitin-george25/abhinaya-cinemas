@@ -190,7 +190,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
     );
     // 3D glasses ride in the show header, not the class table: that table is
     // the taxed box-office document and this money is never part of it.
-    const gl = sh.glasses;
+    const gl = sh.glasses && sh.glasses.qty > 0 ? sh.glasses : undefined;
     rowText(
       (gl
         ? "3D Glasses: " + int(gl.qty) + " x " + money(gl.rate) + " = " + money(gl.amount) + "   ·   "
