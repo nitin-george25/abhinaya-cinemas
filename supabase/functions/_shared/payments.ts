@@ -9,6 +9,20 @@
 
 import { inr, json, slackApi } from "./slack.ts";
 
+/**
+ * Build marker for the Slack payment code. Bump it whenever this file changes
+ * in a way an operator needs to see live.
+ *
+ * It exists because "is the deployed function actually running this code?" was
+ * unanswerable without it: migrations and Edge Functions ship separately, so a
+ * project can have the payments_70 DB and a pre-payments_70 function, and the
+ * only symptom is a Slack card that looks wrong. Both notify-slack and
+ * slack-interactions log this on every request and notify-slack returns it, so
+ * the answer is one line in the dashboard logs. Living in _shared means it also
+ * proves the SHARED file was bundled — the piece a partial redeploy misses.
+ */
+export const PAYMENTS_BUILD = "2026-08-06 · otp+receipt+edit (payments_70/80/90)";
+
 // Who may trigger a payment Slack post (the raisers).
 export const PAYMENT_POST_ROLES = new Set(["owner", "manager", "accountant"]);
 // Who may ask the owner for the bank OTP (the payers).

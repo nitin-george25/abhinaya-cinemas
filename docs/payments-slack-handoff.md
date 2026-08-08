@@ -120,3 +120,36 @@ notice — the accountant then has to ask the owner for the OTP by other means.
 > empty card; it now answers `this notify-slack deployment doesn't handle the
 > kind "…"` instead. Redeploy `notify-slack` **and** `slack-interactions` — they
 > share `_shared/payments.ts`.
+
+## Which build is live?
+
+`_shared/payments.ts` exports `PAYMENTS_BUILD`. Both functions log it on boot and
+on every request, so **Dashboard → Edge Functions → `notify-slack` → Logs** shows
+a line like:
+
+```
+[notify-slack] kind=payment_otp_request role=accountant build=2026-08-06 · otp+receipt+edit (payments_70/80/90)
+```
+
+No `build=` line at all means an older build is running — it doesn't log. Because
+the constant lives in `_shared`, seeing it also proves the shared module was
+bundled, which is the part a partial redeploy misses. `notify-slack` also answers
+`{"kind":"ping"}` with the build and every kind it handles, with no side effects.
+
+## Deploying the functions
+
+Migrations and Edge Functions ship **separately** — `npm run db:push:prod` does
+not touch the functions, which is how the console ends up doing the right thing
+while Slack posts nonsense. After any change under `supabase/functions/`:
+
+```bash
+npm run fn:deploy:staging
+npm run fn:deploy:prod
+```
+
+`scripts/functions-deploy.sh` deploys `notify-slack` + `slack-interactions`
+together (both bundle `_shared/payments.ts`, and a `_shared` change means every
+importer needs redeploying), asks before touching prod, and prints the live
+`UPDATED_AT` afterwards so a no-op deploy is obvious. It needs
+`SUPABASE_ACCESS_TOKEN` — the same token `db-push.sh` uses — and falls back to
+`npx supabase@latest` when the CLI isn't installed.

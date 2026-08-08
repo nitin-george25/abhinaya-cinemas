@@ -28,7 +28,20 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, inr, json, postWebhook } from "../_shared/slack.ts";
 import { handlePettyOutbound } from "../_shared/petty.ts";
-import { handlePaymentOutbound } from "../_shared/payments.ts";
+import { handlePaymentOutbound, PAYMENTS_BUILD } from "../_shared/payments.ts";
+
+// Every kind this build understands. Returned by the "ping" kind below, so
+// "does the deployed function know about payment_otp_request?" is answerable
+// without reading a Slack channel to find out.
+const KNOWN_KINDS = [
+  "ping",
+  "payment_request", "payment_paid", "invoice_uploaded",
+  "petty_request", "petty_decided",
+  "payment_card", "payment_card_decided", "payment_card_refresh",
+  "payment_otp_request", "payment_paid_note",
+];
+
+console.log(`[notify-slack] boot · build ${PAYMENTS_BUILD}`);
 
 interface Body {
   kind?: string;
@@ -99,6 +112,14 @@ Deno.serve(async (req: Request) => {
   catch { return json({ error: "invalid JSON body" }, 400); }
 
   const kind = body.kind ?? "payment_request";
+  console.log(`[notify-slack] kind=${kind} role=${role || "unknown"} build=${PAYMENTS_BUILD}`);
+
+  // Which build is live, and what does it handle? No side effects, no role
+  // needed (the caller is already an authenticated console user) — this is the
+  // one call that answers "did my deploy land?" without posting to Slack.
+  if (kind === "ping") {
+    return json({ ok: true, build: PAYMENTS_BUILD, kinds: KNOWN_KINDS, role: role || null });
+  }
 
   // Petty-expense two-way kinds (cash_21) — delegated to the shared handler.
   if (kind === "petty_request" || kind === "petty_decided") {
@@ -178,6 +199,8 @@ Deno.serve(async (req: Request) => {
     // stale deployment it actually is. Say so instead.
     return json({
       error: `this notify-slack deployment doesn't handle the kind "${kind}" — redeploy the function`,
+      build: PAYMENTS_BUILD,
+      handles: KNOWN_KINDS,
     }, 400);
   }
 
