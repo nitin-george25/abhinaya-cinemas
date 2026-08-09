@@ -7,7 +7,7 @@ place. Two further messages land **as replies in that card's thread** (added
 
 | Thread message | Posted when | By |
 | --- | --- | --- |
-| :closed_lock_with_key: **Payment OTP needed** | accountant clicks **Request payment OTP** on an approved payment | accountant / owner |
+| :closed_lock_with_key: **OTP requested** (type, payee, amount, mode, paying-from account, payee A/c, unit, approver, purpose, invoice) | accountant clicks **Request payment OTP** on an approved payment | accountant / owner |
 | :white_check_mark: **Payment made** (+ receipt link) | accountant marks it paid | accountant / owner |
 
 The owner answers the OTP ask with the bank's code **as a normal thread reply**.
@@ -35,8 +35,9 @@ token, same interactivity Request URL — but a **different channel** and a
 | Outbound entry point | `supabase/functions/notify-slack` (kinds `payment_card`, `payment_card_decided`, `payment_card_refresh`, `payment_otp_request`, `payment_paid_note`) |
 | Button clicks + reject modal | `supabase/functions/slack-interactions` (actions `payment_approve`, `payment_reject`) |
 | DB transition from Slack | `fn_slack_payment_decide` (migration `20260629140000_payments_20_slack.sql`) |
-| OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260806120000_payments_70_otp_receipt.sql`) |
-| Edit window + re-approval | `fn_payment_edit` / `fn_payment_can_edit` (migration `20260806130000_payments_80_edit_window.sql`) |
+| OTP step + receipt gate | `fn_payment_request_otp` / `fn_payment_mark_paid` (migration `20260808130000_payments_70_otp_receipt.sql`) |
+| Edit window + re-approval | `fn_payment_edit` / `fn_payment_can_edit` (migration `20260808140000_payments_80_edit_window.sql`) |
+| Per-unit pay defaults | `operating_units.default_bank_account_id` / `default_payment_mode` (migration `20260808150000_payments_90_unit_pay_defaults.sql`) |
 | Console callers | `app/src/lib/payments.ts` → `postPaymentCard` / `syncPaymentCard` / `postOtpRequest` / `postPaidNote` |
 
 Posting is **best-effort** — a Slack outage never blocks the payment — but the
@@ -120,3 +121,36 @@ notice — the accountant then has to ask the owner for the OTP by other means.
 > empty card; it now answers `this notify-slack deployment doesn't handle the
 > kind "…"` instead. Redeploy `notify-slack` **and** `slack-interactions` — they
 > share `_shared/payments.ts`.
+
+## Which build is live?
+
+`_shared/payments.ts` exports `PAYMENTS_BUILD`. Both functions log it on boot and
+on every request, so **Dashboard → Edge Functions → `notify-slack` → Logs** shows
+a line like:
+
+```
+[notify-slack] kind=payment_otp_request role=accountant build=2026-08-06 · otp+receipt+edit (payments_70/80/90)
+```
+
+No `build=` line at all means an older build is running — it doesn't log. Because
+the constant lives in `_shared`, seeing it also proves the shared module was
+bundled, which is the part a partial redeploy misses. `notify-slack` also answers
+`{"kind":"ping"}` with the build and every kind it handles, with no side effects.
+
+## Deploying the functions
+
+Migrations and Edge Functions ship **separately** — `npm run db:push:prod` does
+not touch the functions, which is how the console ends up doing the right thing
+while Slack posts nonsense. After any change under `supabase/functions/`:
+
+```bash
+npm run fn:deploy:staging
+npm run fn:deploy:prod
+```
+
+`scripts/functions-deploy.sh` deploys `notify-slack` + `slack-interactions`
+together (both bundle `_shared/payments.ts`, and a `_shared` change means every
+importer needs redeploying), asks before touching prod, and prints the live
+`UPDATED_AT` afterwards so a no-op deploy is obvious. It needs
+`SUPABASE_ACCESS_TOKEN` — the same token `db-push.sh` uses — and falls back to
+`npx supabase@latest` when the CLI isn't installed.

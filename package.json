@@ -10,6 +10,8 @@
     "db:status": "supabase migration list",
     "db:push:staging": "bash scripts/db-push.sh staging",
     "db:push:prod": "bash scripts/db-push.sh prod",
+    "fn:deploy:staging": "bash scripts/functions-deploy.sh staging",
+    "fn:deploy:prod": "bash scripts/functions-deploy.sh prod",
     "db:diff": "supabase db diff -f"
   },
   "dependencies": {

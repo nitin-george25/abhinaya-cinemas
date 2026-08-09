@@ -109,17 +109,33 @@ export function dcrCsvRows(C: ComputedEntry, cinema: Cinema): Row[] {
   R.push(["Net Share", C.today.netShare.toFixed(2)]);
   R.push([`DS Distributor (${C.share}%)`, C.today.distShare.toFixed(2)]);
   R.push([`ES Exhibitor (${100 - C.share}%)`, C.today.exShare.toFixed(2)]);
+  // Below the split, deliberately: cinema-only income that never entered Gross.
+  if (C.glasses.qty > 0) {
+    R.push(["Cinema only - not shared"]);
+    R.push([
+      `3D Glasses (${C.glasses.qty} x ${C.glasses.rate})`,
+      C.glasses.amount.toFixed(2),
+    ]);
+    R.push([`  taxable value`, C.glasses.taxable.toFixed(2)]);
+    R.push([`  GST (${C.glasses.gstPct}%, incl.)`, C.glasses.gst.toFixed(2)]);
+    R.push([
+      "Total to Cinema (ES + Glasses)",
+      (C.today.exShare + C.glasses.amount).toFixed(2),
+    ]);
+  }
   R.push([]);
 
   R.push([
     "Period", "Gross Coll", "TMC", "Cess", "Fund", "Rep.Batta",
-    "Net Share", "Dist.Share", "Ex.Share", "E-Tax", "Total GST", "Audience",
+    "Net Share", "Dist.Share", "Ex.Share", "E-Tax", "Total GST",
+    "3D Glasses", "3D Glasses GST", "Audience",
   ]);
   const cr = (o: ComputedEntry["today"]): Row => [
     o.grossColl.toFixed(2), o.tmc.toFixed(2), o.cess.toFixed(2),
     o.fund.toFixed(2), o.repBatta.toFixed(2),
     o.netShare.toFixed(2), o.distShare.toFixed(2), o.exShare.toFixed(2),
-    o.etax.toFixed(2), o.gst.toFixed(2), o.audience,
+    o.etax.toFixed(2), o.gst.toFixed(2),
+    o.glasses.toFixed(2), o.glassesGst.toFixed(2), o.audience,
   ];
   R.push(["Previous", ...cr(C.previous)]);
   R.push(["Today's",  ...cr(C.today)]);

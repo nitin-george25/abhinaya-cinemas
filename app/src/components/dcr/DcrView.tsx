@@ -148,7 +148,14 @@ function ShowBlock({
           SHOW {idx + 1} · SHOW TIME {fmtTime(show.showtime) || "—"}
           {show.card ? "  ·  " + show.card.name : ""}
         </span>
-        <span>No. of Free Pass: {show.freePass ?? 0}</span>
+        <span>
+          {/* 3D glasses ride in the header, not the table: the class table is
+              the taxed box-office document and this money is never in it. */}
+          {show.glasses && show.glasses.qty > 0
+            ? `3D Glasses: ${int(show.glasses.qty)} × ${money(show.glasses.rate)} = ${money(show.glasses.amount)}  ·  `
+            : ""}
+          No. of Free Pass: {show.freePass ?? 0}
+        </span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs tabular-nums">
@@ -255,6 +262,33 @@ function SettlementPanel({ C, tax }: { C: ComputedEntry; tax: TaxConfig }) {
           <SettleRow label="Net Share"    value={money(C.today.netShare)} highlight />
           <SettleRow label={`DS - Distributor (${sp}%)`} value={money(C.today.distShare)} />
           <SettleRow label={`ES - Exhibitor (${100 - sp}%)`} value={money(C.today.exShare)} />
+          {/* Below the split, deliberately: cinema-only income that never
+              entered Gross and so was never available to share. */}
+          {C.glasses.qty > 0 ? (
+            <>
+              <tr className="border-t-2 border-ink">
+                <td
+                  className="bg-ink text-white px-3 py-1 text-[10px] uppercase tracking-wider font-semibold"
+                  colSpan={2}
+                >
+                  Cinema only — not shared
+                </td>
+              </tr>
+              <SettleRow
+                label={`3D Glasses (${int(C.glasses.qty)} × ${money(C.glasses.rate)})`}
+                value={money(C.glasses.amount)}
+              />
+              <SettleRow
+                label={`— of which GST (${C.glasses.gstPct}%, incl.)`}
+                value={money(C.glasses.gst)}
+              />
+              <SettleRow
+                label="Total to Cinema (ES + Glasses)"
+                value={money(C.today.exShare + C.glasses.amount)}
+                highlight
+              />
+            </>
+          ) : null}
         </tbody>
       </table>
       <p className="mt-3 text-[11px] text-ink-muted leading-snug border border-dashed border-line rounded-md p-3">
@@ -262,6 +296,13 @@ function SettlementPanel({ C, tax }: { C: ComputedEntry; tax: TaxConfig }) {
         DS/ES split on Net Share. E-Tax/GST by ticket price:
         {" "}&gt; ₹{tax.threshold}: {tax.above.etaxPct}% E-Tax / {tax.above.gstPct}% GST;
         {" "}≤ ₹{tax.threshold}: {tax.below.etaxPct}% / {tax.below.gstPct}%.
+        {C.glasses.qty > 0 ? (
+          <>
+            {" "}3D glasses rental is a cinema charge collected over and above the
+            printed ticket price — it is not part of Gross Collection or Net Share,
+            and carries no distributor share.
+          </>
+        ) : null}
       </p>
     </div>
   );
@@ -313,6 +354,7 @@ function CumulativePanel({
             <th className="px-2 py-1.5 text-right font-semibold">Ex.Share</th>
             <th className="px-2 py-1.5 text-right font-semibold">E-Tax</th>
             <th className="px-2 py-1.5 text-right font-semibold">Total GST</th>
+            <th className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">3D Glasses</th>
             <th className="px-2 py-1.5 text-right font-semibold">Audience</th>
           </tr>
         </thead>
@@ -340,6 +382,7 @@ function CumRow({ label, o, shade }: { label: string; o: CumulativeRow; shade?: 
       <td className="px-2 py-1.5 text-right">{money(o.exShare)}</td>
       <td className="px-2 py-1.5 text-right">{money(o.etax)}</td>
       <td className="px-2 py-1.5 text-right">{money(o.gst)}</td>
+      <td className="px-2 py-1.5 text-right">{money(o.glasses)}</td>
       <td className="px-2 py-1.5 text-right">{int(o.audience)}</td>
     </tr>
   );

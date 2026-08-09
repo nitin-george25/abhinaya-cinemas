@@ -35,6 +35,8 @@ export interface ShowScheduleRow {
   showtime: string;          // "HH:MM:SS" from Postgres `time`; mapper truncates
   position: number | null;
   cancelled: boolean | null;
+  /** 3D show — seeds the glasses-rental line on the entered show. */
+  is_3d: boolean | null;
   notes: string | null;
   created_by: string | null;
   created_at: string | null;

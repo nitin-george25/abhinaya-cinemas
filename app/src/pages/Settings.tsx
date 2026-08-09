@@ -13,9 +13,11 @@ import { useSync } from "../lib/hooks/SyncContext";
 import { getSupabase } from "../lib/supabase";
 import {
   adminUsers,
+  isConsoleDomainEmail,
   isInternalEmail,
   listUsers,
   randomPin,
+  CONSOLE_DOMAIN,
   USERNAME_RE,
   PIN_RE,
   type ListedUser,
@@ -25,12 +27,13 @@ import { fbProducts as fbProductsApi } from "../lib/fb";
 import { fmtINR } from "../lib/dashboard";
 import { uid, entryKey } from "../lib/mappers";
 import { clearEntryShareOverrides } from "../lib/entriesApi";
-import { daysBetween, realShowCount } from "../lib/engine";
+import { GLASSES_3D_DEFAULT, daysBetween, realShowCount } from "../lib/engine";
 import { addDaysIso, todayIstIso } from "../lib/dates";
 import type {
   ClassDef,
   Distributor,
   FbProduct,
+  Glasses3dConfig,
   HoldOverRule,
   Movie,
   MovieFormat,
@@ -72,7 +75,9 @@ export function UsersSection() {
   const [users, setUsers] = useState<ListedUser[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  // Which add-form is open: a username+PIN user, or a Google address on the
+  // company domain. Only one at a time.
+  const [adding, setAdding] = useState<"pin" | "google" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,17 +123,37 @@ export function UsersSection() {
               {loading ? <IconSpinner className="w-4 h-4 mr-1" /> : null}
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setAdding((a) => !a)}>
-              {adding ? "Cancel" : "+ Add user"}
+            {isOwner ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAdding((a) => (a === "google" ? null : "google"))}
+              >
+                {adding === "google" ? "Cancel" : "+ Google access"}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              onClick={() => setAdding((a) => (a === "pin" ? null : "pin"))}
+            >
+              {adding === "pin" ? "Cancel" : "+ Add user"}
             </Button>
           </div>
         </CardHeader>
-        {adding ? (
+        {adding === "pin" ? (
           <CardBody className="border-b border-line bg-paper">
             <AddUserForm
               assignableRoles={assignableRoles}
-              onCancel={() => setAdding(false)}
-              onCreated={() => { setAdding(false); void load(); }}
+              onCancel={() => setAdding(null)}
+              onCreated={() => { setAdding(null); void load(); }}
+            />
+          </CardBody>
+        ) : null}
+        {adding === "google" ? (
+          <CardBody className="border-b border-line bg-paper">
+            <GrantGoogleForm
+              onCancel={() => setAdding(null)}
+              onGranted={() => { setAdding(null); void load(); }}
             />
           </CardBody>
         ) : null}
@@ -146,6 +171,7 @@ export function UsersSection() {
               onChanged={load}
               assignableRoles={assignableRoles}
               isOwner={isOwner}
+              selfEmail={(state.email ?? "").toLowerCase()}
             />
           )}
         </CardBody>
@@ -154,9 +180,12 @@ export function UsersSection() {
       <p className="text-xs text-ink-muted">
         Username login uses the email{" "}
         <code>&lt;username&gt;@local.abhinayacinemas.com</code> internally — no real
-        email is ever sent there. PINs are 6 digits. Owner can manage any role;
-        manager can manage cashier and daily-manager users only. The server
-        enforces the same scope.
+        email is ever sent there. PINs are 6 digits. Google access is granted
+        to <code>@{CONSOLE_DOMAIN}</code> addresses only, and takes effect the
+        first time that person signs in with Google — no invite email is sent.
+        Owner can manage any role and all Google users; manager can manage
+        cashier and daily-manager username users only. The server enforces the
+        same scope.
       </p>
     </div>
   );
@@ -169,11 +198,13 @@ function UsersTable({
   onChanged,
   assignableRoles,
   isOwner,
+  selfEmail,
 }: {
   users: ListedUser[];
   onChanged: () => void;
   assignableRoles: Role[];
   isOwner: boolean;
+  selfEmail: string;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -194,6 +225,7 @@ function UsersTable({
               onChanged={onChanged}
               assignableRoles={assignableRoles}
               isOwner={isOwner}
+              isSelf={u.email.toLowerCase() === selfEmail}
             />
           ))}
         </tbody>
@@ -207,16 +239,25 @@ function UserRow({
   onChanged,
   assignableRoles,
   isOwner,
+  isSelf,
 }: {
   user: ListedUser;
   onChanged: () => void;
   assignableRoles: Role[];
   isOwner: boolean;
+  isSelf: boolean;
 }) {
   const isUsernameUser = isInternalEmail(user.email);
   const [busy, setBusy] = useState<string | null>(null);
-  // For managers: rows holding a role outside their scope are read-only.
-  const canManageThisRow = isOwner || assignableRoles.includes(user.role);
+  // Managers are limited twice over: to roles inside their scope, and to
+  // username users — Google identities are owner territory (mirrors
+  // authoriseTarget in the admin-users Edge Function).
+  const canManageThisRow = isOwner || (isUsernameUser && assignableRoles.includes(user.role));
+  // Target the row the way the server expects: username for PIN users,
+  // email for Google users.
+  const target = isUsernameUser && user.username
+    ? { username: user.username }
+    : { email: user.email };
 
   async function withBusy(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -228,13 +269,13 @@ function UserRow({
   }
 
   async function changeRole(role: Role) {
-    if (!isUsernameUser || !user.username) {
-      alert("Role changes for Google users must be done in Supabase directly.");
+    if (role === user.role) return;
+    if (isSelf && !confirm(`Change your own role to ${ROLE_LABELS[role]}? You may lose access to this screen.`)) {
+      onChanged();  // re-render so the picker snaps back to the real role
       return;
     }
-    if (role === user.role) return;
     await withBusy("role", async () => {
-      await adminUsers.updateRole(user.username!, role);
+      await adminUsers.updateRole(target, role);
       onChanged();
     });
   }
@@ -260,12 +301,8 @@ function UserRow({
   async function remove() {
     const label = user.username ?? user.email;
     if (!confirm(`Remove ${label}? They'll lose access immediately.`)) return;
-    if (!isUsernameUser || !user.username) {
-      alert("Google users must be removed from Supabase directly.");
-      return;
-    }
     await withBusy("remove", async () => {
-      await adminUsers.remove(user.username!);
+      await adminUsers.remove(target);
       onChanged();
     });
   }
@@ -293,7 +330,7 @@ function UserRow({
           <Select
             value={user.role}
             onChange={(e) => void changeRole(e.target.value as Role)}
-            disabled={!isUsernameUser || !!busy}
+            disabled={!!busy}
             className="w-36 h-8 text-sm"
           >
             {/* Always include the user's current role so the picker isn't
@@ -309,28 +346,34 @@ function UserRow({
       </td>
       <td className="px-5 py-3 text-right">
         <div className="inline-flex items-center gap-2">
-          {isUsernameUser && canManageThisRow ? (
+          {canManageThisRow ? (
             <>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void resetPin()}
-                disabled={!!busy}
-              >
-                {busy === "pin" ? <IconSpinner className="w-4 h-4" /> : "Reset PIN"}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void remove()}
-                disabled={!!busy}
-                className="text-red-700"
-              >
-                {busy === "remove" ? <IconSpinner className="w-4 h-4" /> : "Remove"}
-              </Button>
+              {isUsernameUser ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void resetPin()}
+                  disabled={!!busy}
+                >
+                  {busy === "pin" ? <IconSpinner className="w-4 h-4" /> : "Reset PIN"}
+                </Button>
+              ) : null}
+              {/* Removing your own row would lock you out — the server
+                  refuses it too, so don't offer the button. */}
+              {isSelf ? (
+                <span className="text-xs text-ink-muted">you</span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void remove()}
+                  disabled={!!busy}
+                  className="text-red-700"
+                >
+                  {busy === "remove" ? <IconSpinner className="w-4 h-4" /> : "Remove"}
+                </Button>
+              )}
             </>
-          ) : !isUsernameUser ? (
-            <span className="text-xs text-ink-muted">manage in Supabase</span>
           ) : (
             <span className="text-xs text-ink-muted">owner only</span>
           )}
@@ -448,6 +491,93 @@ function AddUserForm({
       {error ? (
         <p className="col-span-full text-sm text-red-700">{error}</p>
       ) : null}
+    </form>
+  );
+}
+
+// ── grant Google access form (owner only) ─────────────────────────────
+//
+// A row in authorized_users IS the grant: Google OAuth creates the auth
+// user on first sign-in, and the app rejects any session whose email has
+// no row. So there is no password to set and no invite to send — the
+// person just signs in with "Continue with Google" and is in.
+
+function GrantGoogleForm({
+  onCancel,
+  onGranted,
+}: {
+  onCancel: () => void;
+  onGranted: () => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("manager");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const addr = email.trim().toLowerCase();
+    if (!fullName.trim()) { setError("Full name required."); return; }
+    if (!isConsoleDomainEmail(addr)) {
+      setError(`Email must be a valid @${CONSOLE_DOMAIN} address.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminUsers.grantGoogle({ email: addr, fullName: fullName.trim(), role });
+      alert(
+        `${addr} can now sign in with Google as ${ROLE_LABELS[role]}.\n\n` +
+        `Tell them to use "Continue with Google" — no invite email is sent.`,
+      );
+      onGranted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={go} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
+      <Field label="Full name">
+        <Input
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder="George"
+        />
+      </Field>
+      <Field label={`Google email (@${CONSOLE_DOMAIN})`}>
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
+          placeholder={`george@${CONSOLE_DOMAIN}`}
+          autoCapitalize="off"
+          autoComplete="off"
+        />
+      </Field>
+      <Field label="Role">
+        <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+        </Select>
+      </Field>
+      <div className="flex items-center gap-2">
+        <Button type="submit" disabled={busy} className="flex-1">
+          {busy ? <IconSpinner className="w-4 h-4" /> : null}
+          Grant access
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+      </div>
+      {error ? (
+        <p className="col-span-full text-sm text-red-700">{error}</p>
+      ) : null}
+      <p className="col-span-full text-xs text-ink-muted">
+        Only <code>@{CONSOLE_DOMAIN}</code> addresses can be granted access.
+        No email is sent — access is live the next time they sign in with
+        Google.
+      </p>
     </form>
   );
 }
@@ -2463,6 +2593,80 @@ export function TaxSection() {
               className="text-right" />
           </Field>
         </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * 3D glasses rental — the per-head charge collected on top of the printed
+ * ticket price when a 3D show plays.
+ *
+ * Cinema-only income: it never enters Gross Collection, so it never reaches
+ * Net Share and is never split with the distributor. The DCR prints it on its
+ * own line below DS/ES.
+ *
+ * Changing the rate here affects shows entered from now on. Every already-
+ * entered show carries the rate it was entered with, so a filed DCR never
+ * re-prices itself.
+ */
+export function Glasses3dSection() {
+  const { state, setAppState } = useSync();
+  const appState = state.appState;
+  if (!appState || !canEditCatalog(state.role)) return null;
+
+  const cinema = appState.cinema;
+  const g: Glasses3dConfig = cinema.glasses3d ?? GLASSES_3D_DEFAULT;
+
+  function patch(p: Partial<Glasses3dConfig>) {
+    if (!appState) return;
+    setAppState({
+      ...appState,
+      cinema: { ...cinema, glasses3d: { ...g, ...p } },
+    });
+  }
+
+  const taxable = g.rate > 0 ? (g.rate * 100) / (100 + g.gstPct) : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>3D glasses rental</CardTitle>
+        <span className="text-xs text-ink-muted">stored in config.cinema.glasses3d</span>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Rate (₹ / pair)"
+            hint="Inclusive of GST — what the patron actually hands over."
+          >
+            <Input
+              type="number" min={0} step={0.01}
+              value={g.rate}
+              onChange={(e) => patch({ rate: Number(e.target.value) || 0 })}
+              className="text-right"
+            />
+          </Field>
+          <Field label="GST %" hint="The rate the inclusive price carries.">
+            <Input
+              type="number" min={0} max={100} step={0.01}
+              value={g.gstPct}
+              onChange={(e) => patch({ gstPct: Number(e.target.value) || 0 })}
+              className="text-right"
+            />
+          </Field>
+        </div>
+
+        <p className="text-[11px] text-ink-muted leading-snug border border-dashed border-line rounded-md p-3">
+          At ₹{g.rate} inclusive of {g.gstPct}% GST, each pair is{" "}
+          <strong className="text-ink">₹{taxable.toFixed(2)}</strong> taxable +{" "}
+          <strong className="text-ink">₹{(g.rate - taxable).toFixed(2)}</strong> GST.
+          Charged per paid ticket on shows marked 3D on the Schedule page; free
+          passes are not charged. This money is the cinema's — it is never part
+          of Gross Collection or Net Share, and carries no distributor share.
+          Changing the rate applies to shows entered from now on; already-entered
+          shows keep the rate they were filed with.
+        </p>
       </CardBody>
     </Card>
   );

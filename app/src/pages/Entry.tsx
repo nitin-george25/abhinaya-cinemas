@@ -26,6 +26,7 @@ import {
 } from "../lib/schedule";
 import {
   computeEntry,
+  glasses3dConfig,
   hasShareOverride,
   resolveShare,
   runWeekOf,
@@ -563,11 +564,14 @@ function ScheduledShow({
 
   // Editable (open / owner-open). Render the full ShowCard, materializing the
   // entered show lazily on first edit.
+  // A 3D programme row seeds the glasses line, snapshotting today's rate so a
+  // later rate change never re-prices this DCR. qty is left auto (= tickets).
   const show: Show =
     matShow ?? {
       ...blankShow(appState, screenId, sched.priceCardId),
       showtime: sched.showtime,
       scheduleId: sched.id,
+      ...(sched.is3d ? { glasses3d: { ...glasses3dConfig(appState) } } : {}),
     };
   const computedShow = matIdx >= 0 ? computed?.shows[matIdx] : undefined;
 

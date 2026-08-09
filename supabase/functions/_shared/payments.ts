@@ -9,6 +9,20 @@
 
 import { inr, json, slackApi } from "./slack.ts";
 
+/**
+ * Build marker for the Slack payment code. Bump it whenever this file changes
+ * in a way an operator needs to see live.
+ *
+ * It exists because "is the deployed function actually running this code?" was
+ * unanswerable without it: migrations and Edge Functions ship separately, so a
+ * project can have the payments_70 DB and a pre-payments_70 function, and the
+ * only symptom is a Slack card that looks wrong. Both notify-slack and
+ * slack-interactions log this on every request and notify-slack returns it, so
+ * the answer is one line in the dashboard logs. Living in _shared means it also
+ * proves the SHARED file was bundled — the piece a partial redeploy misses.
+ */
+export const PAYMENTS_BUILD = "2026-08-06 · otp+receipt+edit (payments_70/80/90)";
+
 // Who may trigger a payment Slack post (the raisers).
 export const PAYMENT_POST_ROLES = new Set(["owner", "manager", "accountant"]);
 // Who may ask the owner for the bank OTP (the payers).
@@ -23,7 +37,7 @@ export async function loadPaymentForSlack(svc: any, id: string) {
   const { data } = await svc
     .from("payment_requests")
     .select(
-      "id, payee_name, amount, needed_by, status, invoice_url, proforma_url, " +
+      "id, payee_name, amount, needed_by, status, purpose, invoice_url, proforma_url, " +
       "approved_by_email, rejected_reason, slack_channel, slack_ts, otp_slack_ts, " +
       "operating_unit_id, payment_type_id, is_advance, mode, " +
       "bank_account_id, payee_account_last4, payee_ifsc, " +
@@ -137,27 +151,44 @@ export function paymentBlocks(p: any, decided: boolean, deepLink?: string | null
  */
 // deno-lint-ignore no-explicit-any
 export function otpRequestBlocks(p: any, requestedBy: string, deepLink?: string | null): any[] {
+  // Slack renders a `fields` block two-up and caps it at 10, so this is the
+  // whole payment at a glance without a scroll.
   const fields = [
+    `*Type:* ${p.type_name ?? "Payment"}`,
     `*Payee:* ${p.payee_name ?? "—"}`,
     `*Amount:* ${inr(Number(p.amount) || 0)}`,
+    `*Mode:* ${String(p.mode ?? "bank_transfer").replace(/_/g, " ")}`,
     `*Paying from:* ${p.bank_label ?? "—"}`,
     p.payee_account_last4 ? `*To A/c:* ••••${p.payee_account_last4}` : null,
-    `*Mode:* ${String(p.mode ?? "bank_transfer").replace(/_/g, " ")}`,
+    p.is_advance ? `*Advance:* yes` : null,
+    `*Unit:* ${p.unit_name ?? "—"}`,
     `*Approved by:* ${p.approved_by_email ?? "—"}`,
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 10);
 
   // deno-lint-ignore no-explicit-any
   const blocks: any[] = [
-    { type: "section", text: { type: "mrkdwn", text: ":closed_lock_with_key: *Payment OTP needed*" } },
-    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t as string })) },
     {
-      type: "context",
-      elements: [{
+      type: "section",
+      text: {
         type: "mrkdwn",
-        text: `${requestedBy || "The accountant"} is ready to pay — *reply in this thread with the OTP*.`,
-      }],
+        text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(p.amount) || 0)} to *${p.payee_name ?? "—"}*`,
+      },
     },
+    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t as string })) },
   ];
+  if (p.purpose) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*For:* ${p.purpose}` } });
+  }
+  if (p.invoice_url) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Invoice:* <${p.invoice_url}|view>` } });
+  }
+  blocks.push({
+    type: "context",
+    elements: [{
+      type: "mrkdwn",
+      text: `${requestedBy || "The accountant"} is ready to pay — *reply in this thread with the OTP*.`,
+    }],
+  });
   if (deepLink) {
     blocks.push({
       type: "actions",
@@ -221,7 +252,7 @@ export async function handlePaymentOutbound(
     if (!CHAN && !p.slack_channel) {
       return json({ error: "the payments Slack channel isn't set (SLACK_PAYMENTS_CHANNEL_ID secret missing)." }, 500);
     }
-    const text = `Payment OTP needed: ${inr(Number(p.amount) || 0)} — ${p.payee_name ?? ""}`;
+    const text = `OTP requested: ${inr(Number(p.amount) || 0)} — ${p.payee_name ?? ""}`;
     // Thread it under the approval card when we have one; if the card never got
     // posted (Slack was down at submit), fall back to a standalone message so
     // the owner is still asked. `reply_broadcast` surfaces the reply in the

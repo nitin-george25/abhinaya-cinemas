@@ -5,7 +5,7 @@
 // hook handles the rest (delta detection + debounced push to Supabase).
 // ============================================================================
 
-import { entryClasses, screenById } from "./engine";
+import { entryClasses, glasses3dConfig, screenById } from "./engine";
 import { uid } from "./mappers";
 import type {
   AppState,
@@ -209,6 +209,10 @@ export function ensureScheduledShow(
     const sh = blankShow(state, sched.screenId, sched.priceCardId);
     sh.showtime = sched.showtime;
     sh.scheduleId = sched.id;
+    // A 3D programme row seeds the glasses-rental line. The rate is snapshotted
+    // here, at materialization, so a later rate change never re-prices a filed
+    // DCR. qty stays auto (= the show's paid tickets) until overridden.
+    if (sched.is3d) sh.glasses3d = { ...glasses3dConfig(state) };
     entry = { ...entry, shows: [...(entry.shows ?? []), sh] };
     idx = (entry.shows ?? []).length - 1;
   } else if (entry.shows?.[idx]?.scheduleId !== sched.id) {

@@ -2,7 +2,13 @@ import { Input, Select } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Card, CardBody } from "../ui/Card";
-import { screenById, entryClasses, cardById, N } from "../../lib/engine";
+import {
+  screenById,
+  entryClasses,
+  cardById,
+  glasses3dConfig,
+  N,
+} from "../../lib/engine";
 import { fmtINR, fmtInt } from "../../lib/dashboard";
 import type {
   AppState,
@@ -122,6 +128,58 @@ export function ShowCard({
               onChange={(e) => onChange({ freePass: Number(e.target.value) || 0 })}
               className="w-full sm:w-24 tabular-nums"
             />
+          </div>
+
+          {/* 3D glasses rental — cinema-only income, never in the distributor
+              split. Present = 3D show. Blank qty means auto (= paid tickets),
+              so it tracks live as ticket counts are keyed in. */}
+          <div className="space-y-1 col-span-2 sm:col-auto">
+            <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
+              3D glasses
+            </span>
+            {show.glasses3d ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={show.glasses3d.qty ?? ""}
+                  placeholder={String(computed?.totals.tickets ?? 0)}
+                  title="Pairs issued. Blank = same as tickets sold."
+                  onChange={(e) =>
+                    onChange({
+                      glasses3d: {
+                        ...show.glasses3d!,
+                        qty: e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                    })
+                  }
+                  className="w-20 tabular-nums"
+                  aria-label="3D glasses pairs issued"
+                />
+                <span className="text-[11px] text-ink-muted whitespace-nowrap tabular-nums">
+                  × {fmtINR(show.glasses3d.rate)}
+                  {computed?.glasses ? ` = ${fmtINR(computed.glasses.amount)}` : ""}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onChange({ glasses3d: undefined })}
+                  title="Not a 3D show — remove the glasses charge"
+                >
+                  Clear
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onChange({ glasses3d: { ...glasses3dConfig(state) } })}
+                title="Charge the 3D glasses rental on this show"
+              >
+                + 3D glasses
+              </Button>
+            )}
           </div>
         </div>
 

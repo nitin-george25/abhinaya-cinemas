@@ -20,7 +20,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ephemeral, reply, slackApi, verifySlackSignature } from "../_shared/slack.ts";
 import { authorizePettyApprover, loadPettyExpense, pettyBlocks } from "../_shared/petty.ts";
-import { loadPaymentForSlack, paymentBlocks } from "../_shared/payments.ts";
+import { loadPaymentForSlack, paymentBlocks, PAYMENTS_BUILD } from "../_shared/payments.ts";
+
+// Logged on boot and per interaction so the dashboard logs say which build is
+// live. This function shares _shared/payments.ts with notify-slack, so the two
+// must be redeployed together — mismatched builds are exactly what this catches.
+console.log(`[slack-interactions] boot · build ${PAYMENTS_BUILD}`);
 
 /** Friendly text for the coded exceptions fn_slack_payment_decide raises. */
 function paymentDecideError(msg: string): string {
@@ -59,6 +64,8 @@ Deno.serve(async (req: Request) => {
   // deno-lint-ignore no-explicit-any
   let payload: any;
   try { payload = JSON.parse(payloadStr); } catch { return reply("bad payload", 400); }
+
+  console.log(`[slack-interactions] type=${payload.type} action=${payload.actions?.[0]?.action_id ?? payload.view?.callback_id ?? "—"} build=${PAYMENTS_BUILD}`);
 
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
 
