@@ -25,6 +25,14 @@ export default function ReportsBoPage() {
             </a>{" "}
             for the same data.
           </p>
+          <p className="text-sm text-ink-muted">
+            Looking for glasses income?{" "}
+            <a className="text-amber-600 underline" href="/reports/box-office/3d-glasses">
+              3D Glasses
+            </a>{" "}
+            reports it separately — it is cinema-only income and never appears
+            on the DCR.
+          </p>
         </CardBody>
       </Card>
     </div>

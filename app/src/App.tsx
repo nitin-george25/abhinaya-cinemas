@@ -28,6 +28,7 @@ import SettingsPaymentTypesPage from "./pages/settings/PaymentTypes";
 import SettingsWhatsappPage from "./pages/settings/Whatsapp";
 import SettingsNotificationsPage from "./pages/settings/Notifications";
 import ReportsBoPage from "./pages/reports/Bo";
+import ReportsGlasses3dPage from "./pages/reports/Glasses3d";
 import ReportsFbPage from "./pages/reports/Fb";
 import ReportsPictureEndingPage from "./pages/reports/PictureEnding";
 import ReportsPosCashClosingPage from "./pages/reports/CashClosing";
@@ -198,6 +199,7 @@ function AppGate() {
                 <>
                   <Route path="/reports"             element={<Navigate to="/reports/fb" replace />} />
                   <Route path="/reports/box-office"  element={<ReportsBoPage />} />
+                  <Route path="/reports/box-office/3d-glasses" element={<ReportsGlasses3dPage />} />
                   <Route path="/reports/picture-ending" element={<ReportsPictureEndingPage />} />
                   <Route path="/reports/fb"          element={<ReportsFbPage />} />
                   <Route path="/reports/pos/cash-closing" element={<ReportsPosCashClosingPage />} />

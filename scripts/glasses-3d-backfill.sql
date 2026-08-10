@@ -11,8 +11,9 @@
 --   Supabase dashboard → SQL Editor → paste → run one STEP at a time
 --   or:  psql "$DATABASE_URL" -f scripts/glasses-3d-backfill.sql
 --
--- Run against STAGING first. Open one backfilled DCR and check the figures
--- before touching prod.
+-- Run against STAGING first, then check Reports → Box Office → 3D Glasses for
+-- the backfilled run before touching prod. (Not the DCR — the rental is
+-- cinema-only income and is deliberately absent from that document.)
 --
 -- ── WHAT IT WRITES ─────────────────────────────────────────────────────────
 -- Each matching show in entries.shows gains:
@@ -29,16 +30,96 @@
 -- change any figure a distributor was ever settled against. Picture Ending
 -- Statements already filed are likewise untouched.
 --
--- ── THE 2-DAY EDIT LOCK ────────────────────────────────────────────────────
--- trg_entries_edit_lock freezes entries.shows past 2 days for every role but
--- owner. A service-role / direct-DB connection bypasses it by design (see
--- 20260620100000_entries_share_editable_after_lock.sql), so this script works
--- on any date. The SQL Editor runs as service role.
+-- ── THE 2-DAY EDIT LOCK — READ THIS ────────────────────────────────────────
+-- trg_entries_edit_lock freezes entries.shows past 2 days. Its bypass is
+-- checked in this order (see 20260620100000_entries_share_editable_after_lock):
+--
+--   1. request.jwt.claims is NULL, or its `role` is 'service_role'  → allowed
+--   2. is_owner()                                                   → allowed
+--   3. otherwise: manager may change ONLY the share %; everyone else nothing
+--
+-- Do NOT assume your session lands on 1 or 2 — run STEP 0 below, which prints
+-- exactly what the trigger will see. A session that falls through to 3 is
+-- rejected with:
+--
+--   ERROR: DCR locked: after 2 days only the distributor share % may be edited
+--
+-- STEP 3 claims branch 1 inside a DO block. A DO block is a SINGLE statement,
+-- so it is one transaction regardless of how the client splits the script —
+-- which a bare `begin; set_config(...); update; commit;` is not, if the editor
+-- sends each statement separately. STEP 3B is a guaranteed fallback that
+-- suspends the trigger outright.
 --
 -- ── IDEMPOTENT ─────────────────────────────────────────────────────────────
 -- A show that already carries glasses3d is skipped untouched, so re-running
 -- never double-charges and never overwrites a hand-set quantity.
 -- ============================================================================
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 0 — DIAGNOSTIC. What does the edit-lock trigger see from this session?
+--
+-- Run this FIRST. It tells you which branch you land on, so you stop guessing:
+--
+--   claims_role = 'service_role', or claims is null  → branch 1, writes allowed
+--   is_owner = true                                  → branch 2, writes allowed
+--   otherwise                                        → branch 3, writes BLOCKED
+--
+-- If `is_owner_or_manager` is true while `jwt_email` is blank, check the last
+-- column: an authorized_users row with an empty/blank email makes every
+-- unauthenticated session match it, which silently grants that row's role to
+-- the SQL editor. That is a data bug worth fixing on its own.
+-- ═══════════════════════════════════════════════════════════════════════════
+select current_user,
+       current_setting('request.jwt.claims', true)          as claims,
+       current_setting('request.jwt.claims', true)::json ->> 'role'
+                                                            as claims_role,
+       coalesce(auth.jwt() ->> 'email', '(none)')           as jwt_email,
+       public.is_owner()                                    as is_owner,
+       public.is_owner_or_manager()                         as is_owner_or_manager,
+       (select count(*) from public.authorized_users
+         where coalesce(trim(email), '') = '')              as blank_email_rows;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 0B — What is ACTUALLY deployed?
+--
+-- Run these if STEP 0 says claims is null / is_owner_or_manager is false and
+-- a write still fails. Those two facts are incompatible with the trigger as
+-- committed (null claims returns early; the manager error needs
+-- is_owner_or_manager true), which means the database has drifted from the
+-- repo. Compare the function body below against
+-- supabase/migrations/20260620100000_entries_share_editable_after_lock.sql.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- a) The live function body. This is the authority, not the migration file.
+select pg_get_functiondef(p.oid) as deployed_body
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public'
+   and p.proname = 'enforce_entry_edit_lock';
+
+-- b) Every non-internal trigger on entries — is there more than one?
+--    tgenabled: 'O' = enabled, 'D' = disabled.
+select t.tgname, t.tgenabled, p.proname as calls
+  from pg_trigger t
+  join pg_proc p on p.oid = t.tgfoid
+ where t.tgrelid = 'public.entries'::regclass
+   and not t.tgisinternal
+ order by t.tgname;
+
+-- c) Restrictive RLS policies still in force? 20260620100000 was supposed to
+--    drop entries_edit_lock_update and replace it with the trigger.
+select policyname, permissive, cmd, qual, with_check
+  from pg_policies
+ where schemaname = 'public' and tablename = 'entries'
+ order by policyname;
+
+-- d) Did that migration ever land here?
+select version
+  from supabase_migrations.schema_migrations
+ where version in ('20260613140000', '20260620100000')
+ order by version;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -104,32 +185,106 @@ select count(distinct (entry_date, movie_id, screen_id))         as dcr_days,
 -- STEP 3 — WRITE. Same movie_id / dates as STEP 2, and the rate the shows
 --          actually played at (30 unless you changed it since).
 --
+-- This is ONE statement — a DO block — on purpose. set_config(..., true) is
+-- transaction-local, and a DO block is a single statement, so the claim and
+-- the update are guaranteed to share a transaction no matter how the client
+-- splits the script. A bare `begin; set_config(); update; commit;` is NOT
+-- guaranteed that, which is why it can still fail with the lock error.
+--
 -- The rate is snapshotted onto each show exactly as a live entry would do, so
--- these DCRs keep printing this rate even if Settings changes later.
+-- these shows keep reporting at this rate even if Settings changes later.
 -- ═══════════════════════════════════════════════════════════════════════════
-update public.entries e
-   set shows = (
-         select jsonb_agg(
-                  case
-                    when sh -> 'glasses3d' is null
-                      then sh || jsonb_build_object(
-                             'glasses3d',
-                             jsonb_build_object('rate', 30, 'gstPct', 18))  -- ►► rate
-                    else sh
-                  end
-                  order by ord
-                )
-           from jsonb_array_elements(e.shows) with ordinality x(sh, ord)
-       ),
-       updated_by = 'glasses-3d-backfill',
-       updated_at = now()
- where e.movie_id in ('PUT-MOVIE-ID-HERE')          -- ►► same as STEP 2
-   and e.entry_date >= '1900-01-01'::date            -- ►► same as STEP 2
-   and e.entry_date <= '2999-12-31'::date            -- ►► same as STEP 2
-   and e.shows is not null
-   and jsonb_typeof(e.shows) = 'array'
-   and exists (select 1 from jsonb_array_elements(e.shows) s
-                where s -> 'glasses3d' is null);
+do $$
+declare
+  v_rows int;
+begin
+  -- Claim branch 1 of the edit-lock trigger. Reverts when this transaction
+  -- ends, so it cannot leak to another session on a pooled connection.
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+  update public.entries e
+     set shows = (
+           select jsonb_agg(
+                    case
+                      when sh -> 'glasses3d' is null
+                        then sh || jsonb_build_object(
+                               'glasses3d',
+                               jsonb_build_object('rate', 30, 'gstPct', 18))  -- ►► rate
+                      else sh
+                    end
+                    order by ord
+                  )
+             from jsonb_array_elements(e.shows) with ordinality x(sh, ord)
+         ),
+         updated_by = 'glasses-3d-backfill',
+         updated_at = now()
+   where e.movie_id in ('PUT-MOVIE-ID-HERE')          -- ►► same as STEP 2
+     and e.entry_date >= '1900-01-01'::date            -- ►► same as STEP 2
+     and e.entry_date <= '2999-12-31'::date            -- ►► same as STEP 2
+     and e.shows is not null
+     and jsonb_typeof(e.shows) = 'array'
+     and exists (select 1 from jsonb_array_elements(e.shows) s
+                  where s -> 'glasses3d' is null);
+
+  get diagnostics v_rows = row_count;
+  raise notice '3D glasses backfill: % DCR rows updated', v_rows;
+end $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 3B — FALLBACK, only if STEP 3 still raises the lock error.
+--
+-- Suspends the trigger for the duration instead of trying to satisfy it. Also
+-- a single DO block, so the disable can never outlive the statement: if the
+-- update raises, the whole thing rolls back and the trigger comes back with
+-- it. ALTER TABLE ... DISABLE TRIGGER is transactional in Postgres and takes
+-- an ACCESS EXCLUSIVE lock, so no other session can write to entries while it
+-- is off.
+--
+-- Requires ownership of public.entries (the SQL Editor's postgres role has
+-- it). Edit the movie_id / dates / rate to match STEP 2, then uncomment.
+-- ═══════════════════════════════════════════════════════════════════════════
+-- do $$
+-- declare
+--   v_rows int;
+-- begin
+--   alter table public.entries disable trigger trg_entries_edit_lock;
+--
+--   update public.entries e
+--      set shows = (
+--            select jsonb_agg(
+--                     case
+--                       when sh -> 'glasses3d' is null
+--                         then sh || jsonb_build_object(
+--                                'glasses3d',
+--                                jsonb_build_object('rate', 30, 'gstPct', 18))
+--                       else sh
+--                     end
+--                     order by ord
+--                   )
+--              from jsonb_array_elements(e.shows) with ordinality x(sh, ord)
+--          ),
+--          updated_by = 'glasses-3d-backfill',
+--          updated_at = now()
+--    where e.movie_id in ('PUT-MOVIE-ID-HERE')
+--      and e.entry_date >= '1900-01-01'::date
+--      and e.entry_date <= '2999-12-31'::date
+--      and e.shows is not null
+--      and jsonb_typeof(e.shows) = 'array'
+--      and exists (select 1 from jsonb_array_elements(e.shows) s
+--                   where s -> 'glasses3d' is null);
+--
+--   get diagnostics v_rows = row_count;
+--
+--   alter table public.entries enable trigger trg_entries_edit_lock;
+--   raise notice '3D glasses backfill (trigger suspended): % DCR rows updated', v_rows;
+-- end $$;
+--
+-- -- Confirm the trigger is back ON. Must return 'O' (enabled).
+-- select tgname, tgenabled
+--   from pg_trigger
+--  where tgrelid = 'public.entries'::regclass
+--    and tgname = 'trg_entries_edit_lock';
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -156,14 +311,20 @@ select e.entry_date,
 -- ═══════════════════════════════════════════════════════════════════════════
 -- UNDO — removes the glasses line from the targeted run. Use only if a
 --        backfill hit the wrong film. This also erases hand-set quantities.
+--        Same DO-block shape as STEP 3, for the same reason.
 -- ═══════════════════════════════════════════════════════════════════════════
--- update public.entries e
---    set shows = (
---          select jsonb_agg(sh - 'glasses3d' order by ord)
---            from jsonb_array_elements(e.shows) with ordinality x(sh, ord)
---        ),
---        updated_by = 'glasses-3d-backfill-undo',
---        updated_at = now()
---  where e.movie_id in ('PUT-MOVIE-ID-HERE')
---    and e.shows is not null
---    and jsonb_typeof(e.shows) = 'array';
+-- do $$
+-- begin
+--   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+--
+--   update public.entries e
+--      set shows = (
+--            select jsonb_agg(sh - 'glasses3d' order by ord)
+--              from jsonb_array_elements(e.shows) with ordinality x(sh, ord)
+--          ),
+--          updated_by = 'glasses-3d-backfill-undo',
+--          updated_at = now()
+--    where e.movie_id in ('PUT-MOVIE-ID-HERE')
+--      and e.shows is not null
+--      and jsonb_typeof(e.shows) = 'array';
+-- end $$;

@@ -136,6 +136,8 @@ export const NAV: NavItem[] = [
         roles: REPORT_ROLES,
         children: [
           { kind: "leaf", to: "/reports/box-office",     label: "Collections",    roles: REPORT_ROLES },
+          // Cinema-only income, kept off the DCR on purpose — see lib/glasses.ts.
+          { kind: "leaf", to: "/reports/box-office/3d-glasses", label: "3D Glasses", roles: REPORT_ROLES },
           { kind: "leaf", to: "/reports/picture-ending", label: "Picture Ending", roles: REPORT_ROLES },
         ],
       },

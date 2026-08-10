@@ -69,8 +69,11 @@ export interface WhatsappConfig {
  *
  * A flat per-head charge collected ON TOP of the printed ticket price when a
  * 3D show plays. It is CINEMA-ONLY income — never part of Gross Collection,
- * so it never reaches Net Share and is never split with the distributor. The
- * DCR prints it as its own line below DS/ES.
+ * so it never reaches Net Share and is never split with the distributor.
+ *
+ * Deliberately absent from the DCR: that document is the box-office record a
+ * distributor is settled against. Reported instead on the Entry page summary,
+ * Reports → Box Office → 3D Glasses, and the per-movie popup on History.
  *
  * `rate` is GST-INCLUSIVE: a ₹30 rate at 18% is ₹25.42 taxable + ₹4.58 GST.
  */
@@ -520,17 +523,6 @@ export interface CumulativeRow {
   etax: number;
   gst: number;
   audience: number;
-  /**
-   * 3D glasses rental collected (GST-inclusive). CINEMA-ONLY: deliberately
-   * NOT inside grossColl / netShare / distShare / exShare — it rides alongside
-   * them so the cumulative table can show it without ever entering the split.
-   * Rolls through the same generic key loop as every other field, so past days
-   * and pre-tool openings accumulate for free (absent = 0).
-   */
-  glasses: number;
-  /** GST component of `glasses`. Kept out of `gst`, which is ticket GST and
-   *  feeds netShare. */
-  glassesGst: number;
 }
 
 export interface ComputedEntry {

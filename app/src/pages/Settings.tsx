@@ -2603,8 +2603,8 @@ export function TaxSection() {
  * ticket price when a 3D show plays.
  *
  * Cinema-only income: it never enters Gross Collection, so it never reaches
- * Net Share and is never split with the distributor. The DCR prints it on its
- * own line below DS/ES.
+ * Net Share and is never split with the distributor. It is deliberately kept
+ * off the DCR and reported under Reports → Box Office → 3D Glasses instead.
  *
  * Changing the rate here affects shows entered from now on. Every already-
  * entered show carries the rate it was entered with, so a filed DCR never
@@ -2663,9 +2663,10 @@ export function Glasses3dSection() {
           <strong className="text-ink">₹{(g.rate - taxable).toFixed(2)}</strong> GST.
           Charged per paid ticket on shows marked 3D on the Schedule page; free
           passes are not charged. This money is the cinema's — it is never part
-          of Gross Collection or Net Share, and carries no distributor share.
-          Changing the rate applies to shows entered from now on; already-entered
-          shows keep the rate they were filed with.
+          of Gross Collection or Net Share, carries no distributor share, and
+          does not appear on the DCR. It is reported under Reports → Box Office
+          → 3D Glasses. Changing the rate applies to shows entered from now on;
+          already-entered shows keep the rate they were filed with.
         </p>
       </CardBody>
     </Card>
