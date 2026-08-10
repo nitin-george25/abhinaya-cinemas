@@ -38,6 +38,13 @@ interface Props {
    *  last-show). The Remove button is driven by `onRemove` alone — the caller
    *  decides whether a locked-meta show may be deleted. */
   metaLocked?: boolean;
+  /** Escape hatch for a wrong price-card snapshot: when true, the price card
+   *  stays editable even under `metaLocked` (showtime remains locked). The
+   *  caller gates this — currently owner-only, on an already-entered show — so
+   *  a bad card picked at entry time can be corrected without deleting and
+   *  re-keying the show. A deliberate override: it writes the entry's own
+   *  priceCardId, so it never silently re-prices from a later Schedule edit. */
+  priceCardEditable?: boolean;
   /** Auto-detected last show of the movie's day (latest scheduled showtime).
    *  Replaces the old manual "Last show of day" checkbox — drives the WhatsApp
    *  day-totals append. */
@@ -62,6 +69,7 @@ export function ShowCard({
   removeLabel = "Remove",
   onGenerateMessage,
   metaLocked = false,
+  priceCardEditable = false,
   isLast = false,
 }: Props) {
   const screen = screenById(state, entry.screenId);
@@ -97,7 +105,7 @@ export function ShowCard({
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Price card
             </span>
-            {metaLocked ? (
+            {metaLocked && !priceCardEditable ? (
               <div className="h-11 sm:h-10 flex items-center truncate">
                 {selectedCard?.name ?? "—"}
               </div>
