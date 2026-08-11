@@ -8,6 +8,7 @@
 
 import { uid } from "./mappers";
 import { showIdxForSchedule } from "./entry";
+import { glasses3dConfig } from "./engine";
 import { minutesSinceShowtime, minutesToHHMM, hhmmToMinutes } from "./dates";
 import type { Role } from "./hooks/useSupabaseSync";
 import type { AppState, DateISO, Entry, Show, ShowSchedule, TimeHHMM, UUID } from "./types";
@@ -231,7 +232,9 @@ export function orphanShowIdxs(state: AppState, entry: Entry): number[] {
   return shows.map((_, i) => i).filter((i) => !matched.has(i));
 }
 
-/** Patch a schedule row immutably. */
+/** Patch a schedule row immutably. Programme only — does NOT touch the entered
+ *  show. Use `updateScheduleAndEntry` for operator edits; this stays for
+ *  callers that deliberately want the programme half alone. */
 export function updateSchedule(
   state: AppState,
   id: UUID,
@@ -243,6 +246,148 @@ export function updateSchedule(
       x.id === id ? { ...x, ...patch } : x,
     ),
   };
+}
+
+// ── schedule → entry propagation ────────────────────────────────────────
+//
+// The programme is the SOURCE OF TRUTH for the fields it owns. Ticket entry
+// snapshots them onto the Show at materialization, and until now a later
+// Schedule edit changed only the programme: the entered show kept the old
+// snapshot, so the DCR silently went on pricing at the old card. Operators had
+// to fix the same thing twice, and the second place (the Entry page) shows
+// these fields read-only for scheduled shows — so in practice it could not be
+// fixed at all.
+//
+// These edits move real money: the price card drives breakdown() → gross →
+// taxes → distributor share. So propagation is gated by the SAME 2-day rule
+// the entries table enforces (see trg_entries_edit_lock) — past the window,
+// owner only.
+
+/** Fields the programme owns and mirrors onto the entered show. `movieId` is
+ *  NOT one of them: entries are keyed by (date, movie, screen), so changing
+ *  the movie moves the show to a different entry — see scheduleMovieChangeWarning. */
+export type ScheduleOwnedField = "priceCardId" | "showtime" | "is3d";
+
+export interface ScheduleEditGate {
+  /** May the programme-owned fields be edited? */
+  editable: boolean;
+  /** True when a change would rewrite an already-materialized show. */
+  rewritesEntry: boolean;
+  /** Tickets already keyed against this row. */
+  tickets: number;
+  /** Set when `editable` is false — shown to the operator. */
+  reason?: string;
+}
+
+/**
+ * Whether this programme row's owned fields may be edited, and what an edit
+ * would disturb.
+ *
+ * A row with no entered show is free to edit at any age — nothing downstream
+ * exists to rewrite. Once a show HAS been materialized, an edit rewrites DCR
+ * figures, so past the 2-day window it is owner-only, matching the server-side
+ * trigger. Without this gate a manager's edit would be accepted by the UI and
+ * then silently rejected by the database on push.
+ */
+export function scheduleEditGate(
+  state: AppState,
+  sched: ShowSchedule,
+  role: Role | null,
+  twoDayLockActive: boolean,
+): ScheduleEditGate {
+  const hit = enteredShowForSchedule(state, sched);
+  const rewritesEntry = hit !== null;
+  const tickets = hit?.tickets ?? 0;
+
+  if (!rewritesEntry || !twoDayLockActive || role === "owner") {
+    return { editable: true, rewritesEntry, tickets };
+  }
+  return {
+    editable: false,
+    rewritesEntry,
+    tickets,
+    reason:
+      "This show has box-office entry and the DCR is past the 2-day edit lock. " +
+      "Only the owner can change it now.",
+  };
+}
+
+/**
+ * Patch a programme row AND mirror the owned fields onto the show it
+ * materialized, so the DCR follows the Schedule.
+ *
+ * Resolution order matters: the entered show is located BEFORE the patch is
+ * applied. showIdxForSchedule falls back to matching on showtime when the
+ * scheduleId link is missing (copy-forward / re-import orphans it), so
+ * patching the schedule's showtime first would break the very match needed to
+ * find the show.
+ *
+ * Callers must check `scheduleEditGate` first — this function does not gate.
+ */
+export function updateScheduleAndEntry(
+  state: AppState,
+  id: UUID,
+  patch: Partial<ShowSchedule>,
+): AppState {
+  const sched = state.showSchedules.find((x) => x.id === id);
+  if (!sched) return state;
+
+  // Locate the entered show against the PRE-patch row.
+  const hit = enteredShowForSchedule(state, sched);
+  const next = updateSchedule(state, id, patch);
+  if (!hit) return next;
+
+  const merged = { ...sched, ...patch };
+  const shows = (hit.entry.shows ?? []).slice();
+  const show = shows[hit.showIdx];
+  if (!show) return next;
+
+  const patchedShow: Show = { ...show };
+  if ("priceCardId" in patch) patchedShow.priceCardId = merged.priceCardId;
+  if ("showtime" in patch) patchedShow.showtime = merged.showtime;
+  if ("is3d" in patch) {
+    // Turning 3D on snapshots the CURRENT rate, exactly as materialization
+    // does. Turning it off drops the line; a hand-set quantity goes with it.
+    patchedShow.glasses3d = merged.is3d
+      ? (show.glasses3d ?? { ...glasses3dConfig(state) })
+      : undefined;
+  }
+  shows[hit.showIdx] = patchedShow;
+
+  const patchedEntry: Entry = { ...hit.entry, shows };
+  return {
+    ...next,
+    entries: next.entries.map((e) =>
+      e.date === patchedEntry.date &&
+      e.movieId === patchedEntry.movieId &&
+      e.screenId === patchedEntry.screenId
+        ? patchedEntry
+        : e,
+    ),
+  };
+}
+
+/**
+ * Warning text when the operator changes the MOVIE on a row that already has
+ * ticket entry, or null when there's nothing to warn about.
+ *
+ * Movie is deliberately not propagated: `entries` is keyed by (date, movie,
+ * screen), so a movie change means moving the show between two entries and
+ * re-running the cumulative roll for both films. That is a bigger operation
+ * than a field mirror and is not attempted here — the operator is told to
+ * delete and re-add instead, which already cleans up both halves.
+ */
+export function scheduleMovieChangeWarning(
+  state: AppState,
+  sched: ShowSchedule,
+): string | null {
+  const hit = enteredShowForSchedule(state, sched);
+  if (!hit || hit.tickets === 0) return null;
+  return (
+    `This show has ${hit.tickets} tickets entered against the current movie. ` +
+    "Changing the movie leaves those tickets on the old film — remove the show " +
+    "and add it again instead, which clears both the programme row and its entry."
+  );
 }
 
 /** A fresh programme row for (date, screen) at the next position. cinemaId is

@@ -39,6 +39,9 @@ export function ScheduleImportModal({ open, onClose, onImport }: Props) {
   const { state } = useSync();
   const appState = state.appState;
   const cinemaId = (state.cinemaId ?? "") as UUID;
+  // Price cards are owner-only: the auto-match below runs for everyone, but only
+  // the owner sees the manual mapping controls to override a match.
+  const isOwner = state.role === "owner";
 
   const [filename, setFilename] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -180,13 +183,11 @@ export function ScheduleImportModal({ open, onClose, onImport }: Props) {
                     value={mapping.screens[n] ?? ""}
                     onChange={(e) => setMapping((m) => {
                       const screens = { ...m.screens, [n]: e.target.value as UUID };
-                      // Re-match this screen's price cards against the new screen.
-                      const priceCards = { ...m.priceCards };
-                      for (const r of parsed?.rows ?? []) {
-                        if (r.screen !== n || !r.priceCard) continue;
-                        const cards = appState.screens.find((s) => s.id === screens[n])?.priceCards ?? [];
-                        priceCards[priceCardKey(n, r.priceCard)] = (matchPriceCard(r.priceCard, cards) ?? "") as UUID;
-                      }
+                      // Re-run the whole auto-match against the new screen mapping
+                      // (fallback-aware, so every row lands on a card).
+                      const priceCards = parsed
+                        ? autoMatchPriceCards(parsed, screens, appState)
+                        : m.priceCards;
                       return { ...m, screens, priceCards };
                     })}
                   >
@@ -211,9 +212,11 @@ export function ScheduleImportModal({ open, onClose, onImport }: Props) {
               ))}
             </MapSection>
 
-            {/* Price-card mapping (optional) */}
-            {pricePairs.length > 0 ? (
-              <MapSection title="Price cards (optional)">
+            {/* Price-card mapping — auto-assigned from the file's printed
+                prices; owner-only override. Non-owners import on the auto
+                match (with the screen's default card as a fallback). */}
+            {isOwner && pricePairs.length > 0 ? (
+              <MapSection title="Price cards (auto-matched — override if needed)">
                 {pricePairs.map((p) => {
                   const scrId = mapping.screens[p.screen];
                   const cards = appState.screens.find((s) => s.id === scrId)?.priceCards ?? [];
@@ -282,7 +285,11 @@ export function ScheduleImportModal({ open, onClose, onImport }: Props) {
 }
 
 /** Auto-match each Vista (screen, price-card) pair to a card on the mapped
- *  catalog screen, by its printed prices (then name). */
+ *  catalog screen, by its printed prices (then name). Falls back to the
+ *  screen's first card when nothing matches (and for rows with a blank price-
+ *  card label), so an imported show is never left without a card — the blank-
+ *  card case is exactly what showed ₹0 prices on the DCR. The owner can still
+ *  override a fallback in the mapping section above, or on the Schedule page. */
 function autoMatchPriceCards(
   parsed: ParsedVistaSchedule,
   screens: Record<string, UUID>,
@@ -290,11 +297,12 @@ function autoMatchPriceCards(
 ): Record<string, UUID> {
   const priceCards: Record<string, UUID> = {};
   for (const r of parsed.rows) {
-    if (!r.priceCard) continue;
     const scrId = screens[r.screen];
+    if (!scrId) continue; // screen not mapped yet — nothing to match against
     const cards = appState.screens.find((s) => s.id === scrId)?.priceCards ?? [];
-    const hit = matchPriceCard(r.priceCard, cards);
-    if (hit) priceCards[priceCardKey(r.screen, r.priceCard)] = hit as UUID;
+    if (cards.length === 0) continue; // screen has no cards to pick from
+    const hit = (r.priceCard ? matchPriceCard(r.priceCard, cards) : null) ?? cards[0]!.id;
+    priceCards[priceCardKey(r.screen, r.priceCard)] = hit as UUID;
   }
   return priceCards;
 }
