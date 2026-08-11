@@ -97,8 +97,16 @@ export function ShowCard({
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               Price card
             </span>
+            {/* Schedule-backed shows never edit the card here: the programme
+                owns it and mirrors changes down (updateScheduleAndEntry), so
+                a second editor would just be a way to disagree with it.
+                Unscheduled shows have no programme row — the Entry page is
+                their only home, not a duplicate. */}
             {metaLocked ? (
-              <div className="h-11 sm:h-10 flex items-center truncate">
+              <div
+                className="h-11 sm:h-10 flex items-center truncate"
+                title="Set on the Schedule page, which owns this show's programme"
+              >
                 {selectedCard?.name ?? "—"}
               </div>
             ) : (
@@ -132,7 +140,12 @@ export function ShowCard({
 
           {/* 3D glasses rental — cinema-only income, never in the distributor
               split. Present = 3D show. Blank qty means auto (= paid tickets),
-              so it tracks live as ticket counts are keyed in. */}
+              so it tracks live as ticket counts are keyed in.
+              WHETHER a show is 3D belongs to the programme when there is one
+              (metaLocked): the Schedule page owns it and mirrors changes down
+              here, so this is not a second place to set it. Pairs issued is
+              entry data either way, and stays editable. */}
+          {metaLocked && !show.glasses3d ? null : (
           <div className="space-y-1 col-span-2 sm:col-auto">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               3D glasses
@@ -161,14 +174,23 @@ export function ShowCard({
                   × {fmtINR(show.glasses3d.rate)}
                   {computed?.glasses ? ` = ${fmtINR(computed.glasses.amount)}` : ""}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onChange({ glasses3d: undefined })}
-                  title="Not a 3D show — remove the glasses charge"
-                >
-                  Clear
-                </Button>
+                {metaLocked ? (
+                  <span
+                    className="text-[11px] text-ink-muted"
+                    title="Set on the Schedule page, which owns this show's programme"
+                  >
+                    3D · from Schedule
+                  </span>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onChange({ glasses3d: undefined })}
+                    title="Not a 3D show — remove the glasses charge"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             ) : (
               <Button
@@ -181,6 +203,7 @@ export function ShowCard({
               </Button>
             )}
           </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

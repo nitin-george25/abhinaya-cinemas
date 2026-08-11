@@ -83,11 +83,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
   const metaRH = 13, metaH = 3 * metaRH, gMeta = 10;
   const barH = 13, hdrH = 13, rowH = 11.5, totH = 11.5, gShow = 7;
   const grandH = 13, gGrand = 10;
-  // 3D glasses adds a banner + 3 rows to the settlement panel and 2 lines to
-  // the terms box. Sized here so the whole-page scale factor `k` accounts for it.
-  const hasGlasses = C.glasses.qty > 0;
-  const sumRH = 11.5, gSum = 8, footH = 16;
-  const termsH = hasGlasses ? 47 : 30;
+  const sumRH = 11.5, termsH = 30, gSum = 8, footH = 16;
 
   // Chronological display order (matches the serial roll), then only render
   // shows that actually sold something — keeps the page tidy. Sorting before
@@ -103,7 +99,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
     natural += barH + hdrH + (s.rows || []).length * rowH + totH + gShow;
   });
   natural += grandH + gGrand;
-  const settleH = (hasGlasses ? 11 : 7) * sumRH + 6 + termsH;
+  const settleH = 7 * sumRH + 6 + termsH;
   const cumH = 4 * sumRH;
   const summaryH = Math.max(settleH, cumH);
   natural += summaryH + gSum + footH;
@@ -188,15 +184,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
         (sh.card ? "   ·   " + sh.card.name : ""),
       x0 + 5, y, sc(barH), sc(8), "left",
     );
-    // 3D glasses ride in the show header, not the class table: that table is
-    // the taxed box-office document and this money is never part of it.
-    const gl = sh.glasses && sh.glasses.qty > 0 ? sh.glasses : undefined;
-    rowText(
-      (gl
-        ? "3D Glasses: " + int(gl.qty) + " x " + money(gl.rate) + " = " + money(gl.amount) + "   ·   "
-        : "") + "No. of Free Pass: " + (sh.freePass || 0),
-      x0 + TW - 5, y, sc(barH), sc(8), "right",
-    );
+    rowText("No. of Free Pass: " + (sh.freePass || 0), x0 + TW - 5, y, sc(barH), sc(8), "right");
     y += sc(barH);
 
     // column-header row (cream background)
@@ -296,7 +284,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
     ["DS - Distributor (" + sp + "%)", money(C.today.distShare)],
     ["ES - Exhibitor (" + (100 - sp) + "%)", money(C.today.exShare)],
   ];
-  const setRow = (p: [string, string]) => {
+  setRows.forEach((p) => {
     const labw = leftW * 0.62;
     fc(CREAM); doc.rect(x0, y, labw, srowH, "F");
     dc(LINE); doc.setLineWidth(0.4);
@@ -305,21 +293,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
     F(sc(7.5), true);  tc(INK); doc.text(p[0], x0 + 4, y + srowH / 2 + sc(7.5) * 0.34);
     F(sc(7.5), false);           doc.text(p[1], x0 + leftW - 4, y + srowH / 2 + sc(7.5) * 0.34, { align: "right" });
     y += srowH;
-  };
-  setRows.forEach(setRow);
-
-  // Below the DS/ES split, deliberately: cinema-only income that never entered
-  // Gross and so was never available to share with the distributor.
-  if (hasGlasses) {
-    const gd = C.glasses;
-    fc(INK); doc.rect(x0, y, leftW, srowH, "F");
-    F(sc(6.6), true); tc(WHITE);
-    doc.text("CINEMA ONLY - NOT SHARED", x0 + 4, y + srowH / 2 + sc(6.6) * 0.34);
-    y += srowH;
-    setRow(["3D Glasses (" + int(gd.qty) + " x " + money(gd.rate) + ")", money(gd.amount)]);
-    setRow(["   of which GST (" + gd.gstPct + "%, incl.)", money(gd.gst)]);
-    setRow(["Total to Cinema (ES + Glasses)", money(C.today.exShare + gd.amount)]);
-  }
+  });
   y += sc(6);
   const th = sc(termsH);
   dc(GREY); doc.setLineWidth(0.5);
@@ -336,17 +310,13 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
     "DS/ES split on Net Share. E-Tax/GST by ticket price:",
     `> ${tax.threshold}: ${tax.above.etaxPct}% E-Tax / ${tax.above.gstPct}% GST;   <= ${tax.threshold}: ${tax.below.etaxPct}% / ${tax.below.gstPct}%.`,
   ];
-  if (hasGlasses) {
-    tl.push("3D glasses rental is collected over and above the printed ticket price:");
-    tl.push("not part of Gross Collection or Net Share, and carries no distributor share.");
-  }
   tl.forEach((ln, i) => doc.text(ln, x0 + 5, y + sc(9) + i * sc(8.5)));
   const leftBottom = y + th;
 
   // ── right cumulative ────────────────────────────────────────────────
   y = summaryTop;
-  const SHd = ["", "Gross Coll", "TMC", "Cess", "Fund", "Rep.Batta", "Net Share", "Dist.Share", "Ex.Share", "E-Tax", "Total GST", "3D Glasses", "Aud"];
-  const SP = [11, 9, 5, 5, 6, 8, 10, 10, 10, 7, 8, 8, 7];
+  const SHd = ["", "Gross Coll", "TMC", "Cess", "Fund", "Rep.Batta", "Net Share", "Dist.Share", "Ex.Share", "E-Tax", "Total GST", "Aud"];
+  const SP = [12, 9, 6, 6, 6, 8, 11, 11, 11, 8, 9, 8];
   let SW = SP.map((p) => (p / 100) * CW);
   const sclR = rightW / SW.reduce((a, b) => a + b, 0);
   SW = SW.map((w) => w * sclR);
@@ -369,7 +339,7 @@ export function buildDcrPdf(C: ComputedEntry, opts: DcrPdfOpts): jsPDF {
       int(o.grossColl), int(o.tmc), int(o.cess),
       int(o.fund), int(o.repBatta),
       money(o.netShare), money(o.distShare), money(o.exShare),
-      int(o.etax), money(o.gst), money(o.glasses), int(o.audience),
+      int(o.etax), money(o.gst), int(o.audience),
     ];
     cells.forEach((v, i) => {
       const right = i >= 1;

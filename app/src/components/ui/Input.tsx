@@ -165,6 +165,9 @@ interface SelectProps {
   className?: string;
   children: ReactNode;
   id?: string;
+  /** Hover tooltip on the button. Mainly to explain why it's disabled — a
+   *  disabled control with no stated reason reads as a bug. */
+  title?: string;
   "aria-label"?: string;
 }
 
@@ -175,7 +178,7 @@ interface SelectProps {
  * select while rendering our own styled, portaled panel. Long, searchable
  * lists (movies, distributors) should use `<SearchSelect>` instead.
  */
-export function Select({ value, onChange, disabled, className, children, id, ...aria }: SelectProps) {
+export function Select({ value, onChange, disabled, className, children, id, title, ...aria }: SelectProps) {
   const options = useMemo(() => optionsFromChildren(children), [children]);
   const v = String(value ?? "");
   const current = options.find((o) => o.value === v);
@@ -185,6 +188,7 @@ export function Select({ value, onChange, disabled, className, children, id, ...
       <div className={cn("relative", disabled && "opacity-60")}>
         <ListboxButton
           id={id}
+          title={title}
           aria-label={aria["aria-label"]}
           className={cn(
             fieldBase,

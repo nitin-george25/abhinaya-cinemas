@@ -35,6 +35,8 @@ import { Field, Input, Select, SearchSelect } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { DcrModal } from "../components/dcr/DcrModal";
+import { Glasses3dModal } from "../components/dcr/Glasses3dModal";
+import { entryHasGlasses } from "../lib/glasses";
 
 interface Filters {
   from: DateISO | "";
@@ -62,6 +64,9 @@ export default function HistoryPage() {
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [openRow, setOpenRow] = useState<Row | null>(null);
+  // The 3D glasses popup is keyed by MOVIE, not by row — it reports the whole
+  // run, so opening it from any of that movie's days shows the same figures.
+  const [glassesMovie, setGlassesMovie] = useState<{ id: UUID; name: string } | null>(null);
   const [page, setPage]         = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
@@ -175,6 +180,7 @@ export default function HistoryPage() {
           appState={appState}
           canDelete={isOwner}
           onDelete={handleDelete}
+          onGlasses={setGlassesMovie}
         />
       )}
 
@@ -195,6 +201,16 @@ export default function HistoryPage() {
           onClose={() => setOpenRow(null)}
           computed={openRow.computed}
           appState={appState}
+        />
+      ) : null}
+
+      {glassesMovie ? (
+        <Glasses3dModal
+          open={!!glassesMovie}
+          onClose={() => setGlassesMovie(null)}
+          appState={appState}
+          movieId={glassesMovie.id}
+          movieName={glassesMovie.name}
         />
       ) : null}
     </div>
@@ -368,12 +384,14 @@ function HistoryTable({
   appState,
   canDelete,
   onDelete,
+  onGlasses,
 }: {
   rows: Row[];
   onSelect: (r: Row) => void;
   appState: AppState;
   canDelete: boolean;
   onDelete: (r: Row) => void;
+  onGlasses: (m: { id: UUID; name: string }) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -414,6 +432,7 @@ function HistoryTable({
                   appState={appState}
                   canDelete={canDelete}
                   onDelete={onDelete}
+                  onGlasses={onGlasses}
                 />
               ))}
             </tbody>
@@ -430,14 +449,18 @@ function HistoryRow({
   appState,
   canDelete,
   onDelete,
+  onGlasses,
 }: {
   row: Row;
   onSelect: (r: Row) => void;
   appState: AppState;
   canDelete: boolean;
   onDelete: (r: Row) => void;
+  onGlasses: (m: { id: UUID; name: string }) => void;
 }) {
   const { entry, computed } = row;
+  // Only 3D days get the CTA — a column would be empty on most rows.
+  const has3d = entryHasGlasses(entry);
 
   // Stop row-click bubbling from triggering View when the user actually
   // hits one of the per-row action buttons.
@@ -472,7 +495,25 @@ function HistoryRow({
         <div className="text-xs text-ink-muted">{weekday(entry.date)}</div>
       </td>
       <td className="px-3 py-3 font-medium">
-        <div>{computed.movie?.name ?? entry.movieId}</div>
+        <div className="flex items-center gap-2">
+          <span>{computed.movie?.name ?? entry.movieId}</span>
+          {has3d ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onGlasses({
+                  id: entry.movieId,
+                  name: computed.movie?.name ?? entry.movieId,
+                });
+              }}
+              title="3D glasses income for this movie's whole run"
+              className="shrink-0 rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700 hover:bg-blue-500/20"
+            >
+              3D
+            </button>
+          ) : null}
+        </div>
         <div className="md:hidden text-xs text-ink-muted">
           {computed.screen?.name ?? entry.screenId}
         </div>

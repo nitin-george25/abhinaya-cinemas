@@ -182,8 +182,13 @@ export function breakdown(gross: unknown, tax: TaxConfig): TaxBreakdown {
 //
 // Everything in this section is strictly ADDITIVE. No function here feeds
 // grossColl, netShare, distShare or exShare — deleting every call site would
-// leave every legacy figure bit-identical. The rental rides alongside those
-// totals on its own DCR line.
+// leave every legacy figure bit-identical.
+//
+// It is also absent from the DCR entirely: that document is the box-office
+// record a distributor is settled against, so cinema-only money has no place
+// on it. What this lane produces is read by the Entry page summary and by
+// lib/glasses.ts, which backs Reports → Box Office → 3D Glasses and the
+// per-movie popup on History.
 
 /** Fallback when `cinema.glasses3d` is unset. ₹30/pair, GST-inclusive at 18%. */
 export const GLASSES_3D_DEFAULT: Glasses3dConfig = { rate: 30, gstPct: 18 };
@@ -631,16 +636,12 @@ export function computeShallow(
     gst = 0,
     audience = 0;
   let repBatta = 0;
-  // 3D glasses lane — accumulated alongside, never folded into the totals above.
-  const gcfg = glasses3dConfig(state);
-  const glassesLines: Array<GlassesLine | undefined> = [];
   for (const sh of entry.shows || []) {
     const card = screen ? cardById(state, screen.id, sh.priceCardId) : undefined;
     // Matches legacy quirk: repBatta is recomputed each iteration to the same
     // value (depends only on `entry`, not `sh`). We preserve the assignment so
     // any future audit diff stays clean.
     repBatta = entryRepBatta(state, entry, tax, draft);
-    let showTickets = 0;
     for (const cl of cls) {
       const tickets = N(((sh.rows || {})[cl.classId] || {}).tickets);
       const b = breakdown(card ? N(card.prices[cl.classId]) : 0, tax);
@@ -650,11 +651,8 @@ export function computeShallow(
       etax += b.etax * tickets;
       gst += b.gst * tickets;
       audience += tickets;
-      showTickets += tickets;
     }
-    glassesLines.push(showGlasses(sh, showTickets, gcfg));
   }
-  const glasses = sumGlasses(glassesLines);
   const fund = computeFund(state, entry, draft);
   const share = resolveShare(state, entry);
   const netShare = grossColl - gst - tmc - cess - fund - repBatta - etax;
@@ -670,8 +668,6 @@ export function computeShallow(
     etax,
     gst,
     audience,
-    glasses: glasses.amount,
-    glassesGst: glasses.gst,
   };
 }
 
@@ -754,7 +750,8 @@ export function computeEntry(
       rows,
       totals: T,
       repBatta: isNight(sh.showtime) ? tax.repNight : tax.repDay,
-      // Parallel lane — read by the DCR's own glasses line only. Not in T.
+      // Parallel lane — never in T, and never on the DCR. Read by the Entry
+      // summary and the WhatsApp show card.
       glasses: showGlasses(sh, T.tickets, gcfg),
     };
   });
@@ -797,14 +794,11 @@ export function computeEntry(
     etax: G.etax,
     gst: G.gst,
     audience: G.tickets,
-    glasses: glassesDay.amount,
-    glassesGst: glassesDay.gst,
   };
 
   const cum: CumulativeRow = {
     grossColl: 0, tmc: 0, cess: 0, fund: 0, repBatta: 0,
     netShare: 0, distShare: 0, exShare: 0, etax: 0, gst: 0, audience: 0,
-    glasses: 0, glassesGst: 0,
   };
   const keys = Object.keys(cum) as Array<keyof CumulativeRow>;
 

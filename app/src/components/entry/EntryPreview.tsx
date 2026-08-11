@@ -15,6 +15,7 @@ interface Props {
 export function EntryPreview({ computed }: Props) {
   const t = computed.today;
   const cum = computed.total;
+  const g = computed.glasses;
 
   return (
     <Card>
@@ -38,13 +39,6 @@ export function EntryPreview({ computed }: Props) {
           <Row label="Net Share"  value={fmtINR(t.netShare)} highlight />
           <Row label={`Distributor (${computed.share}%)`} value={fmtINR(t.distShare)} muted />
           <Row label="Exhibitor"  value={fmtINR(t.exShare)} muted />
-          {/* Cinema-only: sits below the split because it never entered Gross. */}
-          {computed.glasses.qty > 0 ? (
-            <Row
-              label={`3D Glasses (${fmtInt(computed.glasses.qty)} × ${fmtINR(computed.glasses.rate)})`}
-              value={fmtINR(computed.glasses.amount)}
-            />
-          ) : null}
         </PreviewBlock>
 
         <PreviewBlock title="Previous (this movie · this screen)">
@@ -63,6 +57,33 @@ export function EntryPreview({ computed }: Props) {
           <Row label="Exhibitor"  value={fmtINR(cum.exShare)} muted />
         </PreviewBlock>
       </CardBody>
+
+      {/* Its own strip below the box-office blocks, not a row inside them:
+          the rental is cinema-only income and never entered any figure above.
+          Hidden entirely on a 2D day. */}
+      {g.qty > 0 ? (
+        <div className="border-t border-line px-4 py-3 sm:px-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-ink-muted">
+              3D glasses · cinema only
+            </div>
+            <div className="text-xs text-ink-muted mt-0.5">
+              {fmtInt(g.qty)} {g.qty === 1 ? "pair" : "pairs"} × {fmtINR(g.rate)}
+              {" · "}not in Gross or Net Share, no distributor share
+            </div>
+          </div>
+          <div className="ml-auto flex items-baseline gap-5 tabular-nums">
+            <div className="text-right">
+              <div className="text-[11px] text-ink-muted">GST ({g.gstPct}%, incl.)</div>
+              <div className="text-sm">{fmtINR(g.gst)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] text-ink-muted">Collected</div>
+              <div className="text-lg font-semibold">{fmtINR(g.amount)}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

@@ -582,6 +582,9 @@ function ScheduledShow({
       showIdx={index}
       show={show}
       computed={computedShow}
+      // Showtime, price card and 3D are all schedule-owned. Correcting a wrong
+      // card is done on the Schedule page, which mirrors the change onto this
+      // show — no second editor here to disagree with the programme.
       metaLocked
       isLast={isLastScheduledShow(appState, sched)}
       onChange={onPatchShow}

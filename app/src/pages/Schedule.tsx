@@ -13,16 +13,27 @@
 import { useState } from "react";
 
 import { useSync } from "../lib/hooks/SyncContext";
-import { todayIso, addDaysIso, minutesToHHMM, hhmmToMinutes } from "../lib/dates";
+import {
+  todayIso,
+  todayIstIso,
+  daysBetweenIso,
+  addDaysIso,
+  minutesToHHMM,
+  hhmmToMinutes,
+} from "../lib/dates";
 import {
   blankSchedule,
   copyScheduleForward,
   enteredShowForSchedule,
   removeSchedule,
+  scheduleEditGate,
+  scheduleMovieChangeWarning,
   schedulesForDay,
   updateSchedule,
+  updateScheduleAndEntry,
   upsertSchedule,
 } from "../lib/schedule";
+import type { Role } from "../lib/hooks/useSupabaseSync";
 import type { AppState, DateISO, ShowSchedule, UUID } from "../lib/types";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../components/ui/Card";
@@ -36,6 +47,11 @@ export default function SchedulePage() {
   const { state, setAppState } = useSync();
   const appState = state.appState;
   const cinemaId = (state.cinemaId ?? "") as UUID;
+  // Price card is owner-only: managers / daily managers programme times, films
+  // and 3D, but the card is auto-assigned (Vista import / default) and only the
+  // owner can change it here.
+  const isOwner = state.role === "owner";
+  const role = state.role;
 
   const [date, setDate] = useState<DateISO>(todayIso());
   const [copyFrom, setCopyFrom] = useState<{ src: DateISO; label: string } | null>(null);
@@ -50,6 +66,10 @@ export default function SchedulePage() {
   }
 
   const movieOptions = appState.movies.map((m) => ({ value: m.id, label: m.name }));
+
+  // Same DCR edit lock the Entry page and the entries trigger use: from D+3
+  // onward, a row that already has ticket entry is owner-only.
+  const twoDayLockActive = role !== "owner" && daysBetweenIso(date, todayIstIso()) > 2;
 
   function patch(next: AppState) {
     setAppState(next);
@@ -132,6 +152,9 @@ export default function SchedulePage() {
             screenId={screen.id}
             screenName={screen.name}
             movieOptions={movieOptions}
+            isOwner={isOwner}
+            role={role}
+            twoDayLockActive={twoDayLockActive}
             onPatch={patch}
           />
         ))
@@ -175,6 +198,9 @@ function ScreenSchedule({
   screenId,
   screenName,
   movieOptions,
+  isOwner,
+  role,
+  twoDayLockActive,
   onPatch,
 }: {
   appState: AppState;
@@ -183,6 +209,9 @@ function ScreenSchedule({
   screenId: UUID;
   screenName: string;
   movieOptions: Array<{ value: string; label: string }>;
+  isOwner: boolean;
+  role: Role | null;
+  twoDayLockActive: boolean;
   onPatch: (next: AppState) => void;
 }) {
   const rows = schedulesForDay(appState, date, screenId);
@@ -226,6 +255,9 @@ function ScreenSchedule({
               row={row}
               movieOptions={movieOptions}
               priceCards={priceCards}
+              isOwner={isOwner}
+              role={role}
+              twoDayLockActive={twoDayLockActive}
               clash={!!row.showtime && dupTimes.has(row.showtime)}
               onPatch={onPatch}
             />
@@ -244,6 +276,9 @@ function ScheduleRow({
   row,
   movieOptions,
   priceCards,
+  isOwner,
+  role,
+  twoDayLockActive,
   clash,
   onPatch,
 }: {
@@ -251,15 +286,40 @@ function ScheduleRow({
   row: ShowSchedule;
   movieOptions: Array<{ value: string; label: string }>;
   priceCards: Array<{ id: string; name: string }>;
+  isOwner: boolean;
+  role: Role | null;
+  twoDayLockActive: boolean;
   clash: boolean;
   onPatch: (next: AppState) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  // A pending programme-owned edit awaiting confirmation, because applying it
+  // would rewrite a DCR that already has tickets.
+  const [pending, setPending] = useState<{
+    patch: Partial<ShowSchedule>;
+    what: string;
+  } | null>(null);
   // Tickets already entered against this programme row. Removing the row also
   // removes them (otherwise they'd linger, unseen, in the DCR) — so say so.
   const entered = enteredShowForSchedule(appState, row);
   const movieName =
     movieOptions.find((o) => o.value === row.movieId)?.label ?? "No movie";
+
+  // The programme owns time / price card / 3D and mirrors them onto the entered
+  // show. Once a show is materialized that rewrites DCR money, so past the
+  // 2-day window it is owner-only — same rule the entries trigger enforces.
+  const gate = scheduleEditGate(appState, row, role, twoDayLockActive);
+  const movieWarning = scheduleMovieChangeWarning(appState, row);
+
+  /** Apply a programme-owned edit, confirming first when it rewrites tickets. */
+  function edit(patch: Partial<ShowSchedule>, what: string) {
+    if (!gate.editable) return;
+    if (gate.tickets > 0) {
+      setPending({ patch, what });
+      return;
+    }
+    onPatch(updateScheduleAndEntry(appState, row.id, patch));
+  }
 
   return (
     <div className="rounded-xl border border-line p-3 space-y-2">
@@ -268,7 +328,9 @@ function ScheduleRow({
           <Input
             type="time"
             value={row.showtime}
-            onChange={(e) => onPatch(updateSchedule(appState, row.id, { showtime: e.target.value }))}
+            disabled={!gate.editable}
+            title={gate.reason}
+            onChange={(e) => edit({ showtime: e.target.value }, "show time")}
           />
         </Field>
         <Field label="Movie">
@@ -280,30 +342,48 @@ function ScheduleRow({
           />
         </Field>
         <Field label="Price card">
-          <Select
-            value={row.priceCardId ?? ""}
-            onChange={(e) =>
-              onPatch(updateSchedule(appState, row.id, { priceCardId: (e.target.value || undefined) as UUID | undefined }))
-            }
-          >
-            <option value="">— pick —</option>
-            {priceCards.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </Select>
+          {isOwner ? (
+            <Select
+              value={row.priceCardId ?? ""}
+              disabled={!gate.editable}
+              title={gate.reason}
+              onChange={(e) =>
+                edit(
+                  { priceCardId: (e.target.value || undefined) as UUID | undefined },
+                  "price card",
+                )
+              }
+            >
+              <option value="">— pick —</option>
+              {priceCards.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+          ) : (
+            // Owner-only: auto-assigned from the Vista import / screen default.
+            // Non-owners see it read-only.
+            <div
+              className="h-11 sm:h-10 flex items-center truncate text-sm"
+              title="Price card is set by the owner"
+            >
+              {priceCards.find((c) => c.id === row.priceCardId)?.name ?? "—"}
+            </div>
+          )}
         </Field>
         {/* 3D marks the show for the glasses-rental line at ticket entry. It
             is cinema-only income and never touches the distributor split. */}
         <label
-          className="flex items-end gap-2 pb-2 text-sm cursor-pointer whitespace-nowrap"
-          title="3D show — adds the glasses rental line when tickets are entered"
+          className={
+            "flex items-end gap-2 pb-2 text-sm whitespace-nowrap " +
+            (gate.editable ? "cursor-pointer" : "cursor-not-allowed text-ink-muted")
+          }
+          title={gate.reason ?? "3D show — adds the glasses rental line to this show"}
         >
           <input
             type="checkbox"
             checked={row.is3d ?? false}
-            onChange={(e) =>
-              onPatch(updateSchedule(appState, row.id, { is3d: e.target.checked }))
-            }
+            disabled={!gate.editable}
+            onChange={(e) => edit({ is3d: e.target.checked }, "3D flag")}
           />
           3D
         </label>
@@ -327,9 +407,49 @@ function ScheduleRow({
       ) : null}
       {entered && entered.tickets > 0 ? (
         <p className="text-xs text-ink-muted">
-          {entered.tickets} tickets entered for this show.
+          {entered.tickets} tickets entered for this show
+          {gate.editable
+            ? " — time, price card and 3D changes here update the DCR too."
+            : "."}
         </p>
       ) : null}
+      {!gate.editable ? (
+        <p className="text-xs text-amber-700">{gate.reason}</p>
+      ) : null}
+      {movieWarning ? (
+        <p className="text-xs text-amber-700">{movieWarning}</p>
+      ) : null}
+
+      {/* Programme-owned edit that rewrites an entered show. The price card
+          drives gross, taxes and the distributor split, so the operator sees
+          what moves before it moves. */}
+      <ConfirmDialog
+        open={pending !== null}
+        title={`Change the ${pending?.what ?? "show"} on an entered show?`}
+        confirmLabel="Change it"
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          const p = pending;
+          setPending(null);
+          if (p) onPatch(updateScheduleAndEntry(appState, row.id, p.patch));
+        }}
+      >
+        <p>
+          <strong>{row.showtime || "—"}</strong> · {movieName} · {row.date}
+        </p>
+        <p>
+          This show already has <strong>{gate.tickets} tickets</strong> entered.
+          The change is applied to the programme <em>and</em> to the entered
+          show, so the DCR follows.
+        </p>
+        {pending?.what === "price card" ? (
+          <p>
+            <strong>This re-prices the DCR.</strong> Gross collection, GST,
+            e-tax, net share and the distributor split are all recalculated at
+            the new card. If this DCR was already filed or settled, re-issue it.
+          </p>
+        ) : null}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={confirming}
