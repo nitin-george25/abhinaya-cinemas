@@ -582,12 +582,10 @@ function ScheduledShow({
       showIdx={index}
       show={show}
       computed={computedShow}
+      // Showtime, price card and 3D are all schedule-owned. Correcting a wrong
+      // card is done on the Schedule page, which mirrors the change onto this
+      // show — no second editor here to disagree with the programme.
       metaLocked
-      // Owner-only escape hatch: correct a wrong price-card snapshot on an
-      // already-entered show (matIdx >= 0) in place, instead of deleting and
-      // re-keying it. Showtime stays schedule-locked. Un-entered shows keep the
-      // card read-only — set it on the Schedule page before entry as usual.
-      priceCardEditable={role === "owner" && matIdx >= 0}
       isLast={isLastScheduledShow(appState, sched)}
       onChange={onPatchShow}
       onChangeRow={onPatchRow}
