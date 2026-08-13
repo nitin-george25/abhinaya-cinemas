@@ -358,7 +358,7 @@ export async function canEditPayment(id: string): Promise<boolean> {
 
 // ── Inbox (phase 2) ─────────────────────────────────────────────────────────
 
-export type PaymentKind = "payment" | "project" | "petty";
+export type PaymentKind = "payment" | "batch" | "project" | "petty";
 export type PaymentLane = "draft" | "awaiting" | "approved" | "paid" | "petty" | "other";
 
 /** Group a status (+ origin) into one of the inbox lanes. */
@@ -395,18 +395,25 @@ export interface PaymentInboxRow {
   typeLabel:      string;
   accountingHead: string | null;
   amount:         number;
-  source:         string;                // "General" | "Project · X" | "Petty"
+  source:         string;                // "General" | "Batch" | "Project · X" | "Petty"
   status:         string;
   lane:           PaymentLane;
   isAdvance:      boolean;
   neededBy:       string | null;
   createdAt:      string | null;
   readonly:       boolean;
+  /** Set on a general payment that is being paid inside a batch (payments_100). */
+  batchId?:       string | null;
+  /** Set on a batch row — how many invoices it settles. */
+  lineCount?:     number;
+  /** Present on general payments and batches; a batch inherits its lines' unit. */
+  operatingUnitId?: string | null;
 }
 
 interface InboxPaymentRow {
   id: string; payee_name: string; amount: number | string; status: string;
   is_advance: boolean; needed_by: string | null; created_at: string | null;
+  batch_id?: string | null; operating_unit_id?: string | null;
   payment_types: { name: string | null; accounting_head: string | null } | null;
 }
 
@@ -430,15 +437,18 @@ export async function listInbox(
   if (!sb) return [];
   const rows: PaymentInboxRow[] = [];
 
-  // 1) General payments (incl. the typed ones from the create form).
+  // 1) General payments (incl. the typed ones from the create form). A payment
+  //    that has joined a batch is NOT listed on its own — it is settled by the
+  //    batch, which appears here instead and opens onto its lines.
   if (unitIds.length > 0) {
     const { data, error } = await sb
       .from("payment_requests")
-      .select("id, payee_name, amount, status, is_advance, needed_by, created_at, payment_types(name, accounting_head)")
+      .select("id, payee_name, amount, status, is_advance, needed_by, created_at, batch_id, operating_unit_id, payment_types(name, accounting_head)")
       .in("operating_unit_id", unitIds)
       .order("created_at", { ascending: false });
     if (error) console.warn("[payments] listInbox/payments", error.message);
     for (const r of (data as InboxPaymentRow[] | null ?? [])) {
+      if (r.batch_id) continue;
       rows.push({
         id: r.id, kind: "payment", payee: r.payee_name,
         typeLabel: r.payment_types?.name ?? "Payment",
@@ -446,9 +456,12 @@ export async function listInbox(
         amount: Number(r.amount), source: "General",
         status: r.status, lane: laneOf(r.status, "payment"),
         isAdvance: !!r.is_advance, neededBy: r.needed_by, createdAt: r.created_at,
-        readonly: false,
+        readonly: false, batchId: null, operatingUnitId: r.operating_unit_id ?? null,
       });
     }
+
+    // 1b) Batches — one row per multi-invoice transfer.
+    rows.push(...await listBatchRows(unitIds));
   }
 
   // 2) PM project expenses ready/paid — read-only window onto the same object.
@@ -538,6 +551,8 @@ export interface PaymentDetail {
   approvedAt:           string | null;
   paidAt:               string | null;
   createdAt:            string | null;
+  /** The batch settling this invoice, if it is being paid alongside others. */
+  batchId:              string | null;
 }
 
 interface PaymentDetailRow {
@@ -555,7 +570,7 @@ interface PaymentDetailRow {
   quote_locked_vendor: string | null; quote_locked_amount: number | string | null;
   rejected_reason: string | null; approved_by_email: string | null;
   approved_by_slack_user: string | null; approved_at: string | null;
-  paid_at: string | null; created_at: string | null;
+  paid_at: string | null; created_at: string | null; batch_id: string | null;
   payment_types: { name: string | null; accounting_head: string | null;
                    invoice_rule: PaymentInvoiceRule | null; is_asset: boolean } | null;
 }
@@ -595,6 +610,7 @@ export async function getPaymentDetail(id: string): Promise<PaymentDetail | null
     rejectedReason: r.rejected_reason,
     approvedByEmail: r.approved_by_email, approvedBySlackUser: r.approved_by_slack_user,
     approvedAt: r.approved_at, paidAt: r.paid_at, createdAt: r.created_at,
+    batchId: r.batch_id ?? null,
   };
 }
 
@@ -881,6 +897,271 @@ export async function netAdvances(finalPaymentId: string, apps: AdvanceApplicati
   if (error) throw new Error(error.message);
 }
 
+// ── Batch payments (payments_100) ───────────────────────────────────────────
+// Many invoices to ONE payee, disbursed as a single transfer: one approval, one
+// OTP, one UTR, one receipt, one bank-book line. The batch is the approval and
+// disbursement unit; each line keeps its own type, accounting head, invoice file
+// and advance links. Mirrors the migration — every state change is an RPC.
+
+export type PaymentBatchStatus =
+  | "draft" | "awaiting_approval" | "approved"
+  | "otp_requested" | "rejected" | "paid" | "cancelled";
+
+export interface PaymentBatch {
+  id:                   string;
+  operatingUnitId:      string;
+  payeeName:            string;
+  payeePartyId:         string | null;
+  payeeDistributorId:   string | null;
+  payeeAccountLast4:    string | null;
+  payeeIfsc:            string | null;
+  bankAccountId:        string | null;
+  mode:                 PaymentRequestMode;
+  note:                 string | null;
+  neededBy:             string | null;
+  status:               PaymentBatchStatus;
+  requestedByEmail:     string;
+  submittedAt:          string | null;
+  approvedByEmail:      string | null;
+  approvedBySlackUser:  string | null;
+  approvedAt:           string | null;
+  rejectedReason:       string | null;
+  cancelledReason:      string | null;
+  otpRequestedAt:       string | null;
+  otpRequestedBy:       string | null;
+  paidAt:               string | null;
+  paidViaBankAccountId: string | null;
+  bankReference:        string | null;
+  paidAmount:           number | null;
+  paidAmountReason:     string | null;
+  paymentReceiptUrl:    string | null;
+  createdAt:            string | null;
+}
+
+interface PaymentBatchRow {
+  id: string; operating_unit_id: string; payee_name: string;
+  payee_party_id: string | null; payee_distributor_id: string | null;
+  payee_account_last4: string | null; payee_ifsc: string | null;
+  bank_account_id: string | null; mode: PaymentRequestMode; note: string | null;
+  needed_by: string | null; status: PaymentBatchStatus; requested_by_email: string;
+  submitted_at: string | null; approved_by_email: string | null;
+  approved_by_slack_user: string | null; approved_at: string | null;
+  rejected_reason: string | null; cancelled_reason: string | null;
+  otp_requested_at: string | null; otp_requested_by: string | null;
+  paid_at: string | null; paid_via_bank_account_id: string | null;
+  bank_reference: string | null; paid_amount: number | string | null;
+  paid_amount_reason: string | null; payment_receipt_url: string | null;
+  created_at: string | null;
+}
+
+function mapBatch(r: PaymentBatchRow): PaymentBatch {
+  return {
+    id: r.id, operatingUnitId: r.operating_unit_id, payeeName: r.payee_name,
+    payeePartyId: r.payee_party_id, payeeDistributorId: r.payee_distributor_id,
+    payeeAccountLast4: r.payee_account_last4, payeeIfsc: r.payee_ifsc,
+    bankAccountId: r.bank_account_id, mode: r.mode, note: r.note,
+    neededBy: r.needed_by, status: r.status, requestedByEmail: r.requested_by_email,
+    submittedAt: r.submitted_at, approvedByEmail: r.approved_by_email,
+    approvedBySlackUser: r.approved_by_slack_user, approvedAt: r.approved_at,
+    rejectedReason: r.rejected_reason, cancelledReason: r.cancelled_reason,
+    otpRequestedAt: r.otp_requested_at, otpRequestedBy: r.otp_requested_by,
+    paidAt: r.paid_at, paidViaBankAccountId: r.paid_via_bank_account_id,
+    bankReference: r.bank_reference,
+    paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
+    paidAmountReason: r.paid_amount_reason,
+    paymentReceiptUrl: r.payment_receipt_url, createdAt: r.created_at,
+  };
+}
+
+/** Gross, advances applied and net across a batch's lines — the DB's numbers. */
+export interface PaymentBatchTotals {
+  lineCount: number; gross: number; applied: number; net: number;
+}
+
+export async function getBatchTotals(batchId: string): Promise<PaymentBatchTotals> {
+  const empty = { lineCount: 0, gross: 0, applied: 0, net: 0 };
+  const sb = getSupabase();
+  if (!sb) return empty;
+  const { data, error } = await sb.rpc("fn_payment_batch_totals", { p_batch_id: batchId });
+  if (error) { console.warn("[payments] getBatchTotals", error.message); return empty; }
+  // A `returns table` RPC comes back as a one-row array.
+  const r = (data as Array<{ line_count: number; gross: number | string; applied: number | string; net: number | string }> | null ?? [])[0];
+  if (!r) return empty;
+  return {
+    lineCount: Number(r.line_count), gross: Number(r.gross),
+    applied: Number(r.applied), net: Number(r.net),
+  };
+}
+
+export async function getBatch(id: string): Promise<PaymentBatch | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb.from("payment_batches").select("*").eq("id", id).single();
+  if (error || !data) return null;
+  return mapBatch(data as PaymentBatchRow);
+}
+
+/** Batches as inbox rows (the amount shown is the net still to be transferred). */
+async function listBatchRows(unitIds: string[]): Promise<PaymentInboxRow[]> {
+  const sb = getSupabase();
+  if (!sb || unitIds.length === 0) return [];
+  const { data, error } = await sb
+    .from("payment_batches")
+    .select("*, payment_requests(id, amount)")
+    .in("operating_unit_id", unitIds)
+    .order("created_at", { ascending: false });
+  if (error) { console.warn("[payments] listBatchRows", error.message); return []; }
+  return ((data ?? []) as Array<PaymentBatchRow & { payment_requests: Array<{ id: string; amount: number | string }> | null }>)
+    .map((r) => {
+      const lines = r.payment_requests ?? [];
+      const gross = lines.reduce((a, l) => a + Number(l.amount), 0);
+      return {
+        id: r.id, kind: "batch" as PaymentKind, payee: r.payee_name,
+        typeLabel: `${lines.length} invoice${lines.length === 1 ? "" : "s"}`,
+        accountingHead: null,
+        amount: r.paid_amount == null ? gross : Number(r.paid_amount),
+        source: "Batch", status: r.status, lane: laneOf(r.status, "batch"),
+        isAdvance: false, neededBy: r.needed_by, createdAt: r.created_at,
+        readonly: false, lineCount: lines.length,
+        operatingUnitId: r.operating_unit_id,
+      };
+    });
+}
+
+/** The invoices inside a batch, as inbox rows so the drawer can reuse the row UI. */
+export async function listBatchLines(batchId: string): Promise<PaymentInboxRow[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("payment_requests")
+    .select("id, payee_name, amount, status, is_advance, needed_by, created_at, batch_id, purpose, invoice_url, payment_types(name, accounting_head)")
+    .eq("batch_id", batchId)
+    .order("created_at", { ascending: true });
+  if (error) { console.warn("[payments] listBatchLines", error.message); return []; }
+  return ((data ?? []) as unknown as Array<InboxPaymentRow & { purpose: string | null; invoice_url: string | null }>)
+    .map((r) => ({
+      id: r.id, kind: "payment" as PaymentKind, payee: r.payee_name,
+      typeLabel: r.payment_types?.name ?? "Payment",
+      accountingHead: r.payment_types?.accounting_head ?? null,
+      amount: Number(r.amount), source: r.purpose ?? "General",
+      status: r.status, lane: laneOf(r.status, "payment"),
+      isAdvance: !!r.is_advance, neededBy: r.needed_by, createdAt: r.created_at,
+      readonly: false, batchId,
+    }));
+}
+
+export interface CreateBatchInput {
+  operatingUnitId:     string;
+  payeeName:           string;
+  payeePartyId?:       string | null;
+  payeeDistributorId?: string | null;
+  payeeAccountLast4?:  string | null;
+  payeeIfsc?:          string | null;
+  bankAccountId?:      string | null;
+  mode?:               PaymentRequestMode;
+  note?:               string | null;
+  neededBy?:           DateISO | null;
+}
+
+export async function createBatch(d: CreateBatchInput): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  if (!d.payeeName.trim()) throw new Error("Pick or enter a payee.");
+  const { data, error } = await sb.rpc("fn_payment_batch_create", {
+    p_operating_unit_id:    d.operatingUnitId,
+    p_payee_name:           d.payeeName,
+    p_payee_party_id:       d.payeePartyId ?? null,
+    p_payee_distributor_id: d.payeeDistributorId ?? null,
+    p_payee_account_last4:  d.payeeAccountLast4 ?? null,
+    p_payee_ifsc:           d.payeeIfsc ?? null,
+    p_bank_account_id:      d.bankAccountId ?? null,
+    p_mode:                 d.mode ?? "bank_transfer",
+    p_note:                 d.note ?? null,
+    p_needed_by:            d.neededBy ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+export async function addToBatch(batchId: string, paymentId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_add", {
+    p_batch_id: batchId, p_payment_id: paymentId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function removeFromBatch(batchId: string, paymentId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_remove", {
+    p_batch_id: batchId, p_payment_id: paymentId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Submit the batch. Returns what the DB decided: a batch whose lines the owner
+ * has ALREADY approved individually goes straight to 'approved' (no second ask),
+ * anything else goes to 'awaiting_approval' and wants one Slack card.
+ */
+export async function submitBatch(batchId: string): Promise<"approved" | "awaiting_approval"> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { data, error } = await sb.rpc("fn_payment_batch_submit", { p_batch_id: batchId });
+  if (error) throw new Error(error.message);
+  return (data as "approved" | "awaiting_approval" | null) ?? "awaiting_approval";
+}
+
+export async function approveBatch(batchId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_approve", { p_batch_id: batchId });
+  if (error) throw new Error(error.message);
+}
+
+export async function rejectBatch(batchId: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_reject", {
+    p_batch_id: batchId, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function requestBatchOtp(batchId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_request_otp", { p_batch_id: batchId });
+  if (error) throw new Error(error.message);
+}
+
+export async function markBatchPaid(batchId: string, d: MarkPaidInput): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_mark_paid", {
+    p_batch_id:        batchId,
+    p_bank_account_id: d.bankAccountId,
+    p_reference:       d.reference ?? null,
+    p_paid_amount:     d.paidAmount ?? null,
+    p_paid_reason:     d.paidReason ?? null,
+    p_paid_date:       d.paidDate ?? null,
+    p_receipt_url:     d.receiptUrl,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Cancelling a batch releases its invoices untouched — they can be paid singly. */
+export async function cancelBatch(batchId: string, reason: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_cancel", {
+    p_batch_id: batchId, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
 // ── Slack approval card (phase 3) ───────────────────────────────────────────
 // Best-effort: a Slack hiccup must never block the underlying transition. But
 // `functions.invoke` returns a non-2xx as `{ error }` (it does NOT throw), so we
@@ -944,6 +1225,24 @@ export async function postOtpRequest(id: string, deepLink?: string | null): Prom
 /** Report the money out (amount, reference, receipt) back into the same thread. */
 export async function postPaidNote(id: string): Promise<string | null> {
   return await invokeEdge("notify-slack", { kind: "payment_paid_note", paymentId: id });
+}
+
+// Batch cards — the same four beats, one card for the whole transfer.
+
+export async function postBatchCard(batchId: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_batch_card", batchId, deepLink: deepLink ?? null });
+}
+
+export async function syncBatchCard(batchId: string): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_batch_card_decided", batchId });
+}
+
+export async function postBatchOtpRequest(batchId: string, deepLink?: string | null): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_batch_otp_request", batchId, deepLink: deepLink ?? null });
+}
+
+export async function postBatchPaidNote(batchId: string): Promise<string | null> {
+  return await invokeEdge("notify-slack", { kind: "payment_batch_paid_note", batchId });
 }
 
 // ── Zoho F&B push (phase 6) ─────────────────────────────────────────────────

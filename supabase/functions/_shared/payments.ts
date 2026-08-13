@@ -21,7 +21,7 @@ import { inr, json, slackApi } from "./slack.ts";
  * the answer is one line in the dashboard logs. Living in _shared means it also
  * proves the SHARED file was bundled — the piece a partial redeploy misses.
  */
-export const PAYMENTS_BUILD = "2026-08-06 · otp+receipt+edit (payments_70/80/90)";
+export const PAYMENTS_BUILD = "2026-08-13 · batches (payments_100)";
 
 // Who may trigger a payment Slack post (the raisers).
 export const PAYMENT_POST_ROLES = new Set(["owner", "manager", "accountant"]);
@@ -332,4 +332,296 @@ export async function handlePaymentOutbound(
   }
 
   return json({ error: `unknown payment kind: ${kind}` }, 400);
+}
+
+// ============================================================================
+// Batches (payments_100) — many invoices to one payee, one transfer.
+//
+// The same four beats as a single payment (card → decision → OTP → paid note),
+// but the card itemises the invoices so the owner approves a total he can see
+// the parts of. A batch assembled from already-approved payments never reaches
+// here — fn_payment_batch_submit sends it straight to 'approved'.
+// ============================================================================
+
+/** Load a batch, its lines (with type names) and the labels the card needs. */
+// deno-lint-ignore no-explicit-any
+export async function loadBatchForSlack(svc: any, id: string) {
+  const { data } = await svc
+    .from("payment_batches")
+    .select(
+      "id, payee_name, needed_by, status, note, mode, " +
+      "approved_by_email, rejected_reason, slack_channel, slack_ts, otp_slack_ts, " +
+      "operating_unit_id, bank_account_id, payee_account_last4, payee_ifsc, " +
+      "paid_amount, paid_at, bank_reference, payment_receipt_url, paid_via_bank_account_id",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (!data) return null;
+  // deno-lint-ignore no-explicit-any
+  const b = data as any;
+
+  const { data: lines } = await svc
+    .from("payment_requests")
+    .select("id, purpose, amount, invoice_url, payment_type_id, status")
+    .eq("batch_id", id)
+    .order("created_at", { ascending: true });
+  // deno-lint-ignore no-explicit-any
+  b.lines = (lines ?? []) as any[];
+
+  // Type names, one round trip for the whole batch.
+  const typeIds = [...new Set(b.lines.map((l: { payment_type_id: string | null }) => l.payment_type_id).filter(Boolean))];
+  if (typeIds.length > 0) {
+    const { data: types } = await svc
+      .from("payment_types").select("id, name").in("id", typeIds);
+    const byId = new Map((types ?? []).map((t: { id: string; name: string }) => [t.id, t.name]));
+    for (const l of b.lines) l.type_name = byId.get(l.payment_type_id) ?? null;
+  }
+
+  b.gross = b.lines.reduce((a: number, l: { amount: number | string }) => a + (Number(l.amount) || 0), 0);
+
+  const bankId = b.paid_via_bank_account_id ?? b.bank_account_id;
+  if (bankId) {
+    const { data: acc } = await svc
+      .from("bank_accounts").select("name, bank_name").eq("id", bankId).maybeSingle();
+    b.bank_label = acc ? [acc.name, acc.bank_name].filter(Boolean).join(" · ") : null;
+  }
+  if (b.operating_unit_id) {
+    const { data: u } = await svc
+      .from("operating_units").select("name, cinema_id").eq("id", b.operating_unit_id).maybeSingle();
+    b.unit_name = u?.name ?? null;
+    b.cinema_id = u?.cinema_id ?? null;
+  }
+  return b;
+}
+
+/** The invoice list, capped so a long batch can't blow Slack's block limits. */
+// deno-lint-ignore no-explicit-any
+function lineListText(b: any): string {
+  const MAX = 12;
+  // deno-lint-ignore no-explicit-any
+  const shown = (b.lines as any[]).slice(0, MAX).map((l, i) => {
+    const label = l.purpose || l.type_name || "Invoice";
+    const link = l.invoice_url ? ` <${l.invoice_url}|invoice>` : "";
+    return `${i + 1}. ${label} — ${inr(Number(l.amount) || 0)}${link}`;
+  });
+  const rest = b.lines.length - shown.length;
+  if (rest > 0) shown.push(`_…and ${rest} more (open in console)._`);
+  return shown.join("\n");
+}
+
+// deno-lint-ignore no-explicit-any
+export function batchBlocks(b: any, decided: boolean, deepLink?: string | null): any[] {
+  const rejected = b.status === "cancelled" || b.status === "rejected"
+    || (b.status === "draft" && !!b.rejected_reason);
+  const paid = b.status === "paid";
+  const header = decided
+    ? (rejected ? ":no_entry: *Batch payment rejected*"
+      : paid ? ":moneybag: *Batch payment paid*"
+      : ":white_check_mark: *Batch payment approved*")
+    : ":money_with_wings: *Batch payment — awaiting your approval*";
+
+  const fields = [
+    `*Payee:* ${b.payee_name ?? "—"}`,
+    `*Invoices:* ${b.lines?.length ?? 0}`,
+    `*Total:* ${inr(Number(b.gross) || 0)}`,
+    `*Needed by:* ${b.needed_by ?? "—"}`,
+    `*Mode:* ${String(b.mode ?? "bank_transfer").replace(/_/g, " ")}`,
+    `*Unit:* ${b.unit_name ?? "—"}`,
+  ];
+
+  // deno-lint-ignore no-explicit-any
+  const blocks: any[] = [
+    { type: "section", text: { type: "mrkdwn", text: header } },
+    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t })) },
+  ];
+  if (b.note) blocks.push({ type: "section", text: { type: "mrkdwn", text: `*For:* ${b.note}` } });
+  if (b.lines?.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: lineListText(b) } });
+  }
+
+  if (decided) {
+    const reason = rejected && b.rejected_reason ? ` — _${b.rejected_reason}_` : "";
+    blocks.push({
+      type: "context",
+      elements: [{
+        type: "mrkdwn",
+        text: `${rejected ? "Rejected" : "Approved"} by ${b.approved_by_email ?? "owner"}${reason}`,
+      }],
+    });
+  } else {
+    // deno-lint-ignore no-explicit-any
+    const elements: any[] = [
+      { type: "button", style: "primary", text: { type: "plain_text", text: "Approve all" },
+        action_id: "payment_batch_approve", value: b.id },
+      { type: "button", style: "danger", text: { type: "plain_text", text: "Reject" },
+        action_id: "payment_batch_reject", value: b.id },
+    ];
+    if (deepLink) {
+      elements.push({ type: "button", text: { type: "plain_text", text: "Open in console" }, url: deepLink });
+    }
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: "One transfer settles all of these. Only the owner can approve." }],
+    });
+    blocks.push({ type: "actions", block_id: `payment_batch:${b.id}`, elements });
+  }
+  return blocks;
+}
+
+// deno-lint-ignore no-explicit-any
+function batchOtpBlocks(b: any, requestedBy: string, deepLink?: string | null): any[] {
+  const fields = [
+    `*Payee:* ${b.payee_name ?? "—"}`,
+    `*Invoices:* ${b.lines?.length ?? 0}`,
+    `*Total:* ${inr(Number(b.gross) || 0)}`,
+    `*Mode:* ${String(b.mode ?? "bank_transfer").replace(/_/g, " ")}`,
+    `*Paying from:* ${b.bank_label ?? "—"}`,
+    b.payee_account_last4 ? `*To A/c:* ••••${b.payee_account_last4}` : null,
+    `*Unit:* ${b.unit_name ?? "—"}`,
+    `*Approved by:* ${b.approved_by_email ?? "—"}`,
+  ].filter(Boolean).slice(0, 10);
+
+  // deno-lint-ignore no-explicit-any
+  const blocks: any[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(b.gross) || 0)} to *${b.payee_name ?? "—"}* (${b.lines?.length ?? 0} invoices)`,
+      },
+    },
+    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t as string })) },
+  ];
+  if (b.lines?.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: lineListText(b) } });
+  }
+  blocks.push({
+    type: "context",
+    elements: [{
+      type: "mrkdwn",
+      text: `${requestedBy || "The accountant"} is ready to pay all of these in one transfer — *reply in this thread with the OTP*.`,
+    }],
+  });
+  if (deepLink) {
+    blocks.push({
+      type: "actions",
+      block_id: `payment_batch_otp:${b.id}`,
+      elements: [{ type: "button", text: { type: "plain_text", text: "Open in console" }, url: deepLink }],
+    });
+  }
+  return blocks;
+}
+
+/**
+ * Outbound handler for the batch Slack kinds (called by notify-slack):
+ *   • payment_batch_card          — post the interactive card, store channel+ts.
+ *   • payment_batch_card_decided  — edit it after a console decision.
+ *   • payment_batch_otp_request   — reply asking the owner for the OTP.
+ *   • payment_batch_paid_note     — reply reporting the single transfer.
+ */
+// deno-lint-ignore no-explicit-any
+export async function handleBatchOutbound(
+  svc: any, role: string, kind: string, batchId?: string,
+  deepLink?: string | null, callerEmail?: string,
+): Promise<Response> {
+  const BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN");
+  const CHAN = Deno.env.get("SLACK_PAYMENTS_CHANNEL_ID");
+  if (!BOT_TOKEN) {
+    return json({ error: "Slack isn't set up for this environment (SLACK_BOT_TOKEN secret missing)." }, 500);
+  }
+  if (!batchId) return json({ error: "batchId required" }, 400);
+
+  const b = await loadBatchForSlack(svc, batchId);
+  if (!b) return json({ error: "batch not found" }, 404);
+
+  if (kind === "payment_batch_card") {
+    if (!PAYMENT_POST_ROLES.has(role)) {
+      return json({ error: `your role (${role || "unknown"}) can't post payment cards` }, 403);
+    }
+    if (!CHAN) {
+      return json({ error: "the payments Slack channel isn't set (SLACK_PAYMENTS_CHANNEL_ID secret missing)." }, 500);
+    }
+    const text = `Batch payment awaiting approval: ${inr(Number(b.gross) || 0)} — ${b.payee_name ?? ""} (${b.lines?.length ?? 0} invoices)`;
+    const pj = await slackApi("chat.postMessage", BOT_TOKEN, {
+      channel: CHAN, text, blocks: batchBlocks(b, false, deepLink),
+    });
+    if (!pj.ok) {
+      const hint = pj.error === "not_in_channel" || pj.error === "channel_not_found"
+        ? " — invite the bot to that channel (/invite @<app>) and check the channel id"
+        : "";
+      return json({ error: `Slack rejected the card: ${pj.error}${hint}` }, 502);
+    }
+    await svc.from("payment_batches")
+      .update({ slack_channel: pj.channel, slack_ts: pj.ts })
+      .eq("id", b.id);
+    return json({ ok: true, channel: pj.channel, ts: pj.ts });
+  }
+
+  if (kind === "payment_batch_otp_request") {
+    if (!PAYMENT_OTP_ROLES.has(role)) {
+      return json({ error: `your role (${role || "unknown"}) can't request a payment OTP` }, 403);
+    }
+    if (!CHAN && !b.slack_channel) {
+      return json({ error: "the payments Slack channel isn't set (SLACK_PAYMENTS_CHANNEL_ID secret missing)." }, 500);
+    }
+    const text = `OTP requested: ${inr(Number(b.gross) || 0)} — ${b.payee_name ?? ""} (${b.lines?.length ?? 0} invoices)`;
+    // deno-lint-ignore no-explicit-any
+    const payload: any = {
+      channel: b.slack_channel ?? CHAN,
+      text,
+      blocks: batchOtpBlocks(b, callerEmail ?? "", deepLink),
+    };
+    // A batch of already-approved lines has no card of its own to thread under
+    // (it never asked for approval) — then this posts standalone, as intended.
+    if (b.slack_ts) { payload.thread_ts = b.slack_ts; payload.reply_broadcast = true; }
+
+    const pj = await slackApi("chat.postMessage", BOT_TOKEN, payload);
+    if (!pj.ok) {
+      const hint = pj.error === "not_in_channel" || pj.error === "channel_not_found"
+        ? " — invite the bot to that channel (/invite @<app>) and check the channel id"
+        : "";
+      return json({ error: `Slack rejected the OTP request: ${pj.error}${hint}` }, 502);
+    }
+    await svc.from("payment_batches").update({ otp_slack_ts: pj.ts }).eq("id", b.id);
+    return json({ ok: true, channel: pj.channel, ts: pj.ts, threaded: !!b.slack_ts });
+  }
+
+  if (kind === "payment_batch_paid_note") {
+    if (!PAYMENT_OTP_ROLES.has(role)) {
+      return json({ error: `your role (${role || "unknown"}) can't post payment updates` }, 403);
+    }
+    if (!b.slack_channel && !CHAN) return json({ ok: true, skipped: "no channel" });
+    const amt = inr(Number(b.paid_amount ?? b.gross) || 0);
+    const text = `Batch payment made: ${amt} — ${b.payee_name ?? ""}`;
+    const lines = [
+      `:white_check_mark: *Batch payment made* — ${amt} to *${b.payee_name ?? "—"}* settling ${b.lines?.length ?? 0} invoices`,
+      `*Paid from:* ${b.bank_label ?? "—"}`,
+      b.bank_reference ? `*Reference:* ${b.bank_reference}` : null,
+      b.payment_receipt_url ? `*Receipt:* <${b.payment_receipt_url}|view>` : null,
+      `Recorded by ${callerEmail ?? "the accountant"}.`,
+    ].filter(Boolean).join("\n");
+
+    // deno-lint-ignore no-explicit-any
+    const payload: any = {
+      channel: b.slack_channel ?? CHAN,
+      text,
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: lines } }],
+    };
+    if (b.slack_ts) { payload.thread_ts = b.slack_ts; payload.reply_broadcast = true; }
+    const pj = await slackApi("chat.postMessage", BOT_TOKEN, payload);
+    if (!pj.ok) return json({ error: `Slack rejected the paid note: ${pj.error}` }, 502);
+    return json({ ok: true, ts: pj.ts });
+  }
+
+  if (kind === "payment_batch_card_decided") {
+    if (!b.slack_channel || !b.slack_ts) return json({ ok: true, skipped: "no slack message stored" });
+    const text = `Batch payment ${b.status}: ${inr(Number(b.gross) || 0)} — ${b.payee_name ?? ""}`;
+    const uj = await slackApi("chat.update", BOT_TOKEN, {
+      channel: b.slack_channel, ts: b.slack_ts, text, blocks: batchBlocks(b, true),
+    });
+    if (!uj.ok) return json({ error: `Slack rejected the card update: ${uj.error}` }, 502);
+    return json({ ok: true });
+  }
+
+  return json({ error: `unknown batch kind: ${kind}` }, 400);
 }
