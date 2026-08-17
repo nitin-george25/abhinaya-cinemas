@@ -27,6 +27,7 @@ import { Field, Input } from "../ui/Input";
 import { cn } from "../ui/cn";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 import { BatchMarkPaidModal } from "./BatchMarkPaidModal";
+import { CorrectPaidAccountModal } from "./CorrectPaidAccountModal";
 import { fmtINR } from "../../lib/dashboard";
 import { useSync } from "../../lib/hooks/SyncContext";
 import {
@@ -94,6 +95,7 @@ export function BatchDrawer({
   const [info, setInfo] = useState<string | null>(null);
 
   const [showMarkPaid, setShowMarkPaid] = useState(false);
+  const [showCorrectAccount, setShowCorrectAccount] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [showCancel, setShowCancel] = useState(false);
@@ -267,9 +269,15 @@ export function BatchDrawer({
           )}
         </div>
 
-        {/* Actions */}
-        {batch && !frozen ? (
+        {/* Actions. A paid batch is otherwise done, but the owner can still
+            correct which account the one transfer actually left. */}
+        {batch && (!frozen || (status === "paid" && isOwner)) ? (
           <div className="mt-auto flex flex-wrap gap-2 border-t border-line px-5 py-4">
+            {status === "paid" && isOwner ? (
+              <Button variant="secondary" disabled={busy} onClick={() => setShowCorrectAccount(true)}>
+                Correct paid-from account
+              </Button>
+            ) : null}
             {status === "draft" ? (
               <Button
                 disabled={busy || !canRaise || lines.length < 2}
@@ -330,7 +338,7 @@ export function BatchDrawer({
               </>
             ) : null}
 
-            {canRaise ? (
+            {canRaise && !frozen ? (
               <Button variant="ghost" disabled={busy} onClick={() => setShowCancel(true)}>Cancel batch</Button>
             ) : null}
           </div>
@@ -348,6 +356,18 @@ export function BatchDrawer({
           onPaid={async () => { await load(); await onChanged(); }}
           onError={setErr}
           onWarn={setWarn}
+        />
+      ) : null}
+
+      {showCorrectAccount && batch ? (
+        <CorrectPaidAccountModal
+          kind="batch"
+          id={batch.id}
+          currentAccountId={batch.paidViaBankAccountId}
+          bankAccounts={bankAccounts}
+          onClose={() => setShowCorrectAccount(false)}
+          onDone={async () => { await load(); await onChanged(); }}
+          onError={setErr}
         />
       ) : null}
 

@@ -1,10 +1,16 @@
 // ============================================================================
-// /settings/cash — owner-only CRUD for operating units, bank accounts, and
-// payment methods. Lightweight: lists current rows + a new-row form per
-// section. Editing existing rows goes through Supabase Studio for now.
+// /settings/cash — CRUD for operating units, bank accounts, and payment
+// methods. Lightweight: lists current rows + a new-row form per section.
+//
+// The page is open to the owner AND the accountant (the accountant needs the
+// pay-from defaults and the parties catalog), so anything destructive is gated
+// on the owner in the UI as well as in the DB. Bank accounts are editable and
+// removable by the owner since bank_accounts_owner_manage; "remove" deletes an
+// untouched account outright and archives one with history behind it, because
+// ledger entries, deposits and settlements all point at it.
 // ============================================================================
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -14,9 +20,14 @@ import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { getSupabase } from "../../lib/supabase";
 import {
   archivePosCounter,
+  bankAccountUsage,
   createPosCounter,
+  deleteBankAccount,
+  listAllBankAccounts,
   listPaymentMethodsForUnit,
   renamePosCounter,
+  restoreBankAccount,
+  saveBankAccount,
   setOperatingUnitMethods,
   updateOperatingUnitFloat,
   updateOperatingUnitPayDefaults,
@@ -33,7 +44,19 @@ export default function SettingsCashPage() {
   const { state } = useSync();
   const refs      = useCashRefs();
   const [err, setErr]   = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const isOwner = state.role === "owner";
+
+  // The bank-account section lists ARCHIVED accounts too, so an archive done in
+  // error can be undone. refs.bankAccounts (active only) still feeds every
+  // picker on the page, so this is a second, deliberately wider read.
+  const [allBanks, setAllBanks] = useState<BankAccount[]>([]);
+  const reloadBanks = useCallback(async () => {
+    if (!refs.cinemaId) return;
+    setAllBanks(await listAllBankAccounts(refs.cinemaId));
+  }, [refs.cinemaId]);
+  useEffect(() => { void reloadBanks(); }, [reloadBanks, refs.bankAccounts.length]);
 
   // Operating unit form
   const [uName, setUName] = useState("");
@@ -115,6 +138,44 @@ export default function SettingsCashPage() {
       if (error) throw new Error(error.message);
       setBName(""); setBBank(""); setBLast4(""); setBOpen("");
       refs.reload();
+      await reloadBanks();
+    } catch (e) { setErr((e as Error).message); }
+    finally    { setBusy(false); }
+  }
+
+  /**
+   * Remove an account. The DB decides between a real delete and an archive
+   * based on whether anything references it; we report which it chose and, when
+   * it archived, what was holding on to it — a silent archive dressed up as a
+   * delete is how people stop trusting a Delete button.
+   */
+  async function removeBank(a: BankAccount) {
+    setBusy(true); setErr(null); setNote(null);
+    try {
+      const outcome = await deleteBankAccount(a.id);
+      if (outcome === "deleted") {
+        setNote(`"${a.name}" was never used, so it has been deleted.`);
+      } else {
+        const usage = await bankAccountUsage(a.id);
+        const held = usage.map((u) => `${u.n} ${u.label.toLowerCase()}`).join(", ");
+        setNote(
+          `"${a.name}" has history behind it${held ? ` (${held})` : ""}, so it was archived instead — ` +
+          "gone from every picker, records intact.",
+        );
+      }
+      refs.reload();
+      await reloadBanks();
+    } catch (e) { setErr((e as Error).message); }
+    finally    { setBusy(false); }
+  }
+
+  async function unarchiveBank(a: BankAccount) {
+    setBusy(true); setErr(null); setNote(null);
+    try {
+      await restoreBankAccount(a.id);
+      setNote(`"${a.name}" is active again.`);
+      refs.reload();
+      await reloadBanks();
     } catch (e) { setErr((e as Error).message); }
     finally    { setBusy(false); }
   }
@@ -142,6 +203,11 @@ export default function SettingsCashPage() {
   return (
     <div className="space-y-6">
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {note ? (
+        <div className="rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink-soft">
+          {note}
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader><CardTitle>Operating units</CardTitle></CardHeader>
@@ -255,16 +321,21 @@ export default function SettingsCashPage() {
                 <th className="px-3 py-2 text-left">Bank</th>
                 <th className="px-3 py-2 text-left">Last 4</th>
                 <th className="px-3 py-2 text-right">Opening</th>
+                {isOwner ? <th className="px-3 py-2"></th> : null}
               </tr>
             </thead>
             <tbody>
-              {refs.bankAccounts.map((a) => (
-                <tr key={a.id} className="border-t border-line">
-                  <td className="px-3 py-2">{a.name}{a.isPrimary ? " ★" : ""}</td>
-                  <td className="px-3 py-2">{a.bankName ?? "—"}</td>
-                  <td className="px-3 py-2">{a.accountNumberLast4 ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{a.openingBalance}</td>
-                </tr>
+              {allBanks.map((a) => (
+                <BankAccountAdminRow
+                  key={a.id}
+                  account={a}
+                  isOwner={isOwner}
+                  busy={busy}
+                  onSaved={async () => { refs.reload(); await reloadBanks(); }}
+                  onRemove={() => void removeBank(a)}
+                  onRestore={() => void unarchiveBank(a)}
+                  onError={setErr}
+                />
               ))}
             </tbody>
           </table>
@@ -642,6 +713,142 @@ function MethodBankRow({
           ))}
         </Select>
       </td>
+    </tr>
+  );
+}
+
+/**
+ * One bank-account row, with inline edit for the owner.
+ *
+ * Editing is inline rather than a modal to match the rest of this page, and the
+ * save goes through fn_bank_account_save rather than a bare UPDATE so the
+ * primary flag stays exclusive across the cinema.
+ *
+ * The Remove button is honest about being two operations behind one label: the
+ * DB deletes an account nothing has touched and archives one with history, and
+ * the page reports which happened. Archived rows stay listed here (and only
+ * here — every picker reads the active list) so an archive can be undone.
+ */
+function BankAccountAdminRow({
+  account,
+  isOwner,
+  busy,
+  onSaved,
+  onRemove,
+  onRestore,
+  onError,
+}: {
+  account: BankAccount;
+  isOwner: boolean;
+  busy: boolean;
+  onSaved: () => void | Promise<void>;
+  onRemove: () => void;
+  onRestore: () => void;
+  onError: (m: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [name, setName]       = useState(account.name);
+  const [bank, setBank]       = useState(account.bankName ?? "");
+  const [last4, setLast4]     = useState(account.accountNumberLast4 ?? "");
+  const [opening, setOpening] = useState(String(account.openingBalance));
+  const [primary, setPrimary] = useState(account.isPrimary);
+  const [confirming, setConfirming] = useState(false);
+
+  const archived = !!account.archivedAt;
+
+  function cancel() {
+    setName(account.name);
+    setBank(account.bankName ?? "");
+    setLast4(account.accountNumberLast4 ?? "");
+    setOpening(String(account.openingBalance));
+    setPrimary(account.isPrimary);
+    setEditing(false);
+  }
+
+  async function save() {
+    if (!name.trim()) { onError("The account needs a name."); return; }
+    setSaving(true);
+    try {
+      await saveBankAccount(account.id, {
+        name: name.trim(),
+        bankName: bank || null,
+        accountLast4: last4 || null,
+        openingBalance: Number(opening) || 0,
+        isPrimary: primary,
+      });
+      setEditing(false);
+      await onSaved();
+    } catch (e) { onError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <tr className="border-t border-line bg-paper">
+        <td className="px-3 py-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <label className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+            <input type="checkbox" checked={primary} onChange={(e) => setPrimary(e.target.checked)} />
+            Primary account
+          </label>
+        </td>
+        <td className="px-3 py-2"><Input value={bank} onChange={(e) => setBank(e.target.value)} /></td>
+        <td className="px-3 py-2"><Input value={last4} onChange={(e) => setLast4(e.target.value)} /></td>
+        <td className="px-3 py-2">
+          <Input type="number" value={opening} onChange={(e) => setOpening(e.target.value)} />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" disabled={saving} onClick={cancel}>Cancel</Button>
+            <Button size="sm" disabled={saving} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className={`border-t border-line ${archived ? "text-ink-muted" : ""}`}>
+      <td className="px-3 py-2">
+        {account.name}{account.isPrimary ? " ★" : ""}
+        {archived ? <span className="ml-2 text-xs uppercase tracking-wide">archived</span> : null}
+      </td>
+      <td className="px-3 py-2">{account.bankName ?? "—"}</td>
+      <td className="px-3 py-2">{account.accountNumberLast4 ?? "—"}</td>
+      <td className="px-3 py-2 text-right tabular-nums">{account.openingBalance}</td>
+      {isOwner ? (
+        <td className="px-3 py-2">
+          <div className="flex justify-end gap-2">
+            {archived ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={onRestore}>Restore</Button>
+            ) : confirming ? (
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Keep</Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => { setConfirming(false); onRemove(); }}
+                >
+                  Confirm remove
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="secondary" disabled={busy} onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(true)}>
+                  Remove
+                </Button>
+              </>
+            )}
+          </div>
+        </td>
+      ) : null}
     </tr>
   );
 }

@@ -54,6 +54,9 @@ const ENTRY_ROLES: Role[] = ["owner", "manager", "daily_manager"];
 const BO_HISTORY_ROLES: Role[] = ["owner", "manager", "daily_manager", "accountant"];
 const REPORT_ROLES: Role[] = ["owner", "manager", "accountant"];
 const ALL: Role[] = ["owner", "manager", "daily_manager", "accountant"];
+// Genuinely every role, cashier included. Distinct from ALL above, which is the
+// four back-office roles — the SOP library is the one thing everybody reads.
+const EVERYONE: Role[] = ["owner", "manager", "daily_manager", "accountant", "cashier"];
 
 // Cash management roles
 const CASH_LEDGER_ROLES: Role[] = ["owner", "manager", "accountant"];
@@ -93,14 +96,18 @@ export const NAV: NavItem[] = [
     ],
   },
   {
-    // Operations — on-the-ground running of the cinema: staff rosters and the
-    // daily SOP checklists. Visible to anyone who runs a shift; manage/approve
-    // rights are gated per-feature (owner/manager) by the pages + RLS.
+    // Operations — on-the-ground running of the cinema: staff rosters, the
+    // daily SOP checklists, and the SOP library.
+    //
+    // The GROUP is open to every role because the SOP library is, and
+    // filterForRole() drops a group whose own roles exclude the viewer before it
+    // ever looks at the children. The children stay individually gated, so an
+    // accountant or cashier opening Operations sees only the SOPs.
     kind: "group",
     id: "operations",
     label: "Operations",
     Icon: IconOperations,
-    roles: ENTRY_ROLES,
+    roles: EVERYONE,
     children: [
       {
         // Rosters — weekly staff rosters. Daily Manager Roster is the first;
@@ -116,8 +123,10 @@ export const NAV: NavItem[] = [
       // Moved here from F&B — the daily SOP checklists.
       { kind: "leaf", to: "/operations/checklist", label: "Checklists", roles: ENTRY_ROLES },
       // The SOP library the checklists are pulled from — the written standard
-      // behind every daily check. Read by anyone on shift; owner/manager edit.
-      { kind: "leaf", to: "/operations/sops", label: "Standard Operating Procedures", roles: ENTRY_ROLES },
+      // behind every daily check. EVERY role reads it: a cashier needs BO-01 as
+      // much as the owner does, which is why sops_read has no role gate either.
+      // Adding and removing stays owner/manager, enforced by the page and RLS.
+      { kind: "leaf", to: "/operations/sops", label: "Standard Operating Procedures", roles: EVERYONE },
     ],
   },
   {

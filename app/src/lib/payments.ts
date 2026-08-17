@@ -700,6 +700,28 @@ export async function markPaid(id: string, d: MarkPaidInput): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Owner-only: fix the account a PAID payment actually went out of
+ * (bank_accounts_owner_manage). A paid payment is otherwise frozen, and stays
+ * frozen for amount, payee and status — this moves only the paid-from account,
+ * and moves its bank-book row with it so the two can't disagree. The reason is
+ * mandatory and lands in the audit trail.
+ */
+export async function correctPaidAccount(
+  id: string,
+  bankAccountId: string,
+  reason: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_correct_paid_account", {
+    p_payment_id:      id,
+    p_bank_account_id: bankAccountId,
+    p_reason:          reason,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function cancelPayment(id: string, reason: string): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase not configured");
@@ -1148,6 +1170,22 @@ export async function markBatchPaid(batchId: string, d: MarkPaidInput): Promise<
     p_paid_reason:     d.paidReason ?? null,
     p_paid_date:       d.paidDate ?? null,
     p_receipt_url:     d.receiptUrl,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Owner-only paid-from correction for a batch — moves its one bank-book line. */
+export async function correctBatchPaidAccount(
+  batchId: string,
+  bankAccountId: string,
+  reason: string,
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not configured");
+  const { error } = await sb.rpc("fn_payment_batch_correct_paid_account", {
+    p_batch_id:        batchId,
+    p_bank_account_id: bankAccountId,
+    p_reason:          reason,
   });
   if (error) throw new Error(error.message);
 }
