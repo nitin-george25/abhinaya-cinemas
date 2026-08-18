@@ -470,31 +470,41 @@ export async function listInbox(
   //    batch, which appears here instead and opens onto its lines.
   if (unitIds.length > 0) {
     let batchesReady = true;
-    let { data, error } = await sb
+    // The two selects infer different row types, so they can't share a binding —
+    // each result is read on its own and normalised to InboxPaymentRow. The cast
+    // goes through `unknown` because the client types a many-to-one embed as an
+    // array where at runtime it is a single object (same reason as
+    // listAssetPayments below).
+    const primary = await sb
       .from("payment_requests")
       .select(INBOX_BATCH_COLS)
       .in("operating_unit_id", unitIds)
       .order("created_at", { ascending: false });
 
-    if (error && isMissingColumn(error)) {
+    let payments = primary.data as unknown as InboxPaymentRow[] | null;
+    let failure = primary.error;
+
+    if (primary.error && isMissingColumn(primary.error)) {
       // Pre-payments_100 database. Show the payments; skip the batch layer.
       console.warn(
         "[payments] listInbox: batch columns missing — apply migration " +
         "20260813120000_payments_100_batches.sql. Showing payments without batches.",
       );
       batchesReady = false;
-      ({ data, error } = await sb
+      const fallback = await sb
         .from("payment_requests")
         .select(INBOX_BASE_COLS)
         .in("operating_unit_id", unitIds)
-        .order("created_at", { ascending: false }));
+        .order("created_at", { ascending: false });
+      payments = fallback.data as unknown as InboxPaymentRow[] | null;
+      failure = fallback.error;
     }
-    if (error) {
+    if (failure) {
       // Loud on purpose — see the note above.
-      throw new Error(`Couldn't load payments: ${error.message}`);
+      throw new Error(`Couldn't load payments: ${failure.message}`);
     }
 
-    for (const r of (data as InboxPaymentRow[] | null ?? [])) {
+    for (const r of (payments ?? [])) {
       if (r.batch_id) continue;
       rows.push({
         id: r.id, kind: "payment", payee: r.payee_name,
@@ -1067,7 +1077,7 @@ export async function getBatch(id: string): Promise<PaymentBatch | null> {
   if (!sb) return null;
   const { data, error } = await sb.from("payment_batches").select("*").eq("id", id).single();
   if (error || !data) return null;
-  return mapBatch(data as PaymentBatchRow);
+  return mapBatch(data as unknown as PaymentBatchRow);
 }
 
 /**
@@ -1091,7 +1101,7 @@ async function listBatchRows(unitIds: string[]): Promise<PaymentInboxRow[]> {
     return [];
   }
   if (error) { console.warn("[payments] listBatchRows", error.message); return []; }
-  return ((data ?? []) as Array<PaymentBatchRow & { payment_requests: Array<{ id: string; amount: number | string }> | null }>)
+  return ((data ?? []) as unknown as Array<PaymentBatchRow & { payment_requests: Array<{ id: string; amount: number | string }> | null }>)
     .map((r) => {
       const lines = r.payment_requests ?? [];
       const gross = lines.reduce((a, l) => a + Number(l.amount), 0);
