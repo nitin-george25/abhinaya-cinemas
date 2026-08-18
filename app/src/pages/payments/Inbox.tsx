@@ -50,7 +50,9 @@ export default function PaymentsInboxPage() {
 
   const [rows, setRows] = useState<PaymentInboxRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [errored, setErrored] = useState(false);
+  // The reason, not just the fact. A blank inbox and a broken query look the
+  // same to the eye, so when the load fails the operator sees WHY.
+  const [errored, setErrored] = useState<string | null>(null);
   const [lane, setLane] = useState<Lane>("all");
   const [query, setQuery] = useState("");
   const [openRow, setOpenRow] = useState<PaymentInboxRow | null>(null);
@@ -65,10 +67,10 @@ export default function PaymentsInboxPage() {
 
   async function reload() {
     if (!refs.cinemaId) return;
-    setLoading(true); setErrored(false);
+    setLoading(true); setErrored(null);
     try {
       setRows(await listInbox(unitIds, refs.cinemaId));
-    } catch { setErrored(true); }
+    } catch (e) { setErrored((e as Error).message); setRows([]); }
     finally { setLoading(false); }
   }
   useEffect(() => {
@@ -227,6 +229,12 @@ export default function PaymentsInboxPage() {
         <Card>
           <CardBody className="space-y-3 py-10 text-center">
             <div className="text-ink">Couldn't load payments.</div>
+            <div className="mx-auto max-w-lg text-sm text-ink-muted">{errored}</div>
+            <div className="text-xs text-ink-muted">
+              Nothing has been deleted — this is a read that failed. If the console was
+              just redeployed, the database may still be behind it; applying the pending
+              migrations usually fixes this.
+            </div>
             <div><Button onClick={() => void reload()}>Retry</Button></div>
           </CardBody>
         </Card>

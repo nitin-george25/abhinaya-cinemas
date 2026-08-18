@@ -639,7 +639,7 @@ export default function ReportsPictureEndingPage() {
                   </thead>
                   <tbody>
                     {computed.weeks.map((w) => (
-                      <tr key={w.week} className="border-b border-line">
+                      <tr key={`${w.week}-${w.from}`} className="border-b border-line">
                         <td className="px-4 py-2 tabular-nums">{w.from}</td>
                         <td className="px-4 py-2 tabular-nums">{w.to}</td>
                         <td className="px-4 py-2 text-right tabular-nums">{w.days}</td>

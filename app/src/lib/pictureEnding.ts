@@ -47,6 +47,7 @@ import {
   r2,
   daysBetween,
   computeShallow,
+  resolveShare,
   screenById,
   screenClasses,
   cardById,
@@ -155,14 +156,20 @@ export function defaultPictureEndingInputs(
 
 // ── computed shapes ───────────────────────────────────────────────────────
 
+/**
+ * One printed row of the weekly run table. Normally one run week; a week
+ * billed at two rates prints as two rows, and a row can run on past its own
+ * week when the days after it continue at the same rate. See `summarizeWeeks`.
+ */
 export interface PictureEndingWeek {
-  week: number;        // 1-based run week
+  /** 1-based run week the row STARTS in. Not unique once a week is split. */
+  week: number;
   from: DateISO;
   to: DateISO;
-  days: number;        // count of distinct dates that collected in the week
+  days: number;        // count of distinct dates that collected in the row
   net: number;         // Σ netShare (the share base)
   exShare: number;     // Σ exShare (cinema's portion — publicity base)
-  /** Effective share %; equals the flat weekly rate when uniform. */
+  /** The share % actually billed — uniform across every day in the row. */
   sharePct: number;
   share: number;       // Σ distShare
 }
@@ -383,21 +390,48 @@ export function resolveHoldOverDate(
 
 // ── weekly roll-up + cascade ──────────────────────────────────────────────
 
-interface WeekAcc {
-  week: number;
-  dates: Set<string>;
+/** One collecting DATE, with the share rate that actually applied to it. */
+interface DayRow {
+  date: DateISO;
+  week: number;    // run week the date falls in
+  pct: number;     // effective share % for the day (override → week rate → base)
+  net: number;
+  exShare: number;
+  share: number;
+}
+
+/** A run of consecutive collecting days billed at ONE rate — a printed row. */
+interface RowAcc {
+  week: number;      // run week the row STARTS in
+  endWeek: number;   // run week the row ENDS in (differs once a week is extended)
+  pct: number;
+  dates: string[];   // ascending
   net: number;
   exShare: number;
   share: number;
 }
 
 /**
- * Roll one screen's collecting DCR days for a movie into per-run-week rows.
+ * Roll one screen's collecting DCR days for a movie into the statement's rows.
  *
  * Run weeks stay anchored to the RELEASE date, not to the screen's own first
  * day, so week numbers (and therefore the movie's stepped weekly share rates)
  * mean the same thing on every screen. A film moved to a second screen in its
  * third week opens that screen's statement at week 3.
+ *
+ * A row is normally one run week. Two things bend that, both driven by the
+ * rate a day is actually billed at (per-day override → movie's weekly rate →
+ * base rate):
+ *
+ *   • A week billed at more than one rate is SPLIT — one row per rate, so the
+ *     statement never prints a blended average nobody agreed to.
+ *   • The leading piece of such a split week is FOLDED BACK into the previous
+ *     row when it continues at the same rate. A day carried on at last week's
+ *     terms belongs to last week's row: the week is extended to that day,
+ *     rather than opening a short new week.
+ *
+ * A week billed at a single rate always keeps its own row, even when that rate
+ * matches the week before — consecutive full weeks are never merged away.
  */
 export function summarizeWeeks(
   state: AppState,
@@ -427,41 +461,103 @@ export function summarizeWeeks(
     firstCollecting.e.date!,
   );
 
-  const byWeek = new Map<number, WeekAcc>();
+  // One DayRow per collecting date (a date may carry more than one entry).
+  const byDate = new Map<string, DayRow>();
   for (const { e, cs } of collecting) {
-    const diff = daysBetween(anchor, e.date!); // 0-based; may be <0 before release
-    const week = Math.max(1, Math.floor(diff / 7) + 1);
-    let acc = byWeek.get(week);
-    if (!acc) {
-      acc = { week, dates: new Set(), net: 0, exShare: 0, share: 0 };
-      byWeek.set(week, acc);
+    let d = byDate.get(e.date!);
+    if (!d) {
+      const diff = daysBetween(anchor, e.date!); // 0-based; may be <0 before release
+      d = {
+        date: e.date!,
+        week: Math.max(1, Math.floor(diff / 7) + 1),
+        pct: r2(resolveShare(state, e)),
+        net: 0,
+        exShare: 0,
+        share: 0,
+      };
+      byDate.set(e.date!, d);
     }
-    acc.dates.add(e.date!);
-    acc.net += cs.netShare;
-    acc.exShare += cs.exShare;
-    acc.share += cs.distShare;
+    d.net += cs.netShare;
+    d.exShare += cs.exShare;
+    d.share += cs.distShare;
+  }
+  const days = [...byDate.values()].sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  // Window edges are still drawn per run WEEK, so a row that starts (or ends)
+  // on its week's first (or last) collecting day still prints that week's
+  // window date, exactly as an unsplit statement does.
+  const weekFirst = new Map<number, string>();
+  const weekLast = new Map<number, string>();
+  for (const d of days) {
+    if (!weekFirst.has(d.week)) weekFirst.set(d.week, d.date);
+    weekLast.set(d.week, d.date);
   }
 
-  return [...byWeek.values()]
-    .sort((a, b) => a.week - b.week)
-    .map((a) => {
-      // Each week is a fixed 7-day window anchored to the release date:
-      // week n = [anchor + 7(n-1), anchor + 7n - 1]. The display dates are
-      // the window edges (not the first/last show), clamped to the run end.
-      const from = addDaysIso(anchor, 7 * (a.week - 1));
-      const winEnd = addDaysIso(anchor, 7 * a.week - 1);
-      const to = winEnd < lastPlay ? winEnd : lastPlay;
-      return {
-        week: a.week,
-        from,
-        to,
-        days: a.dates.size,
-        net: r2(a.net),
-        exShare: r2(a.exShare),
-        sharePct: a.net !== 0 ? r2((a.share / a.net) * 100) : 0,
-        share: r2(a.share),
-      };
+  // Break at every week boundary AND at every rate change.
+  const segs: RowAcc[] = [];
+  for (const d of days) {
+    const cur = segs[segs.length - 1];
+    if (cur && cur.endWeek === d.week && cur.pct === d.pct) {
+      cur.dates.push(d.date);
+      cur.net += d.net;
+      cur.exShare += d.exShare;
+      cur.share += d.share;
+      continue;
+    }
+    segs.push({
+      week: d.week, endWeek: d.week, pct: d.pct,
+      dates: [d.date], net: d.net, exShare: d.exShare, share: d.share,
     });
+  }
+
+  // Only a week that was split can give its leading piece back to the previous
+  // row; a uniform week keeps its own row however its rate compares.
+  const segsInWeek = new Map<number, number>();
+  for (const s of segs) segsInWeek.set(s.week, (segsInWeek.get(s.week) ?? 0) + 1);
+
+  const rows: RowAcc[] = [];
+  for (const s of segs) {
+    const prev = rows[rows.length - 1];
+    const leadsSplitWeek =
+      (segsInWeek.get(s.week) ?? 0) > 1 && weekFirst.get(s.week) === s.dates[0];
+    if (prev && leadsSplitWeek && prev.pct === s.pct) {
+      prev.dates.push(...s.dates);
+      prev.net += s.net;
+      prev.exShare += s.exShare;
+      prev.share += s.share;
+      prev.endWeek = s.week; // the week now runs on into s.week
+      continue;
+    }
+    rows.push({ ...s, dates: [...s.dates] });
+  }
+
+  return rows.map((a) => {
+    const firstDate = a.dates[0]!;
+    const lastDate = a.dates[a.dates.length - 1]!;
+    // Week n's window = [anchor + 7(n-1), anchor + 7n - 1], clamped to the run
+    // end. A row that opens or closes mid-week shows its own edge date instead.
+    const from =
+      weekFirst.get(a.week) === firstDate
+        ? addDaysIso(anchor, 7 * (a.week - 1))
+        : firstDate;
+    const winEnd = addDaysIso(anchor, 7 * a.endWeek - 1);
+    const to =
+      weekLast.get(a.endWeek) === lastDate
+        ? (winEnd < lastPlay ? winEnd : lastPlay)
+        : lastDate;
+    return {
+      week: a.week,
+      from,
+      to,
+      days: a.dates.length,
+      net: r2(a.net),
+      exShare: r2(a.exShare),
+      sharePct: r2(a.pct),
+      share: r2(a.share),
+    };
+  });
 }
 
 /**

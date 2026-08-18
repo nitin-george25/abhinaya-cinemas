@@ -424,10 +424,38 @@ interface InboxProjectRow {
   projects: { name: string | null } | null;
 }
 
+/** Postgres "column does not exist" — the database is behind the frontend. */
+function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+  return err?.code === "42703" || /column .* does not exist/i.test(err?.message ?? "");
+}
+
+/** Postgres "relation does not exist" — same cause, a whole table this time. */
+function isMissingTable(err: { code?: string; message?: string } | null): boolean {
+  return err?.code === "42P01" || /relation .* does not exist/i.test(err?.message ?? "");
+}
+
+// The columns the batch feature added (payments_100). Kept apart from the base
+// list so the query can fall back when the migration hasn't been applied yet:
+// migrations and the built frontend ship separately in this project, and a
+// payments inbox that shows NOTHING because of one missing column is far worse
+// than one that shows every payment but no batches.
+const INBOX_BASE_COLS =
+  "id, payee_name, amount, status, is_advance, needed_by, created_at, payment_types(name, accounting_head)";
+const INBOX_BATCH_COLS =
+  "id, payee_name, amount, status, is_advance, needed_by, created_at, batch_id, operating_unit_id, payment_types(name, accounting_head)";
+
 /**
  * The unified worklist — general payments (the money-out engine) plus the
  * read-only feeders the accountant expects to *see* but not action here:
  * PM project expenses that are ready/paid, and petty till expenses.
+ *
+ * The general-payments query is the ONE that must not fail quietly: if it
+ * breaks, this THROWS so the inbox shows "Couldn't load payments" with a retry.
+ * It used to console.warn and return an empty list, which rendered as the
+ * cheerful "No payments yet" empty state — indistinguishable from a cinema that
+ * genuinely has no payments, and the reason a missing column once looked like
+ * every payment had been deleted. The feeders below stay best-effort: a broken
+ * project or petty read should not hide the money-out worklist.
  */
 export async function listInbox(
   unitIds: string[],
@@ -441,12 +469,31 @@ export async function listInbox(
   //    that has joined a batch is NOT listed on its own — it is settled by the
   //    batch, which appears here instead and opens onto its lines.
   if (unitIds.length > 0) {
-    const { data, error } = await sb
+    let batchesReady = true;
+    let { data, error } = await sb
       .from("payment_requests")
-      .select("id, payee_name, amount, status, is_advance, needed_by, created_at, batch_id, operating_unit_id, payment_types(name, accounting_head)")
+      .select(INBOX_BATCH_COLS)
       .in("operating_unit_id", unitIds)
       .order("created_at", { ascending: false });
-    if (error) console.warn("[payments] listInbox/payments", error.message);
+
+    if (error && isMissingColumn(error)) {
+      // Pre-payments_100 database. Show the payments; skip the batch layer.
+      console.warn(
+        "[payments] listInbox: batch columns missing — apply migration " +
+        "20260813120000_payments_100_batches.sql. Showing payments without batches.",
+      );
+      batchesReady = false;
+      ({ data, error } = await sb
+        .from("payment_requests")
+        .select(INBOX_BASE_COLS)
+        .in("operating_unit_id", unitIds)
+        .order("created_at", { ascending: false }));
+    }
+    if (error) {
+      // Loud on purpose — see the note above.
+      throw new Error(`Couldn't load payments: ${error.message}`);
+    }
+
     for (const r of (data as InboxPaymentRow[] | null ?? [])) {
       if (r.batch_id) continue;
       rows.push({
@@ -461,7 +508,7 @@ export async function listInbox(
     }
 
     // 1b) Batches — one row per multi-invoice transfer.
-    rows.push(...await listBatchRows(unitIds));
+    if (batchesReady) rows.push(...await listBatchRows(unitIds));
   }
 
   // 2) PM project expenses ready/paid — read-only window onto the same object.
@@ -1023,7 +1070,11 @@ export async function getBatch(id: string): Promise<PaymentBatch | null> {
   return mapBatch(data as PaymentBatchRow);
 }
 
-/** Batches as inbox rows (the amount shown is the net still to be transferred). */
+/**
+ * Batches as inbox rows (the amount shown is the net still to be transferred).
+ * Additive and best-effort: on a database that predates payments_100 the table
+ * simply isn't there, and the inbox must still show every ordinary payment.
+ */
 async function listBatchRows(unitIds: string[]): Promise<PaymentInboxRow[]> {
   const sb = getSupabase();
   if (!sb || unitIds.length === 0) return [];
@@ -1032,6 +1083,13 @@ async function listBatchRows(unitIds: string[]): Promise<PaymentInboxRow[]> {
     .select("*, payment_requests(id, amount)")
     .in("operating_unit_id", unitIds)
     .order("created_at", { ascending: false });
+  if (error && isMissingTable(error)) {
+    console.warn(
+      "[payments] listBatchRows: payment_batches missing — apply migration " +
+      "20260813120000_payments_100_batches.sql.",
+    );
+    return [];
+  }
   if (error) { console.warn("[payments] listBatchRows", error.message); return []; }
   return ((data ?? []) as Array<PaymentBatchRow & { payment_requests: Array<{ id: string; amount: number | string }> | null }>)
     .map((r) => {

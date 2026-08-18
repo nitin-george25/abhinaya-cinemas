@@ -341,6 +341,75 @@ describe("summarizeWeeks — stepped weekly rates", () => {
   });
 });
 
+describe("summarizeWeeks — a week billed at two rates", () => {
+  /** share=null → the movie's per-week rate applies; a number overrides the day. */
+  function day(date: string, tickets: number[], share: number | null = null): Entry {
+    return {
+      id: `d_${date}`, date, movieId: "mov", screenId: "scr", share,
+      shows: tickets.map((t, i) => ({
+        showtime: ["11:00", "14:00", "18:00"][i] ?? "21:00",
+        priceCardId: "pc",
+        rows: { A: { tickets: t } },
+      })),
+    };
+  }
+
+  // Week 1 (27 Mar – 2 Apr) at 55%. Week 2 opens 3 Apr still on 55% (set by
+  // hand), then drops to the movie's 50% on 4 Apr — the run's last day.
+  const state = fixture([]);
+  state.movies[0]!.weekShares = { 1: 55, 2: 50 };
+  state.entries = [
+    day("2025-03-27", [100, 90, 80]),
+    day("2025-03-28", [80, 70, 60]),
+    day("2025-04-03", [60, 50, 40], 55),  // manual: carries on at last week's rate
+    day("2025-04-04", [30, 20, 10]),      // back to the week-2 rate
+  ];
+  const weeks = summarizeWeeks(state, "mov", "scr");
+
+  it("extends week 1 to the continuing day instead of averaging week 2", () => {
+    expect(weeks).toHaveLength(2);
+    expect(weeks[0]!.from).toBe("2025-03-27");
+    expect(weeks[0]!.to).toBe("2025-04-03");   // week 1 runs on to the 55% day
+    expect(weeks[0]!.days).toBe(3);
+    expect(weeks[0]!.sharePct).toBe(55);
+    expect(weeks[1]!.from).toBe("2025-04-04"); // the split week opens mid-window
+    expect(weeks[1]!.to).toBe("2025-04-04");
+    expect(weeks[1]!.days).toBe(1);
+    expect(weeks[1]!.sharePct).toBe(50);       // never a blended average
+  });
+
+  it("keeps every rupee — the rows still add up to the run", () => {
+    const all = summarizeWeeks(state, "mov", "scr");
+    for (const w of all) expect(w.share).toBeCloseTo((w.net * w.sharePct) / 100, 1);
+  });
+
+  it("splits a week in place when the lead rate does not continue the week before", () => {
+    const s2 = fixture([]);
+    s2.movies[0]!.weekShares = { 1: 55, 2: 50 };
+    s2.entries = [
+      day("2025-03-27", [100, 90, 80]),
+      day("2025-04-03", [60, 50, 40]),        // week-2 rate, 50%
+      day("2025-04-04", [30, 20, 10], 45),    // dropped again mid-week
+    ];
+    const w = summarizeWeeks(s2, "mov", "scr");
+    expect(w.map((x) => x.sharePct)).toEqual([55, 50, 45]);
+    expect(w[1]!.from).toBe("2025-04-03");    // week 2 still opens on its window
+    expect(w[1]!.to).toBe("2025-04-03");
+    expect(w[2]!.from).toBe("2025-04-04");
+  });
+
+  it("never merges two consecutive weeks billed at one flat rate", () => {
+    const s3 = fixture([]);
+    s3.entries = [
+      day("2025-03-27", [100, 90, 80]),
+      day("2025-04-03", [60, 50, 40]),
+    ];
+    const w = summarizeWeeks(s3, "mov", "scr"); // both weeks on the movie's 60%
+    expect(w.map((x) => x.week)).toEqual([1, 2]);
+    expect(w.map((x) => x.sharePct)).toEqual([60, 60]);
+  });
+});
+
 describe("computeHoldOverDate", () => {
   it("flags the first day best-3 shows fall below one full house", () => {
     // Full house = 100 seats × ₹100 = ₹10,000.
