@@ -195,22 +195,10 @@ export function glassesForMovie(
   return { rows, total: glassesTotals(rows) };
 }
 
-/**
- * True if any show in the entry actually bills for glasses — drives the
- * History row's CTA.
- *
- * MUST agree with glassesDayRows, so it resolves the line through the same
- * showGlasses() rather than approximating. It previously tested raw ticket
- * count, which is not the billed quantity: a show with an explicit `qty` of 0
- * sells tickets but bills nothing, so the pill appeared on rows the report and
- * the popup both showed as empty. Any predicate that is not this one drifts
- * from what the money says.
- */
-export function entryHasGlasses(state: AppState, entry: Entry): boolean {
-  const cfg = glasses3dConfig(state);
-  return (entry.shows ?? []).some((sh) => {
-    if (sh.glasses3d == null) return false;
-    const line = showGlasses(sh, showTicketCount(sh), cfg);
-    return line != null && line.qty > 0;
-  });
+/** True if any show in the entry carries a glasses charge — drives the
+ *  History row's CTA, so it must be as cheap as the row render itself. */
+export function entryHasGlasses(entry: Entry): boolean {
+  return (entry.shows ?? []).some(
+    (sh) => sh.glasses3d != null && showTicketCount(sh) > 0,
+  );
 }

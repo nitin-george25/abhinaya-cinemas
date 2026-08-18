@@ -28,7 +28,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, inr, json, postWebhook } from "../_shared/slack.ts";
 import { handlePettyOutbound } from "../_shared/petty.ts";
-import { handleBatchOutbound, handlePaymentOutbound, PAYMENTS_BUILD } from "../_shared/payments.ts";
+import { handlePaymentOutbound, PAYMENTS_BUILD } from "../_shared/payments.ts";
 
 // Every kind this build understands. Returned by the "ping" kind below, so
 // "does the deployed function know about payment_otp_request?" is answerable
@@ -39,8 +39,6 @@ const KNOWN_KINDS = [
   "petty_request", "petty_decided",
   "payment_card", "payment_card_decided", "payment_card_refresh",
   "payment_otp_request", "payment_paid_note",
-  "payment_batch_card", "payment_batch_card_decided",
-  "payment_batch_otp_request", "payment_batch_paid_note",
 ];
 
 console.log(`[notify-slack] boot · build ${PAYMENTS_BUILD}`);
@@ -62,8 +60,6 @@ interface Body {
   pettyExpenseId?: string;
   // Unified payments interactive card (§7).
   paymentId?: string;
-  // Batch payments — many invoices, one payee, one transfer (payments_100).
-  batchId?: string;
 }
 
 const PAYMENT_ROLES = new Set(["owner", "accountant"]);
@@ -137,15 +133,6 @@ Deno.serve(async (req: Request) => {
       || kind === "payment_otp_request" || kind === "payment_paid_note") {
     return await handlePaymentOutbound(
       svc, role, kind, body.paymentId, body.deepLink ?? null, callerEmail,
-    );
-  }
-
-  // Batch payments (payments_100) — one card, one OTP ask and one paid note for
-  // a transfer that settles several invoices for the same payee.
-  if (kind === "payment_batch_card" || kind === "payment_batch_card_decided"
-      || kind === "payment_batch_otp_request" || kind === "payment_batch_paid_note") {
-    return await handleBatchOutbound(
-      svc, role, kind, body.batchId, body.deepLink ?? null, callerEmail,
     );
   }
 

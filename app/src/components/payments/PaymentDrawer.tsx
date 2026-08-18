@@ -27,7 +27,6 @@ import { Field, Input } from "../ui/Input";
 import { cn } from "../ui/cn";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 import { MarkPaidModal } from "./MarkPaidModal";
-import { CorrectPaidAccountModal } from "./CorrectPaidAccountModal";
 import { AdvanceNetSheet } from "./AdvanceNetSheet";
 import { fmtINR } from "../../lib/dashboard";
 import { useSync } from "../../lib/hooks/SyncContext";
@@ -99,7 +98,6 @@ export function PaymentDrawer({
   const [warn, setWarn] = useState<string | null>(null);
 
   const [showMarkPaid, setShowMarkPaid] = useState(false);
-  const [showCorrectAccount, setShowCorrectAccount] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [showCancel, setShowCancel] = useState(false);
@@ -359,15 +357,6 @@ export function PaymentDrawer({
                 </Button>
               </>
             ) : null}
-            {/* Paid is frozen for amount/payee/status, but the account it went
-                out of is a record, not the money — the owner can correct that
-                one field, and the bank-book row moves with it. A batched
-                invoice is corrected on its batch, which owns the ledger row. */}
-            {["paid", "posted"].includes(status) && isOwner && !detail.batchId ? (
-              <Button variant="secondary" disabled={busy} onClick={() => setShowCorrectAccount(true)}>
-                Correct paid-from account
-              </Button>
-            ) : null}
             {!detail.isAdvance && !["paid", "posted", "cancelled"].includes(status) && canMarkPaid ? (
               <Button variant="secondary" disabled={busy} onClick={() => void openNet()}>Net advances</Button>
             ) : null}
@@ -390,19 +379,6 @@ export function PaymentDrawer({
           onPaid={async () => { await load(); await onChanged(); }}
           onError={setErr}
           onWarn={setWarn}
-        />
-      ) : null}
-
-      {/* Correct the paid-from account (owner, paid only) */}
-      {showCorrectAccount && detail ? (
-        <CorrectPaidAccountModal
-          kind="payment"
-          id={detail.id}
-          currentAccountId={detail.paidViaBankAccountId}
-          bankAccounts={bankAccounts}
-          onClose={() => setShowCorrectAccount(false)}
-          onDone={async () => { await load(); await onChanged(); }}
-          onError={setErr}
         />
       ) : null}
 

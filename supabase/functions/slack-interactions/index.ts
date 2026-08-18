@@ -20,13 +20,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ephemeral, reply, slackApi, verifySlackSignature } from "../_shared/slack.ts";
 import { authorizePettyApprover, loadPettyExpense, pettyBlocks } from "../_shared/petty.ts";
-import {
-  batchBlocks,
-  loadBatchForSlack,
-  loadPaymentForSlack,
-  paymentBlocks,
-  PAYMENTS_BUILD,
-} from "../_shared/payments.ts";
+import { loadPaymentForSlack, paymentBlocks, PAYMENTS_BUILD } from "../_shared/payments.ts";
 
 // Logged on boot and per interaction so the dashboard logs say which build is
 // live. This function shares _shared/payments.ts with notify-slack, so the two
@@ -129,54 +123,6 @@ Deno.serve(async (req: Request) => {
       return reply();
     }
 
-    // ── Batch payment card (payments_100) — one decision, N invoices ──────
-    if (action.action_id === "payment_batch_approve" || action.action_id === "payment_batch_reject") {
-      const batchId = action.value as string;
-      const batch = await loadBatchForSlack(svc, batchId);
-      if (!batch) { await ephemeral(responseUrl, "That batch no longer exists."); return reply(); }
-      const channel = payload.container?.channel_id ?? batch.slack_channel;
-      const ts = payload.message?.ts ?? batch.slack_ts;
-
-      if (batch.status !== "awaiting_approval") {
-        await slackApi("chat.update", BOT_TOKEN, {
-          channel, ts, text: `Batch payment ${batch.status}`, blocks: batchBlocks(batch, true),
-        });
-        await ephemeral(responseUrl, `Already ${batch.status}.`);
-        return reply();
-      }
-
-      if (action.action_id === "payment_batch_approve") {
-        const { error } = await svc.rpc("fn_slack_payment_batch_decide", {
-          p_batch_id: batchId, p_slack_user_id: slackUserId, p_decision: "approve", p_reason: null,
-        });
-        if (error) { await ephemeral(responseUrl, paymentDecideError(error.message)); return reply(); }
-        const fresh = await loadBatchForSlack(svc, batchId);
-        await slackApi("chat.update", BOT_TOKEN, {
-          channel, ts, text: "Batch payment approved", blocks: batchBlocks(fresh, true),
-        });
-        return reply();
-      }
-
-      const res = await slackApi("views.open", BOT_TOKEN, {
-        trigger_id: payload.trigger_id,
-        view: {
-          type: "modal",
-          callback_id: "payment_batch_reject_modal",
-          private_metadata: JSON.stringify({ batchId, channel, ts }),
-          title: { type: "plain_text", text: "Reject batch" },
-          submit: { type: "plain_text", text: "Reject" },
-          close: { type: "plain_text", text: "Cancel" },
-          blocks: [{
-            type: "input", block_id: "reason_block",
-            label: { type: "plain_text", text: "Reason (sends every invoice back for revision)" },
-            element: { type: "plain_text_input", action_id: "reason", multiline: true },
-          }],
-        },
-      });
-      if (!res.ok) await ephemeral(responseUrl, `Couldn't open the reject dialog: ${res.error}`);
-      return reply();
-    }
-
     // ── Petty-expense card (existing) ─────────────────────────────────────
     const expenseId = action?.value as string | undefined;
     if (!expenseId) return reply();
@@ -260,31 +206,6 @@ Deno.serve(async (req: Request) => {
     const fresh = await loadPaymentForSlack(svc, meta.paymentId);
     await slackApi("chat.update", BOT_TOKEN, {
       channel: meta.channel, ts: meta.ts, text: "Payment rejected", blocks: paymentBlocks(fresh, true),
-    });
-    return reply({ response_action: "clear" });
-  }
-
-  // --------------------------------------------------------------------------
-  // 2a-ii) Batch reject-reason modal submitted.
-  // --------------------------------------------------------------------------
-  if (payload.type === "view_submission" && payload.view?.callback_id === "payment_batch_reject_modal") {
-    let meta: { batchId: string; channel: string; ts: string };
-    try { meta = JSON.parse(payload.view.private_metadata); }
-    catch { return reply({ response_action: "clear" }); }
-
-    const reason = payload.view.state?.values?.reason_block?.reason?.value?.trim() ?? "";
-    if (!reason) {
-      return reply({ response_action: "errors", errors: { reason_block: "Please give a reason." } });
-    }
-    const { error } = await svc.rpc("fn_slack_payment_batch_decide", {
-      p_batch_id: meta.batchId, p_slack_user_id: payload.user?.id, p_decision: "reject", p_reason: reason,
-    });
-    if (error) {
-      return reply({ response_action: "errors", errors: { reason_block: paymentDecideError(error.message) } });
-    }
-    const fresh = await loadBatchForSlack(svc, meta.batchId);
-    await slackApi("chat.update", BOT_TOKEN, {
-      channel: meta.channel, ts: meta.ts, text: "Batch payment rejected", blocks: batchBlocks(fresh, true),
     });
     return reply({ response_action: "clear" });
   }

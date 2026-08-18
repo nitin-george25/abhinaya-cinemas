@@ -38,14 +38,6 @@ interface Props {
    *  last-show). The Remove button is driven by `onRemove` alone — the caller
    *  decides whether a locked-meta show may be deleted. */
   metaLocked?: boolean;
-  /** Does the PROGRAMME say this show is 3D? Only meaningful under
-   *  `metaLocked`, where it decides whether the glasses field shows at all —
-   *  the snapshot on the show is not trusted for that, because it can drift
-   *  (copy-forward carrying is3d onto a day whose film later changed, a
-   *  backfill run with wide date bounds, rows stamped before the Schedule
-   *  started mirroring). The programme is the truth; a disagreeing snapshot is
-   *  reported by `staleGlasses` rather than silently rendered as a charge. */
-  is3d?: boolean;
   /** Auto-detected last show of the movie's day (latest scheduled showtime).
    *  Replaces the old manual "Last show of day" checkbox — drives the WhatsApp
    *  day-totals append. */
@@ -70,17 +62,9 @@ export function ShowCard({
   removeLabel = "Remove",
   onGenerateMessage,
   metaLocked = false,
-  is3d = false,
   isLast = false,
 }: Props) {
   const screen = screenById(state, entry.screenId);
-  // Schedule-backed shows take 3D from the programme. Unscheduled ones have no
-  // programme, so their own snapshot is the truth.
-  const showsGlasses = metaLocked ? is3d : show.glasses3d != null;
-  // Snapshot says 3D but the programme does not: the charge is live in the
-  // engine (which never reads schedules) while the field is hidden. Surface it
-  // rather than leaving money on a show that looks 2D.
-  const staleGlasses = metaLocked && !is3d && show.glasses3d != null;
   // Active classes + any historical-era class with tickets in this entry.
   const cls = entryClasses(state, screen, entry);
   const cards = screen?.priceCards ?? [];
@@ -161,7 +145,7 @@ export function ShowCard({
               (metaLocked): the Schedule page owns it and mirrors changes down
               here, so this is not a second place to set it. Pairs issued is
               entry data either way, and stays editable. */}
-          {!showsGlasses ? null : (
+          {metaLocked && !show.glasses3d ? null : (
           <div className="space-y-1 col-span-2 sm:col-auto">
             <span className="block text-[11px] uppercase tracking-wider text-ink-muted">
               3D glasses
@@ -208,13 +192,6 @@ export function ShowCard({
                   </Button>
                 )}
               </div>
-            ) : metaLocked ? (
-              // Programme says 3D but nothing is stamped yet — the charge
-              // lands when the show materializes. No add button here: the
-              // Schedule page owns whether a show is 3D.
-              <div className="h-11 sm:h-10 flex items-center text-[11px] text-ink-muted">
-                Charged on entry
-              </div>
             ) : (
               <Button
                 variant="secondary"
@@ -228,27 +205,6 @@ export function ShowCard({
           </div>
           )}
         </div>
-
-        {/* Snapshot disagrees with the programme. The engine reads the
-            snapshot, so this show is still being charged even though it reads
-            as 2D — offer the one-click repair. */}
-        {staleGlasses ? (
-          <div className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs flex flex-wrap items-center gap-2">
-            <span className="text-amber-900">
-              This show is marked 2D on the Schedule but still carries a 3D
-              glasses charge from an earlier edit, so it is still being billed.
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="ml-auto"
-              onClick={() => onChange({ glasses3d: undefined })}
-              title="Drop the stale glasses charge from this show"
-            >
-              Remove charge
-            </Button>
-          </div>
-        ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           {isLast ? (

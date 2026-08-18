@@ -586,7 +586,6 @@ function ScheduledShow({
       // card is done on the Schedule page, which mirrors the change onto this
       // show — no second editor here to disagree with the programme.
       metaLocked
-      is3d={sched.is3d === true}
       isLast={isLastScheduledShow(appState, sched)}
       onChange={onPatchShow}
       onChangeRow={onPatchRow}
