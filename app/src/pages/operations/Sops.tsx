@@ -24,8 +24,9 @@ import {
  * fourteen areas from the SOP Library Master Plan are the tab strip; each tab
  * lists its SOPs by code and renders the selected document inline.
  *
- * Available to everyone who runs a shift (the route gate is ENTRY_ROLES);
- * owners/managers can add and remove SOPs, which RLS enforces server-side.
+ * Readable by EVERY role, cashier included — the SOP is the standard the floor
+ * works to, so the route carries no role gate and neither does sops_read.
+ * Owners/managers can add and remove SOPs, which RLS enforces server-side.
  *
  * Area and SOP live in the URL so each has its own shareable link:
  *   /operations/sops/:areaId          → an area

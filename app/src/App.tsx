@@ -43,6 +43,7 @@ import CashLedgerPage from "./pages/cash/Ledger";
 import CashReportsPage from "./pages/cash/Reports";
 import PaymentsInboxPage from "./pages/payments/Inbox";
 import PaymentsCreatePage from "./pages/payments/Create";
+import PaymentsCreateBatchPage from "./pages/payments/CreateBatch";
 import PaymentsQuotationsPage from "./pages/payments/Quotations";
 import PaymentsAdvancesPage from "./pages/payments/Advances";
 import RenovationsPage from "./pages/projects/Renovations";
@@ -182,17 +183,30 @@ function AppGate() {
                   rights are gated inside the pages + by RLS. */}
               {canEnterBO ? (
                 <>
-                  <Route path="/operations" element={<Navigate to="/operations/rosters/daily-managers" replace />} />
                   <Route path="/operations/rosters" element={<Navigate to="/operations/rosters/daily-managers" replace />} />
                   <Route path="/operations/rosters/daily-managers" element={<DailyManagerRosterPage />} />
                   <Route path="/operations/checklist" element={<FBChecklistPage />} />
-                  {/* SOP library. Area and SOP are in the URL so each is
-                      shareable: /operations/sops/:areaId[/:sopId]. */}
-                  <Route path="/operations/sops" element={<SopsPage />} />
-                  <Route path="/operations/sops/:areaId" element={<SopsPage />} />
-                  <Route path="/operations/sops/:areaId/:sopId" element={<SopsPage />} />
                 </>
               ) : null}
+
+              {/* The SOP library is the written standard the floor works to, so
+                  it is open to EVERY role — the same reasoning as sops_read,
+                  which has no role gate. Adding and removing SOPs is still
+                  owner/manager, enforced inside the page and by RLS. Area and
+                  SOP are in the URL so each is shareable:
+                  /operations/sops/:areaId[/:sopId]. */}
+              <Route
+                path="/operations"
+                element={
+                  <Navigate
+                    to={canEnterBO ? "/operations/rosters/daily-managers" : "/operations/sops"}
+                    replace
+                  />
+                }
+              />
+              <Route path="/operations/sops" element={<SopsPage />} />
+              <Route path="/operations/sops/:areaId" element={<SopsPage />} />
+              <Route path="/operations/sops/:areaId/:sopId" element={<SopsPage />} />
 
               {/* Reports — owner, manager, accountant */}
               {canSeeReports ? (
@@ -277,6 +291,7 @@ function AppGate() {
                       (phase 1). */}
                   <Route path="/payments"         element={<PaymentsInboxPage />} />
                   <Route path="/payments/create"  element={<PaymentsCreatePage />} />
+                  <Route path="/payments/batch/new" element={<PaymentsCreateBatchPage />} />
                   <Route path="/payments/quotations" element={<PaymentsQuotationsPage />} />
                   <Route path="/payments/advances" element={<PaymentsAdvancesPage />} />
                   <Route path="/cash/payments"    element={<CashPaymentsPage />} />

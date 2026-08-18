@@ -1,6 +1,10 @@
 // ============================================================================
 // PaymentRow — one worklist row (desktop table). State-aware CTA hint; the
 // whole row opens the detail drawer. Petty/project rows read muted (read-only).
+//
+// Rows that could join a batch (payments_100) carry a checkbox: tick several
+// invoices for the SAME payee and the inbox offers to pay them together. The
+// checkbox swallows the click so ticking never opens the drawer.
 // ============================================================================
 
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
@@ -23,16 +27,37 @@ function ctaFor(row: PaymentInboxRow): string | null {
 export function PaymentRow({
   row,
   onOpen,
+  selectable = false,
+  selected = false,
+  selectDisabled = false,
+  selectHint,
+  onSelect,
 }: {
   row: PaymentInboxRow;
   onOpen: () => void;
+  selectable?: boolean;
+  selected?: boolean;
+  selectDisabled?: boolean;
+  selectHint?: string;
+  onSelect?: (checked: boolean) => void;
 }) {
   const cta = ctaFor(row);
   return (
     <tr
-      className={`cursor-pointer border-t border-line hover:bg-paper ${row.readonly ? "text-ink-muted" : ""}`}
+      className={`cursor-pointer border-t border-line hover:bg-paper ${row.readonly ? "text-ink-muted" : ""} ${selected ? "bg-amber-50/60" : ""}`}
       onClick={onOpen}
     >
+      <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+        {selectable ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={selectDisabled}
+            title={selectDisabled ? selectHint : "Pay together with others for this payee"}
+            onChange={(e) => onSelect?.(e.target.checked)}
+          />
+        ) : null}
+      </td>
       <td className="px-4 py-2">
         <div className="font-medium text-ink">{row.payee}</div>
         <div className="font-mono text-xs text-ink-muted">{row.id.slice(0, 8)}</div>

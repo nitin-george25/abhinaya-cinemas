@@ -459,8 +459,10 @@ function HistoryRow({
   onGlasses: (m: { id: UUID; name: string }) => void;
 }) {
   const { entry, computed } = row;
-  // Only 3D days get the CTA — a column would be empty on most rows.
-  const has3d = entryHasGlasses(entry);
+  // Only days that actually bill for glasses get the CTA — a column would be
+  // empty on most rows. Same predicate the report uses, so the pill can never
+  // promise a popup that turns out empty.
+  const has3d = entryHasGlasses(appState, entry);
 
   // Stop row-click bubbling from triggering View when the user actually
   // hits one of the per-row action buttons.
