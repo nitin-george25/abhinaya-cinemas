@@ -21,6 +21,7 @@ import { PaymentRow } from "../../components/payments/PaymentRow";
 import { PaymentStatusBadge } from "../../components/payments/PaymentStatusBadge";
 import { PaymentDrawer } from "../../components/payments/PaymentDrawer";
 import { BatchDrawer } from "../../components/payments/BatchDrawer";
+import { PayeeGroupList, groupByPayee } from "../../components/payments/PayeeGroupList";
 import { useSync } from "../../lib/hooks/SyncContext";
 import { useCashRefs } from "../../lib/hooks/useCashRefs";
 import { fmtINR } from "../../lib/dashboard";
@@ -55,6 +56,10 @@ export default function PaymentsInboxPage() {
   const [errored, setErrored] = useState<string | null>(null);
   const [lane, setLane] = useState<Lane>("all");
   const [query, setQuery] = useState("");
+  // "list" is chronological — what needs doing next. "payee" answers the other
+  // question the accountant has, which is who is owed and can they be paid in
+  // one go; that is the view batching actually lives in.
+  const [view, setView] = useState<"list" | "payee">("list");
   const [openRow, setOpenRow] = useState<PaymentInboxRow | null>(null);
   const [openBatchId, setOpenBatchId] = useState<string | null>(null);
 
@@ -137,9 +142,9 @@ export default function PaymentsInboxPage() {
    * by construction, and the accountant can still change the account at
    * mark-paid. Lands in the drawer so the next step is obvious.
    */
-  async function payTogether() {
-    const first = pickedRows[0];
-    if (!first || pickedRows.length < 2) return;
+  async function payTogether(rows: PaymentInboxRow[]) {
+    const first = rows[0];
+    if (!first || rows.length < 2) return;
     setBatching(true); setBatchErr(null);
     try {
       const unitId = first.operatingUnitId ?? refs.units[0]?.id ?? "";
@@ -147,15 +152,22 @@ export default function PaymentsInboxPage() {
       const batchId = await createBatch({
         operatingUnitId: unitId,
         payeeName: first.payee,
+        // The batch must identify its payee the SAME way its lines do. Sending
+        // only a name left the batch with a null party id while every line
+        // carried one, and fn_payment_batch_payee_matches then compared null
+        // against a real id and refused every invoice — "does not match" on a
+        // payee that plainly did.
+        payeePartyId: first.payeePartyId ?? null,
+        payeeDistributorId: first.payeeDistributorId ?? null,
         bankAccountId: unit?.defaultBankAccountId
           ?? refs.bankAccounts.find((b) => b.isPrimary)?.id
           ?? null,
         mode: unit?.defaultPaymentMode ?? "bank_transfer",
-        note: `${pickedRows.length} invoices`,
+        note: `${rows.length} invoices`,
       });
       // Sequential on purpose: fn_payment_batch_add validates each invoice
       // against the batch, and a mid-way refusal should stop rather than race.
-      for (const r of pickedRows) await addToBatch(batchId, r.id);
+      for (const r of rows) await addToBatch(batchId, r.id);
       setPicked([]);
       await reload();
       setOpenBatchId(batchId);
@@ -194,7 +206,23 @@ export default function PaymentsInboxPage() {
         <Kpi label="Drafts" value={String(kpis.draftCount)} hint="not submitted" />
       </div>
 
-      <LaneTabs value={lane} onChange={setLane} counts={counts} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <LaneTabs value={lane} onChange={setLane} counts={counts} />
+        <div className="flex items-center gap-1 rounded-lg border border-line bg-paper p-0.5 text-sm">
+          {(["list", "payee"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              className={`rounded-md px-3 py-1 ${
+                view === v ? "bg-paper-card font-medium text-ink shadow-sm" : "text-ink-muted hover:text-ink"
+              }`}
+              onClick={() => { setView(v); setPicked([]); setBatchErr(null); }}
+            >
+              {v === "list" ? "By date" : "By payee"}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Selection bar — appears as soon as anything is ticked. */}
       {picked.length > 0 ? (
@@ -214,7 +242,7 @@ export default function PaymentsInboxPage() {
             <Button variant="ghost" disabled={batching} onClick={() => { setPicked([]); setBatchErr(null); }}>
               Clear
             </Button>
-            <Button disabled={batching || picked.length < 2} onClick={() => void payTogether()}>
+            <Button disabled={batching || picked.length < 2} onClick={() => void payTogether(pickedRows)}>
               {batching ? "Building batch…" : "Pay together"}
             </Button>
           </div>
@@ -244,6 +272,13 @@ export default function PaymentsInboxPage() {
             {rows.length === 0 ? "No payments yet. Raise one with “Make a Payment”." : "Nothing in this lane."}
           </CardBody>
         </Card>
+      ) : view === "payee" ? (
+        <PayeeGroupList
+          groups={groupByPayee(filtered, canBatch)}
+          busy={batching}
+          onOpen={(r) => (r.kind === "batch" ? setOpenBatchId(r.id) : setOpenRow(r))}
+          onPayTogether={(rows) => void payTogether(rows)}
+        />
       ) : (
         <Card>
           <CardBody className="p-0">
