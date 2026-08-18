@@ -29,6 +29,7 @@ import {
   listInbox,
   createBatch,
   addToBatch,
+  submitBatch,
   type PaymentInboxRow,
 } from "../../lib/payments";
 
@@ -168,6 +169,23 @@ export default function PaymentsInboxPage() {
       // Sequential on purpose: fn_payment_batch_add validates each invoice
       // against the batch, and a mid-way refusal should stop rather than race.
       for (const r of rows) await addToBatch(batchId, r.id);
+
+      // Every invoice already carries the owner's approval, so there is nothing
+      // for anyone to approve and batching them is a pure disbursement step.
+      // Submit it here rather than parking the batch in 'draft' behind a
+      // "Submit for approval" button that only exists to answer itself with
+      // "these were already approved" — the accountant's next real move is the
+      // OTP, so land them on it.
+      if (rows.every((r) => r.status === "approved")) {
+        try {
+          await submitBatch(batchId);
+        } catch (e) {
+          // Keep the batch — it is valid, it just didn't skip ahead. The drawer
+          // still opens and Submit is there to retry.
+          setBatchErr(`Batch created, but couldn't skip approval: ${(e as Error).message}`);
+        }
+      }
+
       setPicked([]);
       await reload();
       setOpenBatchId(batchId);
