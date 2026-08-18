@@ -55,10 +55,14 @@ create table if not exists public.payment_batches (
   id                       uuid primary key default gen_random_uuid(),
   operating_unit_id        uuid not null references public.operating_units(id) on delete restrict,
 
-  -- Payee (one per batch — that is the whole point).
+  -- Payee (one per batch — that is the whole point). The id columns mirror
+  -- payment_requests EXACTLY, FK included: parties.id is uuid but
+  -- distributors.id is TEXT, and a batch whose payee id can't be compared with
+  -- its lines' is useless. Declaring the reference is what makes the mismatch
+  -- impossible to reintroduce — the create fails rather than the comparison.
   payee_name               text not null,
-  payee_party_id           uuid,
-  payee_distributor_id     uuid,
+  payee_party_id           uuid references public.parties(id)       on delete set null,
+  payee_distributor_id     text references public.distributors(id)  on delete set null,
   payee_account_last4      text,
   payee_ifsc               text,
 
@@ -102,6 +106,30 @@ create table if not exists public.payment_batches (
   created_at               timestamptz not null default now(),
   updated_at               timestamptz not null default now()
 );
+
+-- Repair path. The first cut of this migration declared payee_distributor_id as
+-- uuid, which fails at fn_payment_batch_payee_matches with "operator does not
+-- exist: uuid = text" because distributors.id is text. The failing statement
+-- rolls the whole migration back, so normally the table above is created
+-- correctly on the retry — but `create table if not exists` would keep a wrong
+-- column on any database where the table did survive. Correct it in place; a
+-- no-op on a fresh create.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public'
+       and table_name   = 'payment_batches'
+       and column_name  = 'payee_distributor_id'
+       and data_type    = 'uuid'
+  ) then
+    alter table public.payment_batches
+      alter column payee_distributor_id type text using payee_distributor_id::text;
+    alter table public.payment_batches
+      add constraint payment_batches_payee_distributor_id_fkey
+      foreign key (payee_distributor_id) references public.distributors(id) on delete set null;
+  end if;
+end $$;
 
 create index if not exists payment_batches_unit_status_idx
   on public.payment_batches (operating_unit_id, status, created_at desc);
@@ -362,11 +390,18 @@ $$;
 -- 7) Build the batch.
 -- ----------------------------------------------------------------------------
 
+-- The distributor id is TEXT (distributors.id is text, unlike parties.id). The
+-- first cut had it as uuid, so drop that signature explicitly — `create or
+-- replace` differing only in an argument type leaves the old overload callable
+-- and PostgREST would have to guess between them.
+drop function if exists public.fn_payment_batch_create(
+  uuid, text, uuid, uuid, text, text, uuid, text, text, date);
+
 create or replace function public.fn_payment_batch_create(
   p_operating_unit_id    uuid,
   p_payee_name           text,
   p_payee_party_id       uuid    default null,
-  p_payee_distributor_id uuid    default null,
+  p_payee_distributor_id text    default null,
   p_payee_account_last4  text    default null,
   p_payee_ifsc           text    default null,
   p_bank_account_id      uuid    default null,
