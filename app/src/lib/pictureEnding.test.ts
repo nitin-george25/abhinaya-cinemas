@@ -285,7 +285,7 @@ function fixture(entries: Entry[]): AppState {
 }
 
 describe("summarizeWeeks", () => {
-  // Week 1: 27,28,29 Mar (3 days). Week 2: 3,4 Apr (2 days).
+  // 27,28,29 Mar + 3,4 Apr — five collecting days, all on the movie's 60%.
   const state = fixture([
     entry("2025-03-27", [100, 100, 100]),
     entry("2025-03-28", [80, 70, 60]),
@@ -295,19 +295,13 @@ describe("summarizeWeeks", () => {
   ]);
   const weeks = summarizeWeeks(state, "mov", "scr");
 
-  it("groups collecting days into release-anchored 7-day weeks", () => {
-    expect(weeks.map((w) => w.week)).toEqual([1, 2]);
-    expect(weeks[0]!.days).toBe(3); // actual collecting days, not window length
-    expect(weeks[1]!.days).toBe(2);
-    // Window edges = release + 7(n-1) .. release + 7n - 1, NOT first/last show.
-    expect(weeks[0]!.from).toBe("2025-03-27");          // release
-    expect(weeks[0]!.to).toBe("2025-04-02");            // release + 6
-    expect(weeks[1]!.from).toBe("2025-04-03");          // release + 7
-    expect(weeks[1]!.to).toBe("2025-04-04");            // clamped to last play
-  });
-  it("carries the flat 60% share rate through unchanged", () => {
+  it("clubs a flat-rate run into a single period", () => {
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0]!.week).toBe(1);      // the run week the period opens in
+    expect(weeks[0]!.days).toBe(5);      // actual collecting days, not span
+    expect(weeks[0]!.from).toBe("2025-03-27");  // first collecting day
+    expect(weeks[0]!.to).toBe("2025-04-04");    // last collecting day
     expect(weeks[0]!.sharePct).toBe(60);
-    expect(weeks[1]!.sharePct).toBe(60);
   });
   it("keeps net positive and share = 60% of net", () => {
     for (const w of weeks) {
@@ -341,7 +335,7 @@ describe("summarizeWeeks — stepped weekly rates", () => {
   });
 });
 
-describe("summarizeWeeks — a week billed at two rates", () => {
+describe("summarizeWeeks — rate changes redraw the period", () => {
   /** share=null → the movie's per-week rate applies; a number overrides the day. */
   function day(date: string, tickets: number[], share: number | null = null): Entry {
     return {
@@ -398,15 +392,61 @@ describe("summarizeWeeks — a week billed at two rates", () => {
     expect(w[2]!.from).toBe("2025-04-04");
   });
 
-  it("never merges two consecutive weeks billed at one flat rate", () => {
+  // The mirror direction: the week-2 rate (55%) agreed to start a day EARLY,
+  // on the last day of week 1's window — that day is pinned at 55 by hand.
+  it("starts the next period on a last-day rate change instead of leaving a stub", () => {
+    const s4 = fixture([]);
+    s4.movies[0]!.weekShares = { 1: 60, 2: 55 };
+    s4.entries = [
+      day("2025-03-27", [100, 90, 80]),
+      day("2025-03-28", [90, 80, 70]),
+      day("2025-03-29", [80, 70, 60]),
+      day("2025-03-30", [80, 70, 60]),
+      day("2025-03-31", [70, 60, 50]),
+      day("2025-04-01", [70, 60, 50]),
+      day("2025-04-02", [60, 50, 40], 55), // manual: week 2's rate, a day early
+      day("2025-04-03", [50, 40, 30]),
+      day("2025-04-04", [40, 30, 20]),
+    ];
+    const w = summarizeWeeks(s4, "mov", "scr");
+    expect(w).toHaveLength(2);
+    expect(w[0]!.from).toBe("2025-03-27");
+    expect(w[0]!.to).toBe("2025-04-01");   // week 1 now ends where 60% ended
+    expect(w[0]!.days).toBe(6);
+    expect(w[0]!.sharePct).toBe(60);
+    expect(w[1]!.from).toBe("2025-04-02"); // week 2 absorbs the changed day
+    expect(w[1]!.to).toBe("2025-04-04");   // clamped to last play
+    expect(w[1]!.days).toBe(3);
+    expect(w[1]!.sharePct).toBe(55);       // one true rate — never an average
+    for (const x of w) expect(x.share).toBeCloseTo((x.net * x.sharePct) / 100, 1);
+  });
+
+  it("keeps the stub when the next week opens at a different rate", () => {
+    const s5 = fixture([]);
+    s5.movies[0]!.weekShares = { 1: 60, 2: 55 };
+    s5.entries = [
+      day("2025-03-27", [100, 90, 80]),
+      day("2025-04-02", [60, 50, 40], 45), // one-off day deal, matches nothing
+      day("2025-04-03", [50, 40, 30]),
+    ];
+    const w = summarizeWeeks(s5, "mov", "scr");
+    expect(w.map((x) => x.sharePct)).toEqual([60, 45, 55]);
+    expect(w[1]!.from).toBe("2025-04-02");
+    expect(w[1]!.to).toBe("2025-04-02");
+  });
+
+  it("clubs consecutive weeks billed at one flat rate into a single period", () => {
     const s3 = fixture([]);
     s3.entries = [
       day("2025-03-27", [100, 90, 80]),
       day("2025-04-03", [60, 50, 40]),
     ];
     const w = summarizeWeeks(s3, "mov", "scr"); // both weeks on the movie's 60%
-    expect(w.map((x) => x.week)).toEqual([1, 2]);
-    expect(w.map((x) => x.sharePct)).toEqual([60, 60]);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.week).toBe(1);
+    expect(w[0]!.from).toBe("2025-03-27");
+    expect(w[0]!.to).toBe("2025-04-03");
+    expect(w[0]!.sharePct).toBe(60);
   });
 });
 

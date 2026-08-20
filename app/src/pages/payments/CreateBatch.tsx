@@ -18,7 +18,7 @@
 // same rule the single-payment form follows.
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Card, CardBody, CardHeader, CardTitle } from "../../components/ui/Card";
@@ -57,6 +57,25 @@ function blankLine(typeId = ""): LineDraft {
   return { key: nextKey++, typeId, amount: "", note: "", file: null, reading: false, autofilled: false };
 }
 
+/**
+ * Run `fn` over `items` with at most `limit` in flight.
+ *
+ * Dropping a month of reimbursement bills means a dozen or more extractions,
+ * and firing them all at once is how you collect a dozen rate-limit failures
+ * instead of a dozen filled-in amounts. Four at a time keeps a big drop fast
+ * without stampeding the Edge Function.
+ */
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+}
+
 export default function PaymentsCreateBatchPage() {
   const { state } = useSync();
   const refs = useCashRefs();
@@ -80,8 +99,11 @@ export default function PaymentsCreateBatchPage() {
   const [neededBy, setNeededBy] = useState("");
   const [note, setNote] = useState("");
 
-  // Lines — two to start, because one invoice is not a batch.
-  const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
+  // Lines start EMPTY: the invoices themselves are the input. Dropping the pile
+  // of bills builds the lines, so the form opens on a drop zone rather than on
+  // blank fields waiting to be transcribed into.
+  const [lines, setLines] = useState<LineDraft[]>([]);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     if (!refs.cinemaId) return;
@@ -145,11 +167,9 @@ export default function PaymentsCreateBatchPage() {
     setLines((cur) => cur.map((l) => (l.key === key ? { ...l, ...p } : l)));
   }
 
-  /** Read the invoice and pre-fill this line's amount/note. Best-effort. */
-  async function onLineFile(key: number, file: File | null) {
-    patchLine(key, { file, autofilled: false });
-    if (!file) return;
-    patchLine(key, { reading: true });
+  /** Fill one line from its own attached invoice. Best-effort, never throws. */
+  async function readInto(key: number, file: File) {
+    patchLine(key, { reading: true, autofilled: false });
     try {
       const ex = await extractInvoice(file);
       if (ex) {
@@ -167,13 +187,47 @@ export default function PaymentsCreateBatchPage() {
     } finally { patchLine(key, { reading: false }); }
   }
 
+  /** Replacing the file on an existing line re-reads it. */
+  async function onLineFile(key: number, file: File | null) {
+    patchLine(key, { file, autofilled: false });
+    if (file) await readInto(key, file);
+  }
+
+  /**
+   * The main way in: drop (or choose) the whole pile of invoices at once. Each
+   * file becomes a line immediately so the list is visible while the amounts are
+   * still being read, then the extractions fill them in as they land. New lines
+   * inherit the type of the last one, so a batch that is all one kind of expense
+   * only needs the type chosen once.
+   */
+  async function addFiles(files: File[]) {
+    if (files.length === 0) return;
+    const inheritType = lines[lines.length - 1]?.typeId ?? "";
+    const fresh = files.map((f) => ({
+      ...blankLine(inheritType), file: f, reading: true,
+    }));
+    setLines((cur) => [...cur, ...fresh]);
+    setErr(null);
+    await mapLimit(fresh, 4, (l) => readInto(l.key, l.file!));
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    void addFiles(Array.from(e.dataTransfer.files ?? []));
+  }
+
   const selectedParty = parties.find((p) => p.id === partyId) ?? null;
   const total = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+
+  const reading = lines.some((l) => l.reading);
 
   function problem(): string | null {
     if (!unitId) return "Pick an operating unit.";
     if (!selectedParty) return "Pick or add the payee.";
-    if (lines.length < 2) return "A batch needs at least two invoices.";
+    if (lines.length === 0) return "Add the invoices — drop them in, or choose the files.";
+    if (lines.length < 2) return "A batch needs at least two invoices — add one more.";
+    if (reading) return "Still reading the invoices — give it a moment.";
     for (const [i, l] of lines.entries()) {
       const t = types.find((x) => x.id === l.typeId);
       if (!t) return `Line ${i + 1}: pick a payment type.`;
@@ -379,6 +433,56 @@ export default function PaymentsCreateBatchPage() {
             </div>
           ) : null}
 
+          {/* The way in. Drop the whole pile; each file becomes a line and the
+              amounts fill themselves in as the invoices are read. */}
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 text-center transition-colors ${
+              dragging ? "border-amber-400 bg-amber-50" : "border-line bg-paper hover:border-amber-300"
+            } ${lines.length === 0 ? "py-10" : "py-5"}`}
+          >
+            <input
+              type="file"
+              multiple
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={(e) => {
+                void addFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";      // let the same file be re-picked
+              }}
+            />
+            <div className="text-sm font-medium text-ink">
+              {lines.length === 0
+                ? "Drop the invoices here"
+                : "Drop more invoices here"}
+            </div>
+            <div className="text-xs text-ink-muted">
+              or click to choose files — pick them all at once. We read each one and
+              fill in the amount for you.
+            </div>
+          </label>
+
+          {lines.length === 0 ? (
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-xs font-medium text-amber-700 hover:underline"
+                onClick={() => setLines([blankLine(), blankLine()])}
+              >
+                No files to hand? Enter the invoices manually
+              </button>
+            </div>
+          ) : null}
+
+          {reading ? (
+            <div className="text-xs text-ink-muted">
+              Reading {lines.filter((l) => l.reading).length} of {lines.length} invoices…
+              you can start editing the ones that are done.
+            </div>
+          ) : null}
+
           {lines.map((l, i) => {
             const type = types.find((t) => t.id === l.typeId) ?? null;
             return (
@@ -387,15 +491,16 @@ export default function PaymentsCreateBatchPage() {
                   <div className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                     Invoice {i + 1}
                   </div>
-                  {lines.length > 2 ? (
-                    <button
-                      type="button"
-                      className="text-xs text-ink-muted hover:text-red-600"
-                      onClick={() => setLines((cur) => cur.filter((x) => x.key !== l.key))}
-                    >
-                      Remove
-                    </button>
-                  ) : null}
+                  {/* Always removable — dropping the wrong file should be one
+                      click to undo. Submitting with fewer than two is what the
+                      validation is for. */}
+                  <button
+                    type="button"
+                    className="text-xs text-ink-muted hover:text-red-600"
+                    onClick={() => setLines((cur) => cur.filter((x) => x.key !== l.key))}
+                  >
+                    Remove
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -446,14 +551,16 @@ export default function PaymentsCreateBatchPage() {
             );
           })}
 
-          <div>
-            <Button
-              variant="secondary"
-              onClick={() => setLines((cur) => [...cur, blankLine(cur[cur.length - 1]?.typeId ?? "")])}
-            >
-              + Add another invoice
-            </Button>
-          </div>
+          {lines.length > 0 ? (
+            <div>
+              <Button
+                variant="secondary"
+                onClick={() => setLines((cur) => [...cur, blankLine(cur[cur.length - 1]?.typeId ?? "")])}
+              >
+                + Add one without a file
+              </Button>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 
@@ -465,11 +572,11 @@ export default function PaymentsCreateBatchPage() {
             <span className="font-mono tabular-nums text-ink">{fmtINR(total, 2)}</span> in one transfer
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" disabled={busy} onClick={() => void save(false)}>
+            <Button variant="secondary" disabled={busy || reading} onClick={() => void save(false)}>
               {busy ? "Saving…" : "Save as draft"}
             </Button>
-            <Button disabled={busy} onClick={() => void save(true)}>
-              {busy ? "Submitting…" : "Submit for approval"}
+            <Button disabled={busy || reading} onClick={() => void save(true)}>
+              {busy ? "Submitting…" : reading ? "Reading invoices…" : "Submit for approval"}
             </Button>
           </div>
         </CardBody>

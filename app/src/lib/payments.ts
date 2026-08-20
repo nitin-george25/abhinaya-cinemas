@@ -408,12 +408,16 @@ export interface PaymentInboxRow {
   lineCount?:     number;
   /** Present on general payments and batches; a batch inherits its lines' unit. */
   operatingUnitId?: string | null;
+  /** How the payee is identified — carried into a batch built from these rows. */
+  payeePartyId?:       string | null;
+  payeeDistributorId?: string | null;
 }
 
 interface InboxPaymentRow {
   id: string; payee_name: string; amount: number | string; status: string;
   is_advance: boolean; needed_by: string | null; created_at: string | null;
   batch_id?: string | null; operating_unit_id?: string | null;
+  payee_party_id?: string | null; payee_distributor_id?: string | null;
   payment_types: { name: string | null; accounting_head: string | null } | null;
 }
 
@@ -439,10 +443,13 @@ function isMissingTable(err: { code?: string; message?: string } | null): boolea
 // migrations and the built frontend ship separately in this project, and a
 // payments inbox that shows NOTHING because of one missing column is far worse
 // than one that shows every payment but no batches.
+// payee_party_id / payee_distributor_id are in BOTH lists: they predate the
+// batch feature (payments_03) and the inbox needs them to build a batch that
+// identifies its payee the same way its lines do.
 const INBOX_BASE_COLS =
-  "id, payee_name, amount, status, is_advance, needed_by, created_at, payment_types(name, accounting_head)";
+  "id, payee_name, payee_party_id, payee_distributor_id, amount, status, is_advance, needed_by, created_at, payment_types(name, accounting_head)";
 const INBOX_BATCH_COLS =
-  "id, payee_name, amount, status, is_advance, needed_by, created_at, batch_id, operating_unit_id, payment_types(name, accounting_head)";
+  "id, payee_name, payee_party_id, payee_distributor_id, amount, status, is_advance, needed_by, created_at, batch_id, operating_unit_id, payment_types(name, accounting_head)";
 
 /**
  * The unified worklist — general payments (the money-out engine) plus the
@@ -514,6 +521,8 @@ export async function listInbox(
         status: r.status, lane: laneOf(r.status, "payment"),
         isAdvance: !!r.is_advance, neededBy: r.needed_by, createdAt: r.created_at,
         readonly: false, batchId: null, operatingUnitId: r.operating_unit_id ?? null,
+        payeePartyId: r.payee_party_id ?? null,
+        payeeDistributorId: r.payee_distributor_id ?? null,
       });
     }
 

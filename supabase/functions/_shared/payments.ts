@@ -21,7 +21,7 @@ import { inr, json, slackApi } from "./slack.ts";
  * the answer is one line in the dashboard logs. Living in _shared means it also
  * proves the SHARED file was bundled — the piece a partial redeploy misses.
  */
-export const PAYMENTS_BUILD = "2026-08-13 · batches (payments_100)";
+export const PAYMENTS_BUILD = "2026-08-18 · one-line OTP ask";
 
 // Who may trigger a payment Slack post (the raisers).
 export const PAYMENT_POST_ROLES = new Set(["owner", "manager", "accountant"]);
@@ -148,55 +148,23 @@ export function paymentBlocks(p: any, decided: boolean, deepLink?: string | null
  * approval card so the approval and the OTP live in one thread. The owner
  * answers with the bank's code as a normal thread message; nothing reads or
  * stores that reply (§ payments_70), it is a handshake between two people.
+ *
+ * Deliberately ONE line. This used to restate the type, mode, paying-from
+ * account, payee A/c, unit, approver, purpose and invoice link — every one of
+ * which is already on the approval card directly above it in the same thread.
+ * The owner is being asked for a code, not re-briefed on the payment. The line
+ * keeps the amount and payee so the push notification still says which payment
+ * it is; the thread carries everything else.
  */
 // deno-lint-ignore no-explicit-any
-export function otpRequestBlocks(p: any, requestedBy: string, deepLink?: string | null): any[] {
-  // Slack renders a `fields` block two-up and caps it at 10, so this is the
-  // whole payment at a glance without a scroll.
-  const fields = [
-    `*Type:* ${p.type_name ?? "Payment"}`,
-    `*Payee:* ${p.payee_name ?? "—"}`,
-    `*Amount:* ${inr(Number(p.amount) || 0)}`,
-    `*Mode:* ${String(p.mode ?? "bank_transfer").replace(/_/g, " ")}`,
-    `*Paying from:* ${p.bank_label ?? "—"}`,
-    p.payee_account_last4 ? `*To A/c:* ••••${p.payee_account_last4}` : null,
-    p.is_advance ? `*Advance:* yes` : null,
-    `*Unit:* ${p.unit_name ?? "—"}`,
-    `*Approved by:* ${p.approved_by_email ?? "—"}`,
-  ].filter(Boolean).slice(0, 10);
-
-  // deno-lint-ignore no-explicit-any
-  const blocks: any[] = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(p.amount) || 0)} to *${p.payee_name ?? "—"}*`,
-      },
-    },
-    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t as string })) },
-  ];
-  if (p.purpose) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*For:* ${p.purpose}` } });
-  }
-  if (p.invoice_url) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Invoice:* <${p.invoice_url}|view>` } });
-  }
-  blocks.push({
-    type: "context",
-    elements: [{
+export function otpRequestBlocks(p: any): any[] {
+  return [{
+    type: "section",
+    text: {
       type: "mrkdwn",
-      text: `${requestedBy || "The accountant"} is ready to pay — *reply in this thread with the OTP*.`,
-    }],
-  });
-  if (deepLink) {
-    blocks.push({
-      type: "actions",
-      block_id: `payment_otp:${p.id}`,
-      elements: [{ type: "button", text: { type: "plain_text", text: "Open in console" }, url: deepLink }],
-    });
-  }
-  return blocks;
+      text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(p.amount) || 0)} to *${p.payee_name ?? "—"}*`,
+    },
+  }];
 }
 
 /**
@@ -261,7 +229,7 @@ export async function handlePaymentOutbound(
     const payload: any = {
       channel: p.slack_channel ?? CHAN,
       text,
-      blocks: otpRequestBlocks(p, callerEmail ?? "", deepLink),
+      blocks: otpRequestBlocks(p),
     };
     if (p.slack_ts) { payload.thread_ts = p.slack_ts; payload.reply_broadcast = true; }
 
@@ -468,48 +436,16 @@ export function batchBlocks(b: any, decided: boolean, deepLink?: string | null):
   return blocks;
 }
 
+/** One line, for the same reason as otpRequestBlocks — see the note there. */
 // deno-lint-ignore no-explicit-any
-function batchOtpBlocks(b: any, requestedBy: string, deepLink?: string | null): any[] {
-  const fields = [
-    `*Payee:* ${b.payee_name ?? "—"}`,
-    `*Invoices:* ${b.lines?.length ?? 0}`,
-    `*Total:* ${inr(Number(b.gross) || 0)}`,
-    `*Mode:* ${String(b.mode ?? "bank_transfer").replace(/_/g, " ")}`,
-    `*Paying from:* ${b.bank_label ?? "—"}`,
-    b.payee_account_last4 ? `*To A/c:* ••••${b.payee_account_last4}` : null,
-    `*Unit:* ${b.unit_name ?? "—"}`,
-    `*Approved by:* ${b.approved_by_email ?? "—"}`,
-  ].filter(Boolean).slice(0, 10);
-
-  // deno-lint-ignore no-explicit-any
-  const blocks: any[] = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(b.gross) || 0)} to *${b.payee_name ?? "—"}* (${b.lines?.length ?? 0} invoices)`,
-      },
-    },
-    { type: "section", fields: fields.map((t) => ({ type: "mrkdwn", text: t as string })) },
-  ];
-  if (b.lines?.length) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: lineListText(b) } });
-  }
-  blocks.push({
-    type: "context",
-    elements: [{
+function batchOtpBlocks(b: any): any[] {
+  return [{
+    type: "section",
+    text: {
       type: "mrkdwn",
-      text: `${requestedBy || "The accountant"} is ready to pay all of these in one transfer — *reply in this thread with the OTP*.`,
-    }],
-  });
-  if (deepLink) {
-    blocks.push({
-      type: "actions",
-      block_id: `payment_batch_otp:${b.id}`,
-      elements: [{ type: "button", text: { type: "plain_text", text: "Open in console" }, url: deepLink }],
-    });
-  }
-  return blocks;
+      text: `:closed_lock_with_key: *OTP requested* — ${inr(Number(b.gross) || 0)} to *${b.payee_name ?? "—"}* (${b.lines?.length ?? 0} invoices)`,
+    },
+  }];
 }
 
 /**
@@ -569,7 +505,7 @@ export async function handleBatchOutbound(
     const payload: any = {
       channel: b.slack_channel ?? CHAN,
       text,
-      blocks: batchOtpBlocks(b, callerEmail ?? "", deepLink),
+      blocks: batchOtpBlocks(b),
     };
     // A batch of already-approved lines has no card of its own to thread under
     // (it never asked for approval) — then this posts standalone, as intended.

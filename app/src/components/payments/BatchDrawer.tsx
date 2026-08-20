@@ -123,6 +123,10 @@ export function BatchDrawer({
   const status = batch?.status ?? "draft";
   const idx = stepIndex(status);
   const frozen = status === "paid" || status === "cancelled";
+  // A batch whose invoices the owner already approved one by one has nothing
+  // left to approve, so don't offer to "submit it for approval" — the button is
+  // just a confirmation on the way to the OTP.
+  const nothingToApprove = lines.length > 0 && lines.every((l) => l.status === "approved");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -291,7 +295,7 @@ export function BatchDrawer({
                   }
                 })}
               >
-                Submit for approval
+                {nothingToApprove ? "Confirm — ready to pay" : "Submit for approval"}
               </Button>
             ) : null}
 
